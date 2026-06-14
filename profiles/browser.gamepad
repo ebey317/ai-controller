@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE antimicrox-profile>
+<!--
+  BROWSER PROFILE — Chrome / Firefox / Edge / Any Chromium-Based Browser
+  Auto-activates when: google-chrome / firefox / microsoft-edge / brave is focused
+  Based on: Xbox Dashboard web navigation layout
+
+  LEFT STICK  = mouse cursor (fine control for clicking links)
+  RIGHT STICK = page scroll
+  D-UP/DOWN   = Tab forward/backward (move between links/forms)
+  D-LEFT      = Page back (Alt+Left)
+  D-RIGHT     = Page forward (Alt+Right)
+  A           = Click (left mouse)
+  B           = Back (Alt+Left)
+  X           = Reload (F5)
+  Y           = New tab (Ctrl+T)
+  LB          = Previous tab (Ctrl+Shift+Tab)
+  RB          = Next tab (Ctrl+Tab)
+  LT          = Right click (context menu)
+  RT          = PUSH-TO-TALK (F13 — same as desktop)
+  START       = Address bar focus (Ctrl+L) — type URL via voice
+  BACK/SELECT = Bookmark (Ctrl+D)
+  L3          = Middle click (open link in new tab)
+  R3          = Close current tab (Ctrl+W)
+-->
+<antimicrox-profile version="2">
+    <controller type="Xbox360" stick_axes="6" num_buttons="17" deviceID="*">
+        <!-- LEFT STICK: Fine mouse movement for clicking links -->
+        <stick index="1">
+            <xaxis>
+                <throttle>normal</throttle>
+                <deadZone>6500</deadZone>
+                <maxZone>32000</maxZone>
+                <button index="1">
+                    <slots><slot index="1"><code>mouse_right</code><mode>cursor</mode></slot></slots>
+                </button>
+                <button index="2">
+                    <slots><slot index="1"><code>mouse_left</code><mode>cursor</mode></slot></slots>
+                </button>
+            </xaxis>
+            <yaxis>
+                <throttle>normal</throttle>
+                <deadZone>6500</deadZone>
+                <maxZone>32000</maxZone>
+                <button index="1">
+                    <slots><slot index="1"><code>mouse_up</code><mode>cursor</mode></slot></slots>
+                </button>
+                <button index="2">
+                    <slots><slot index="1"><code>mouse_down</code><mode>cursor</mode></slot></slots>
+                </button>
+            </yaxis>
+        </stick>
+        <!-- RIGHT STICK: Page scroll -->
+        <stick index="2">
+            <yaxis>
+                <throttle>normal</throttle>
+                <deadZone>6500</deadZone>
+                <button index="1">
+                    <slots><slot index="1"><code>wheel_up</code><mode>mouse</mode></slot></slots>
+                </button>
+                <button index="2">
+                    <slots><slot index="1"><code>wheel_down</code><mode>mouse</mode></slot></slots>
+                </button>
+            </yaxis>
+            <xaxis>
+                <throttle>normal</throttle>
+                <deadZone>6500</deadZone>
+                <button index="1">
+                    <slots><slot index="1"><code>wheel_left</code><mode>mouse</mode></slot></slots>
+                </button>
+                <button index="2">
+                    <slots><slot index="1"><code>wheel_right</code><mode>mouse</mode></slot></slots>
+                </button>
+            </xaxis>
+        </stick>
+        <!-- D-PAD -->
+        <button index="1"><!-- D-UP = Tab forward (next link/form) -->
+            <slots><slot index="1"><code>Tab</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="2"><!-- D-DOWN = Tab backward -->
+            <slots>
+                <slot index="1"><code>shift</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>Tab</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <button index="3"><!-- D-LEFT = Page back -->
+            <slots>
+                <slot index="1"><code>alt</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>Left</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <button index="4"><!-- D-RIGHT = Page forward -->
+            <slots>
+                <slot index="1"><code>alt</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>Right</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <!-- FACE BUTTONS -->
+        <button index="5"><!-- A = Click -->
+            <slots><slot index="1"><code>button_left</code><mode>mouse</mode></slot></slots>
+        </button>
+        <button index="6"><!-- B = Back -->
+            <slots>
+                <slot index="1"><code>alt</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>Left</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <button index="7"><!-- X = Reload -->
+            <slots><slot index="1"><code>F5</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="8"><!-- Y = New tab -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>t</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <!-- BUMPERS: Tab switching -->
+        <button index="9"><!-- LB = Previous tab -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>shift</code><mode>keyboard</mode></slot>
+                <slot index="3"><code>Tab</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <button index="10"><!-- RB = Next tab -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>Tab</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <!-- TRIGGERS -->
+        <button index="11"><!-- LT = Right click / context menu -->
+            <slots><slot index="1"><code>button_right</code><mode>mouse</mode></slot></slots>
+        </button>
+        <button index="12"><!-- RT = Push to talk (F13) -->
+            <slots><slot index="1"><code>F13</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <!-- START/BACK -->
+        <button index="13"><!-- START = Address bar (speak URL via voice) -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>l</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <button index="14"><!-- BACK = Bookmark this page -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>d</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <!-- STICK CLICKS -->
+        <button index="15"><!-- L3 = Open link in new tab -->
+            <slots><slot index="1"><code>button_middle</code><mode>mouse</mode></slot></slots>
+        </button>
+        <button index="16"><!-- R3 = Close tab -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>w</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+    </controller>
+</antimicrox-profile>

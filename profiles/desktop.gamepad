@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE antimicrox-profile>
+<!--
+  DESKTOP PROFILE — Universal Linux Desktop Navigation
+  Based on Steam Deck "Lizard Mode" — battle-tested by millions of Deck users
+  Controller: Xbox One/Series (also works with PS4/PS5 via same layout)
+
+  LEFT STICK  = mouse cursor movement
+  RIGHT STICK = scroll wheel
+  D-PAD       = arrow keys (keyboard navigation)
+  A           = Enter / Left Click
+  B           = Escape / Right Click
+  X           = Copy (Ctrl+C)
+  Y           = Paste (Ctrl+V)
+  LB          = Previous workspace (Ctrl+Alt+Left)
+  RB          = Next workspace (Ctrl+Alt+Right)
+  LT          = Right mouse button
+  RT          = *** PUSH-TO-TALK — bind to your mic software trigger ***
+  START       = Super key (app launcher / start menu)
+  BACK/SELECT = Alt+Tab (switch apps)
+  L3 (click)  = Middle mouse click
+  R3 (click)  = Ctrl+W (close tab/window)
+-->
+<antimicrox-profile version="2">
+    <controller type="Xbox360" stick_axes="6" num_buttons="17" deviceID="*">
+        <!-- LEFT STICK: Mouse movement -->
+        <stick index="1">
+            <xaxis>
+                <throttle>normal</throttle>
+                <deadZone>6500</deadZone>
+                <maxZone>32000</maxZone>
+                <button index="1">
+                    <slots>
+                        <slot index="1">
+                            <code>mouse_right</code>
+                            <mode>cursor</mode>
+                        </slot>
+                    </slots>
+                </button>
+                <button index="2">
+                    <slots>
+                        <slot index="1">
+                            <code>mouse_left</code>
+                            <mode>cursor</mode>
+                        </slot>
+                    </slots>
+                </button>
+            </xaxis>
+            <yaxis>
+                <throttle>normal</throttle>
+                <deadZone>6500</deadZone>
+                <maxZone>32000</maxZone>
+                <button index="1">
+                    <slots>
+                        <slot index="1">
+                            <code>mouse_up</code>
+                            <mode>cursor</mode>
+                        </slot>
+                    </slots>
+                </button>
+                <button index="2">
+                    <slots>
+                        <slot index="1">
+                            <code>mouse_down</code>
+                            <mode>cursor</mode>
+                        </slot>
+                    </slots>
+                </button>
+            </yaxis>
+        </stick>
+        <!-- RIGHT STICK: Scroll wheel -->
+        <stick index="2">
+            <yaxis>
+                <throttle>normal</throttle>
+                <deadZone>6500</deadZone>
+                <button index="1">
+                    <slots>
+                        <slot index="1"><code>wheel_up</code><mode>mouse</mode></slot>
+                    </slots>
+                </button>
+                <button index="2">
+                    <slots>
+                        <slot index="1"><code>wheel_down</code><mode>mouse</mode></slot>
+                    </slots>
+                </button>
+            </yaxis>
+        </stick>
+        <!-- D-PAD: Arrow keys -->
+        <button index="1"><!-- D-pad UP -->
+            <slots><slot index="1"><code>Up</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="2"><!-- D-pad DOWN -->
+            <slots><slot index="1"><code>Down</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="3"><!-- D-pad LEFT -->
+            <slots><slot index="1"><code>Left</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="4"><!-- D-pad RIGHT -->
+            <slots><slot index="1"><code>Right</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <!-- FACE BUTTONS -->
+        <button index="5"><!-- A = Left Click / Enter -->
+            <slots><slot index="1"><code>button_left</code><mode>mouse</mode></slot></slots>
+        </button>
+        <button index="6"><!-- B = Escape -->
+            <slots><slot index="1"><code>Escape</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="7"><!-- X = Copy -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>c</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <button index="8"><!-- Y = Paste -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>v</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <!-- BUMPERS -->
+        <button index="9"><!-- LB = Previous workspace -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>alt</code><mode>keyboard</mode></slot>
+                <slot index="3"><code>Left</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <button index="10"><!-- RB = Next workspace -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>alt</code><mode>keyboard</mode></slot>
+                <slot index="3"><code>Right</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <!-- TRIGGERS -->
+        <button index="11"><!-- LT = Right mouse click -->
+            <slots><slot index="1"><code>button_right</code><mode>mouse</mode></slot></slots>
+        </button>
+        <button index="12"><!-- RT = PUSH TO TALK (user configures their mic software to listen for F13) -->
+            <slots><slot index="1"><code>F13</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <!-- START/BACK -->
+        <button index="13"><!-- START = App launcher (Super key) -->
+            <slots><slot index="1"><code>super</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="14"><!-- BACK/SELECT = Alt+Tab -->
+            <slots>
+                <slot index="1"><code>alt</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>Tab</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <!-- STICK CLICKS -->
+        <button index="15"><!-- L3 = Middle click -->
+            <slots><slot index="1"><code>button_middle</code><mode>mouse</mode></slot></slots>
+        </button>
+        <button index="16"><!-- R3 = Close tab/window -->
+            <slots>
+                <slot index="1"><code>ctrl</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>w</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+    </controller>
+</antimicrox-profile>

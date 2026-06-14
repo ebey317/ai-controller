@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE antimicrox-profile>
+<!--
+  IPTV PROFILE — Universal IPTV Remote
+  Works with: MPV, VLC, Kodi, Hypnotix, Stremio, SMPlayer
+  Auto-activates when: mpv / vlc / kodi / hypnotix / stremio is focused
+  Based on: Vizio remote layout + industry-standard IPTV remote
+
+  THIS IS THE TV REMOTE. No mouse needed here. Pure navigation.
+
+  D-UP        = Previous channel (Left arrow in MPV/Hypnotix)
+  D-DOWN      = Next channel (Right arrow)
+  D-LEFT      = Volume down
+  D-RIGHT     = Volume up
+  A           = Play / Pause (Space)
+  B           = Stop / Back to menu (Escape)
+  X           = Show info overlay (i)
+  Y           = Toggle fullscreen (f)
+  LB          = Channel page up (PageUp — jump 10 channels)
+  RB          = Channel page down (PageDown)
+  LT          = Rewind 30 seconds
+  RT          = Fast forward 30 seconds
+  START       = Open menu / playlist (m)
+  BACK/SELECT = Go to guide / EPG (g)
+  L3 (click)  = Mute toggle (m in VLC, shift+m in MPV)
+  R3 (click)  = Subtitles toggle (j in MPV, v in VLC)
+  LEFT STICK  = Navigate menus (up/down/left/right)
+  RIGHT STICK = Seek (left stick Y = prev/next in Kodi)
+
+  KODI SPECIFIC: Kodi has native controller support — this profile handles fallback apps.
+  For Kodi, enable controller input in: Settings > System > Input > Enable gamepad support
+-->
+<antimicrox-profile version="2">
+    <controller type="Xbox360" stick_axes="6" num_buttons="17" deviceID="*">
+        <!-- LEFT STICK: Menu navigation -->
+        <stick index="1">
+            <yaxis>
+                <throttle>normal</throttle>
+                <deadZone>8000</deadZone>
+                <button index="1">
+                    <slots><slot index="1"><code>Up</code><mode>keyboard</mode></slot></slots>
+                </button>
+                <button index="2">
+                    <slots><slot index="1"><code>Down</code><mode>keyboard</mode></slot></slots>
+                </button>
+            </yaxis>
+            <xaxis>
+                <throttle>normal</throttle>
+                <deadZone>8000</deadZone>
+                <button index="1">
+                    <slots><slot index="1"><code>Left</code><mode>keyboard</mode></slot></slots>
+                </button>
+                <button index="2">
+                    <slots><slot index="1"><code>Right</code><mode>keyboard</mode></slot></slots>
+                </button>
+            </xaxis>
+        </stick>
+        <!-- RIGHT STICK: Seek bar -->
+        <stick index="2">
+            <xaxis>
+                <throttle>normal</throttle>
+                <deadZone>8000</deadZone>
+                <button index="1"><!-- Seek back 5s -->
+                    <slots><slot index="1"><code>Left</code><mode>keyboard</mode></slot></slots>
+                </button>
+                <button index="2"><!-- Seek forward 5s -->
+                    <slots><slot index="1"><code>Right</code><mode>keyboard</mode></slot></slots>
+                </button>
+            </xaxis>
+        </stick>
+        <!-- D-PAD: Channel + Volume (Vizio remote layout) -->
+        <button index="1"><!-- D-UP = Previous channel -->
+            <slots><slot index="1"><code>Left</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="2"><!-- D-DOWN = Next channel -->
+            <slots><slot index="1"><code>Right</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="3"><!-- D-LEFT = Volume down -->
+            <slots><slot index="1"><code>9</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="4"><!-- D-RIGHT = Volume up -->
+            <slots><slot index="1"><code>0</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <!-- FACE BUTTONS -->
+        <button index="5"><!-- A = Play/Pause -->
+            <slots><slot index="1"><code>space</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="6"><!-- B = Stop / Back / ESC -->
+            <slots><slot index="1"><code>Escape</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="7"><!-- X = Info overlay -->
+            <slots><slot index="1"><code>i</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="8"><!-- Y = Fullscreen -->
+            <slots><slot index="1"><code>f</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <!-- BUMPERS: Page through channels fast -->
+        <button index="9"><!-- LB = Jump back 10 channels -->
+            <slots><slot index="1"><code>Page_Up</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="10"><!-- RB = Jump forward 10 channels -->
+            <slots><slot index="1"><code>Page_Down</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <!-- TRIGGERS: Seek -->
+        <button index="11"><!-- LT = Rewind 30 seconds -->
+            <slots>
+                <slot index="1"><code>shift</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>Left</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <button index="12"><!-- RT = Fast forward 30 seconds -->
+            <slots>
+                <slot index="1"><code>shift</code><mode>keyboard</mode></slot>
+                <slot index="2"><code>Right</code><mode>keyboard</mode></slot>
+            </slots>
+        </button>
+        <!-- START/BACK -->
+        <button index="13"><!-- START = Open playlist/menu -->
+            <slots><slot index="1"><code>m</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="14"><!-- BACK = EPG/Guide -->
+            <slots><slot index="1"><code>g</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <!-- STICK CLICKS -->
+        <button index="15"><!-- L3 = Mute -->
+            <slots><slot index="1"><code>m</code><mode>keyboard</mode></slot></slots>
+        </button>
+        <button index="16"><!-- R3 = Subtitles -->
+            <slots><slot index="1"><code>j</code><mode>keyboard</mode></slot></slots>
+        </button>
+    </controller>
+</antimicrox-profile>
