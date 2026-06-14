@@ -59,9 +59,9 @@ fi
 echo ""
 echo "→ Installing controller profiles..."
 mkdir -p "$PROFILE_DIR"
-cp "$SCRIPT_DIR/profiles/desktop.gamepad"  "$PROFILE_DIR/ai-desktop.gamepad"
-cp "$SCRIPT_DIR/profiles/browser.gamepad"  "$PROFILE_DIR/ai-browser.gamepad"
-cp "$SCRIPT_DIR/profiles/iptv.gamepad"     "$PROFILE_DIR/ai-iptv.gamepad"
+cp "$SCRIPT_DIR/profiles/desktop.gamepad"  "$PROFILE_DIR/ai-desktop.amgp"
+cp "$SCRIPT_DIR/profiles/browser.gamepad"  "$PROFILE_DIR/ai-browser.amgp"
+cp "$SCRIPT_DIR/profiles/iptv.gamepad"     "$PROFILE_DIR/ai-iptv.amgp"
 echo "✓ Profiles installed to $PROFILE_DIR"
 
 # ── 4. INSTALL AUTO-DETECT SERVICE ───────────────────────────────────────────

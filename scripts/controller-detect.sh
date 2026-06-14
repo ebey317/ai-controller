@@ -33,19 +33,19 @@ load_profile() {
 
     case "$vendor" in
         "$XBOX_VENDOR")
-            profile="$PROFILE_DIR/ai-desktop.gamepad"
+            profile="$PROFILE_DIR/ai-desktop.amgp"
             echo "Xbox controller detected → loading desktop profile"
             ;;
         "$PS_VENDOR")
-            profile="$PROFILE_DIR/ai-desktop.gamepad"
+            profile="$PROFILE_DIR/ai-desktop.amgp"
             echo "PlayStation controller detected → loading desktop profile"
             ;;
         "$BROOK_VENDOR")
-            profile="$PROFILE_DIR/ai-desktop.gamepad"
+            profile="$PROFILE_DIR/ai-desktop.amgp"
             echo "Brook adapter detected → loading desktop profile"
             ;;
         *)
-            profile="$PROFILE_DIR/ai-desktop.gamepad"
+            profile="$PROFILE_DIR/ai-desktop.amgp"
             echo "Generic controller (vendor: $vendor) → loading desktop profile"
             ;;
     esac
@@ -56,7 +56,7 @@ load_profile() {
 
     # Launch with detected profile (headless daemon mode)
     if [[ -f "$ANTIMICROX" ]]; then
-        "$ANTIMICROX" --profile "$profile" --tray &
+        nohup "$ANTIMICROX" --profile "$profile" --tray > /tmp/antimicrox.log 2>&1 &
         echo "antimicroX launched with profile: $profile"
     else
         echo "ERROR: antimicroX not found at $ANTIMICROX"
