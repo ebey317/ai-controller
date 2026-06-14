@@ -54,9 +54,12 @@ load_profile() {
     pkill -f antimicrox 2>/dev/null || true
     sleep 1
 
+    # Ensure F13 has an X11 keycode (not in default keymap — needed for push-to-talk)
+    DISPLAY="${DISPLAY:-:0}" xmodmap -e "keycode 202 = F13" 2>/dev/null || true
+
     # Launch with detected profile (headless daemon mode)
     if [[ -f "$ANTIMICROX" ]]; then
-        nohup "$ANTIMICROX" --profile "$profile" --tray > /tmp/antimicrox.log 2>&1 &
+        DISPLAY="${DISPLAY:-:0}" nohup "$ANTIMICROX" --profile "$profile" --tray > /tmp/antimicrox.log 2>&1 &
         echo "antimicroX launched with profile: $profile"
     else
         echo "ERROR: antimicroX not found at $ANTIMICROX"
