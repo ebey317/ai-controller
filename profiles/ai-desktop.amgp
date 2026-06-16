@@ -85,13 +85,13 @@
             <button index="3">
                 <!--X = Backspace--><slots><slot><code>0x1000003</code><mode>keyboard</mode></slot></slots></button>
             <button index="4">
-                <!--Y = Paste--><slots><slot><mode>execute</mode><path>/home/elijah/scripts/controller_paste.py</path></slot></slots></button>
+                <!--Y = Paste--><slots><slot><code>0x1000021</code><mode>keyboard</mode></slot><slot><code>0x56</code><mode>keyboard</mode></slot></slots></button>
 
             <button index="5">
                 <!--Back/View ◩ = Delete--><slots><slot><code>0x1000007</code><mode>keyboard</mode></slot></slots></button>
 
             <button index="6">
-                <!--Guide ⊙ = open controller keyboard + switch to Set 3-->
+                <!--Guide ⊙ = open keyboard + switch to keyboard set-->
                 <slots>
                     <slot><mode>execute</mode><path>/home/elijah/scripts/open-keyboard.sh</path></slot>
                     <slot><setIndex>3</setIndex><mode>set</mode></slot>
@@ -102,10 +102,13 @@
                 <!--Start ☰ = Return--><slots><slot><code>0x1000004</code><mode>keyboard</mode></slot></slots></button>
 
             <button index="8">
-                <!--LS click = Shift--><slots><slot><code>0x1000020</code><mode>keyboard</mode></slot></slots></button>
+                <!--LS click = Space--><slots><slot><code>0x20</code><mode>keyboard</mode></slot></slots></button>
             <button index="9">
-                <!--RS click = disabled (keyboard off until reconfigured)-->
-                <slots></slots>
+                <!--RS click = toggle onboard keyboard open + switch to keyboard set-->
+                <slots>
+                    <slot><mode>execute</mode><path>/home/elijah/scripts/open-keyboard.sh</path></slot>
+                    <slot><setIndex>3</setIndex><mode>set</mode></slot>
+                </slots>
             </button>
             <button index="10">
                 <!--LB = Tab--><slots><slot><code>0x1000001</code><mode>keyboard</mode></slot></slots></button>
@@ -200,7 +203,10 @@
             </button>
             
             <button index="4">
-                <!--Y in Ctrl layer = Copy--><slots><slot><mode>execute</mode><path>/home/elijah/scripts/controller_copy.py</path></slot></slots>
+                <slots>
+                    <slot><code>0x1000021</code><mode>keyboard</mode></slot>
+                    <slot><code>0x43</code><mode>keyboard</mode></slot>
+                </slots>
             </button>
             
             <button index="5">
@@ -231,7 +237,7 @@
         
         
         <set index="3">
-
+            
             <stick index="1">
                 <deadZone>6500</deadZone>
                 <maxZone>28000</maxZone>
@@ -248,7 +254,7 @@
                     <slots><slot><code>3</code><mode>mousemovement</mode></slot></slots>
                 </stickbutton>
             </stick>
-
+            
             <stick index="2">
                 <deadZone>6500</deadZone>
                 <maxZone>28000</maxZone>
@@ -259,26 +265,28 @@
                     <slots><slot><code>5</code><mode>mousebutton</mode></slot></slots>
                 </stickbutton>
             </stick>
-
+            
             <dpad index="1">
-                <!--F14/16/17/18 intercepted by controller-keyboard.py pynput — never reach active window-->
                 <dpadbutton index="1">
-                    <!--Up = F18 prev row--><slots><slot><code>0x1000041</code><mode>keyboard</mode></slot></slots>
+                    <slots><slot><code>0x1000013</code><mode>keyboard</mode></slot></slots>
                 </dpadbutton>
                 <dpadbutton index="2">
-                    <!--Right = F14 next key--><slots><slot><code>0x100003d</code><mode>keyboard</mode></slot></slots>
+                    <slots><slot><code>0x1000014</code><mode>keyboard</mode></slot></slots>
                 </dpadbutton>
                 <dpadbutton index="4">
-                    <!--Down = F17 next row--><slots><slot><code>0x1000040</code><mode>keyboard</mode></slot></slots>
+                    <slots><slot><code>0x1000015</code><mode>keyboard</mode></slot></slots>
                 </dpadbutton>
                 <dpadbutton index="8">
-                    <!--Left = F16 prev key--><slots><slot><code>0x100003f</code><mode>keyboard</mode></slot></slots>
+                    <slots><slot><code>0x1000012</code><mode>keyboard</mode></slot></slots>
                 </dpadbutton>
             </dpad>
-
+            
             <button index="1">
-                <!--A = F15 type highlighted key-->
-                <slots><slot><code>0x100003e</code><mode>keyboard</mode></slot></slots>
+                <!--A = select highlighted key OR click key under cursor-->
+                <slots>
+                    <slot><code>0x1000004</code><mode>keyboard</mode></slot>
+                    <slot><code>1</code><mode>mousebutton</mode></slot>
+                </slots>
             </button>
             
             <button index="2">

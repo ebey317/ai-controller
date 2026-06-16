@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gamecontroller configversion="19" appversion="3.5.1">
+    <!-- IPTV / MEDIA PROFILE — gamecontroller schema (AntiMicroX 3.5.1 native) -->
+    <!-- TV remote for MPV / VLC / Kodi / Hypnotix / Stremio -->
+    <!-- Dpad: Up=PrevChannel Down=NextChannel Left=Vol- Right=Vol+ -->
+    <!-- A=Play/Pause B=Stop X=Info Y=Fullscreen | LB/RB=ChannelPage Up/Down -->
+    <!-- LT=Rewind RT=FastFwd | Back=Guide Start=Menu L3=Mute R3=Subtitles -->
+    <sdlname>Xbox Series X Controller</sdlname>
+    <uniqueID>03009daa5e040000120b00000b05000011182834</uniqueID>
+    <stickAxisAssociation index="1" xAxis="1" yAxis="2"/>
+    <stickAxisAssociation index="2" xAxis="3" yAxis="4"/>
+    <vdpadButtonAssociations index="1">
+        <vdpadButtonAssociation axis="0" button="12" direction="1"/>
+        <vdpadButtonAssociation axis="0" button="13" direction="4"/>
+        <vdpadButtonAssociation axis="0" button="14" direction="8"/>
+        <vdpadButtonAssociation axis="0" button="15" direction="2"/>
+    </vdpadButtonAssociations>
+    <names>
+        <controlstickname index="1">Stick 1</controlstickname>
+        <controlstickname index="2">Stick 2</controlstickname>
+    </names>
+    <sets>
+        <set index="1">
+            <!-- Left stick = mouse cursor (clickable IPTV UIs) -->
+            <stick index="1">
+                <deadZone>6500</deadZone>
+                <maxZone>28000</maxZone>
+                <stickbutton index="1">
+                    <slots><slot><code>1</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="3">
+                    <slots><slot><code>4</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="5">
+                    <slots><slot><code>2</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="7">
+                    <slots><slot><code>3</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+            </stick>
+            <!-- Right stick = scroll wheel -->
+            <stick index="2">
+                <deadZone>6500</deadZone>
+                <maxZone>28000</maxZone>
+                <stickbutton index="1">
+                    <slots><slot><code>4</code><mode>mousebutton</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="5">
+                    <slots><slot><code>5</code><mode>mousebutton</mode></slot></slots>
+                </stickbutton>
+            </stick>
+            <!-- LT = Rewind (Left) | RT = Fast forward (Right) -->
+            <trigger index="5">
+                <throttle>positivehalf</throttle>
+                <triggerbutton index="2">
+                    <slots><slot><code>0x1000012</code><mode>keyboard</mode></slot></slots>
+                </triggerbutton>
+            </trigger>
+            <trigger index="6">
+                <throttle>positivehalf</throttle>
+                <triggerbutton index="2">
+                    <slots><slot><code>0x1000014</code><mode>keyboard</mode></slot></slots>
+                </triggerbutton>
+            </trigger>
+            <!-- D-pad: Up=PrevCh(Left) Down=NextCh(Right) Left=Vol-(Down) Right=Vol+(Up) -->
+            <dpad index="1">
+                <dpadbutton index="1">
+                    <slots><slot><code>0x1000012</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="2">
+                    <slots><slot><code>0x1000013</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="4">
+                    <slots><slot><code>0x1000014</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="8">
+                    <slots><slot><code>0x1000015</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+            </dpad>
+            <!-- A = Play/Pause (Space) -->
+            <button index="1">
+                <slots><slot><code>0x20</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- B = Stop / back (Escape) -->
+            <button index="2">
+                <slots><slot><code>0x1000000</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- X = Info overlay (i) -->
+            <button index="3">
+                <slots><slot><code>0x49</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Y = Fullscreen (f) -->
+            <button index="4">
+                <slots><slot><code>0x46</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Back/View = Guide / EPG (g) -->
+            <button index="5">
+                <slots><slot><code>0x47</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Guide = on-screen keyboard -->
+            <button index="6">
+                <slots><slot><mode>execute</mode><path>/usr/bin/onboard</path></slot></slots>
+            </button>
+            <!-- Start/Menu = Menu / playlist (m) -->
+            <button index="7">
+                <slots><slot><code>0x4D</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- L3 = Mute (m) -->
+            <button index="8">
+                <slots><slot><code>0x4D</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- R3 = Subtitles (j) -->
+            <button index="9">
+                <slots><slot><code>0x4A</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- LB = Channel page up (PageUp) -->
+            <button index="10">
+                <slots><slot><code>0x1000016</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- RB = Channel page down (PageDown) -->
+            <button index="11">
+                <slots><slot><code>0x1000017</code><mode>keyboard</mode></slot></slots>
+            </button>
+        </set>
+    </sets>
+</gamecontroller>

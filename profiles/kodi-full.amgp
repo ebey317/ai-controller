@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gamecontroller configversion="19" appversion="3.5.1">
+    <!-- FULL KODI REMOTE PROFILE — same multi-set architecture as desktop-full.amgp. -->
+    <!-- Set 1 = Navigate & Playback (default). LT toggles to Set 2 = Info/System layer -->
+    <!-- (toggles back on second LT pull). Guide cycles to Set 3 = number-pad direct -->
+    <!-- entry layer (channel/time digits), Guide there returns to Set 1. -->
+    <!-- RT always sends F13 (dictation/PTT) and is preserved in every set. -->
+    <!-- All bindings below are Kodi's real documented default keyboard.xml keys -->
+    <!-- (kodi.wiki/Keyboard_controls) — nothing invented. -->
+    <sdlname>Xbox Series X Controller</sdlname>
+    <uniqueID>03009daa5e040000120b00000b05000011182834</uniqueID>
+    <stickAxisAssociation index="1" xAxis="1" yAxis="2"/>
+    <stickAxisAssociation index="2" xAxis="3" yAxis="4"/>
+    <vdpadButtonAssociations index="1">
+        <vdpadButtonAssociation axis="0" button="12" direction="1"/>
+        <vdpadButtonAssociation axis="0" button="13" direction="4"/>
+        <vdpadButtonAssociation axis="0" button="14" direction="8"/>
+        <vdpadButtonAssociation axis="0" button="15" direction="2"/>
+    </vdpadButtonAssociations>
+    <names>
+        <controlstickname index="1">Stick 1</controlstickname>
+        <controlstickname index="2">Stick 2</controlstickname>
+    </names>
+    <sets>
+        <!-- ===================== SET 1: Navigate & Playback ===================== -->
+        <set index="1">
+            <stick index="1">
+                <deadZone>6500</deadZone>
+                <maxZone>28000</maxZone>
+                <stickbutton index="1">
+                    <slots><slot><code>1</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="3">
+                    <slots><slot><code>4</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="5">
+                    <slots><slot><code>2</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="7">
+                    <slots><slot><code>3</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+            </stick>
+            <stick index="2">
+                <deadZone>6500</deadZone>
+                <maxZone>28000</maxZone>
+                <stickbutton index="1">
+                    <slots><slot><code>4</code><mode>mousebutton</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="5">
+                    <slots><slot><code>5</code><mode>mousebutton</mode></slot></slots>
+                </stickbutton>
+            </stick>
+            <!-- LT = switch to Set 2 (Info/System layer) -->
+            <trigger index="5">
+                <throttle>positivehalf</throttle>
+                <triggerbutton index="2">
+                    <slots><slot><setIndex>2</setIndex><mode>set</mode></slot></slots>
+                </triggerbutton>
+            </trigger>
+            <!-- RT = F13 dictation/PTT, preserved in every set -->
+            <trigger index="6">
+                <throttle>positivehalf</throttle>
+                <triggerbutton index="2">
+                    <slots><slot><code>0x100003c</code><mode>keyboard</mode></slot></slots>
+                </triggerbutton>
+            </trigger>
+            <!-- D-pad: pure navigation (also does seek when fullscreen video has focus, per Kodi) -->
+            <dpad index="1">
+                <dpadbutton index="1">
+                    <!--Up--><slots><slot><code>0x1000013</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="2">
+                    <!--Right--><slots><slot><code>0x1000014</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="4">
+                    <!--Down--><slots><slot><code>0x1000015</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="8">
+                    <!--Left--><slots><slot><code>0x1000012</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+            </dpad>
+            <!-- A = Select/OK (Enter) -->
+            <button index="1">
+                <slots><slot><code>0x1000004</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- B = Back (Backspace) -->
+            <button index="2">
+                <slots><slot><code>0x1000003</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- X = Info (i) -->
+            <button index="3">
+                <slots><slot><code>0x49</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Y = Context menu (c) -->
+            <button index="4">
+                <slots><slot><code>0x43</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- LB = Channel up / 10min skip fwd (PageUp) -->
+            <button index="5">
+                <slots><slot><code>0x1000016</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- RB = Channel down / 10min skip back (PageDown) -->
+            <button index="6">
+                <slots><slot><code>0x1000017</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Start/Menu = Play/Pause (Space) -->
+            <button index="7">
+                <slots><slot><code>0x20</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Back/View = Stop (x) -->
+            <button index="8">
+                <slots><slot><code>0x58</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Guide = cycle to Set 3 (number-pad direct entry) -->
+            <button index="9">
+                <slots><slot><setIndex>3</setIndex><mode>set</mode></slot></slots>
+            </button>
+            <!-- L3 = Mute (m) -->
+            <button index="10">
+                <slots><slot><code>0x4D</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- R3 = Toggle fullscreen window (Tab) -->
+            <button index="11">
+                <slots><slot><code>0x1000001</code><mode>keyboard</mode></slot></slots>
+            </button>
+        </set>
+
+        <!-- ===================== SET 2: Info / System layer (LT toggle) ===================== -->
+        <set index="2">
+            <stick index="1">
+                <deadZone>6500</deadZone>
+                <maxZone>28000</maxZone>
+                <stickbutton index="1">
+                    <slots><slot><code>1</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="3">
+                    <slots><slot><code>4</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="5">
+                    <slots><slot><code>2</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="7">
+                    <slots><slot><code>3</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+            </stick>
+            <!-- LT = switch back to Set 1 -->
+            <trigger index="5">
+                <throttle>positivehalf</throttle>
+                <triggerbutton index="2">
+                    <slots><slot><setIndex>1</setIndex><mode>set</mode></slot></slots>
+                </triggerbutton>
+            </trigger>
+            <!-- RT = F13 dictation/PTT, preserved -->
+            <trigger index="6">
+                <throttle>positivehalf</throttle>
+                <triggerbutton index="2">
+                    <slots><slot><code>0x100003c</code><mode>keyboard</mode></slot></slots>
+                </triggerbutton>
+            </trigger>
+            <dpad index="1">
+                <dpadbutton index="1">
+                    <slots><slot><code>0x1000013</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="2">
+                    <slots><slot><code>0x1000014</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="4">
+                    <slots><slot><code>0x1000015</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="8">
+                    <slots><slot><code>0x1000012</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+            </dpad>
+            <!-- A = Codec info (o) -->
+            <button index="1">
+                <slots><slot><code>0x4F</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- B = Toggle watched (t) -->
+            <button index="2">
+                <slots><slot><code>0x54</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- X = Player debug info (d) -->
+            <button index="3">
+                <slots><slot><code>0x44</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Y = Eject (e) -->
+            <button index="4">
+                <slots><slot><code>0x45</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- LB = Record, PVR (r) -->
+            <button index="5">
+                <slots><slot><code>0x52</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- RB = Power/shutdown menu (s) -->
+            <button index="6">
+                <slots><slot><code>0x53</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Start/Menu = Play/Pause (Space), kept consistent across sets -->
+            <button index="7">
+                <slots><slot><code>0x20</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Back/View = Stop (x), kept consistent -->
+            <button index="8">
+                <slots><slot><code>0x58</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Guide = cycle to Set 3 (number-pad direct entry) -->
+            <button index="9">
+                <slots><slot><setIndex>3</setIndex><mode>set</mode></slot></slots>
+            </button>
+            <!-- L3 = Mute (m), kept consistent -->
+            <button index="10">
+                <slots><slot><code>0x4D</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- R3 = Toggle fullscreen (Tab), kept consistent -->
+            <button index="11">
+                <slots><slot><code>0x1000001</code><mode>keyboard</mode></slot></slots>
+            </button>
+        </set>
+
+        <!-- ===================== SET 3: Number pad / direct entry (Guide cycle) ===================== -->
+        <set index="3">
+            <stick index="1">
+                <deadZone>6500</deadZone>
+                <maxZone>28000</maxZone>
+                <stickbutton index="1">
+                    <slots><slot><code>1</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="3">
+                    <slots><slot><code>4</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="5">
+                    <slots><slot><code>2</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+                <stickbutton index="7">
+                    <slots><slot><code>3</code><mode>mousemovement</mode></slot></slots>
+                </stickbutton>
+            </stick>
+            <!-- RT = F13 dictation/PTT, preserved -->
+            <trigger index="6">
+                <throttle>positivehalf</throttle>
+                <triggerbutton index="2">
+                    <slots><slot><code>0x100003c</code><mode>keyboard</mode></slot></slots>
+                </triggerbutton>
+            </trigger>
+            <!-- D-pad: Up=Backspace(clear digit) Down=Enter(confirm) Left=Escape(cancel) Right=unused -->
+            <dpad index="1">
+                <dpadbutton index="1">
+                    <slots><slot><code>0x1000003</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="4">
+                    <slots><slot><code>0x1000004</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+                <dpadbutton index="8">
+                    <slots><slot><code>0x1000000</code><mode>keyboard</mode></slot></slots>
+                </dpadbutton>
+            </dpad>
+            <!-- A=1 B=2 X=3 Y=4 LB=5 RB=6 Start=7 Back/View=8 L3=9 R3=0 -->
+            <button index="1">
+                <slots><slot><code>0x31</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <button index="2">
+                <slots><slot><code>0x32</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <button index="3">
+                <slots><slot><code>0x33</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <button index="4">
+                <slots><slot><code>0x34</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <button index="5">
+                <slots><slot><code>0x35</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <button index="6">
+                <slots><slot><code>0x36</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <button index="7">
+                <slots><slot><code>0x37</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <button index="8">
+                <slots><slot><code>0x38</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <!-- Guide = return to Set 1 -->
+            <button index="9">
+                <slots><slot><setIndex>1</setIndex><mode>set</mode></slot></slots>
+            </button>
+            <button index="10">
+                <slots><slot><code>0x39</code><mode>keyboard</mode></slot></slots>
+            </button>
+            <button index="11">
+                <slots><slot><code>0x30</code><mode>keyboard</mode></slot></slots>
+            </button>
+        </set>
+    </sets>
+</gamecontroller>
