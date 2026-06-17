@@ -15,11 +15,7 @@
         <controlstickname index="2">Stick 2</controlstickname>
     </names>
     <sets>
-        
-        
-        
         <set index="1">
-            
             <stick index="1">
                 <deadZone>6500</deadZone>
                 <maxZone>28000</maxZone>
@@ -36,7 +32,6 @@
                     <slots><slot><code>3</code><mode>mousemovement</mode></slot></slots>
                 </stickbutton>
             </stick>
-            
             <stick index="2">
                 <deadZone>6500</deadZone>
                 <maxZone>28000</maxZone>
@@ -47,13 +42,10 @@
                     <slots><slot><code>5</code><mode>mousebutton</mode></slot></slots>
                 </stickbutton>
             </stick>
-            
             <trigger index="5">
                 <throttle>positivehalf</throttle>
                 <triggerbutton index="2">
-                    <slots>
-                        <slot><setIndex>2</setIndex><mode>set</mode></slot>
-                    </slots>
+                    <slots><slot><code>0x1000001</code><mode>keyboard</mode></slot></slots>
                 </triggerbutton>
             </trigger>
             <trigger index="6">
@@ -62,258 +54,54 @@
                     <slots><slot><code>0x100003c</code><mode>keyboard</mode></slot></slots>
                 </triggerbutton>
             </trigger>
-            
             <dpad index="1">
                 <dpadbutton index="1">
-                    <!--Up--><slots><slot><code>0x1000013</code><mode>keyboard</mode></slot></slots>
-                </dpadbutton>
-                <dpadbutton index="2">
-                    <!--Right--><slots><slot><code>0x1000014</code><mode>keyboard</mode></slot></slots>
-                </dpadbutton>
-                <dpadbutton index="4">
-                    <!--Down--><slots><slot><code>0x1000015</code><mode>keyboard</mode></slot></slots>
-                </dpadbutton>
-                <dpadbutton index="8">
-                    <!--Left--><slots><slot><code>0x1000012</code><mode>keyboard</mode></slot></slots>
-                </dpadbutton>
-            </dpad>
-
-            <button index="1">
-                <!--A = left click--><slots><slot><code>1</code><mode>mousebutton</mode></slot></slots></button>
-            <button index="2">
-                <!--B = browser back (Alt+Left)--><slots><slot><code>0x1000023</code><mode>keyboard</mode></slot><slot><code>0x1000012</code><mode>keyboard</mode></slot></slots></button>
-            <button index="3">
-                <!--X = Backspace--><slots><slot><code>0x1000003</code><mode>keyboard</mode></slot></slots></button>
-            <button index="4">
-                <!--Y = Paste--><slots><slot><mode>execute</mode><path>/home/elijah/scripts/controller_paste.py</path></slot></slots></button>
-
-            <button index="5">
-                <!--Back/View ◩ = Delete--><slots><slot><code>0x1000007</code><mode>keyboard</mode></slot></slots></button>
-
-            <button index="6">
-                <!--Guide ⊙ = open controller keyboard + switch to Set 3-->
-                <slots>
-                    <slot><mode>execute</mode><path>/home/elijah/scripts/open-keyboard.sh</path></slot>
-                    <slot><setIndex>3</setIndex><mode>set</mode></slot>
-                </slots>
-            </button>
-
-            <button index="7">
-                <!--Start ☰ = Return--><slots><slot><code>0x1000004</code><mode>keyboard</mode></slot></slots></button>
-
-            <button index="8">
-                <!--LS click = Shift--><slots><slot><code>0x1000020</code><mode>keyboard</mode></slot></slots></button>
-            <button index="9">
-                <!--RS click = disabled (keyboard off until reconfigured)-->
-                <slots></slots>
-            </button>
-            <button index="10">
-                <!--LB = Tab--><slots><slot><code>0x1000001</code><mode>keyboard</mode></slot></slots></button>
-            <button index="11">
-                <!--RB = right click--><slots><slot><code>3</code><mode>mousebutton</mode></slot></slots></button>
-        </set>
-
-        
-        
-        
-        
-        <set index="2">
-            
-            <stick index="1">
-                <deadZone>6500</deadZone>
-                <maxZone>28000</maxZone>
-                <stickbutton index="1">
-                    <slots><slot><code>1</code><mode>mousemovement</mode></slot></slots>
-                </stickbutton>
-                <stickbutton index="3">
-                    <slots><slot><code>4</code><mode>mousemovement</mode></slot></slots>
-                </stickbutton>
-                <stickbutton index="5">
-                    <slots><slot><code>2</code><mode>mousemovement</mode></slot></slots>
-                </stickbutton>
-                <stickbutton index="7">
-                    <slots><slot><code>3</code><mode>mousemovement</mode></slot></slots>
-                </stickbutton>
-            </stick>
-            
-            <stick index="2">
-                <deadZone>6500</deadZone>
-                <maxZone>28000</maxZone>
-                <stickbutton index="1">
-                    <slots><slot><code>4</code><mode>mousebutton</mode></slot></slots>
-                </stickbutton>
-                <stickbutton index="5">
-                    <slots><slot><code>5</code><mode>mousebutton</mode></slot></slots>
-                </stickbutton>
-            </stick>
-            
-            <trigger index="5">
-                <throttle>positivehalf</throttle>
-                <triggerbutton index="2">
-                    <slots>
-                        <slot><setIndex>1</setIndex><mode>set</mode></slot>
-                    </slots>
-                </triggerbutton>
-            </trigger>
-            <trigger index="6">
-                <throttle>positivehalf</throttle>
-                <triggerbutton index="2">
-                    <slots><slot><code>0x100003c</code><mode>keyboard</mode></slot></slots>
-                </triggerbutton>
-            </trigger>
-            
-            <dpad index="1">
-                <dpadbutton index="1">
-                    <slots><slot><code>0x1000016</code><mode>keyboard</mode></slot></slots>
+                    <slots><slot><code>0x1000013</code><mode>keyboard</mode></slot></slots>
                 </dpadbutton>
                 <dpadbutton index="2">
                     <slots><slot><code>0x1000014</code><mode>keyboard</mode></slot></slots>
                 </dpadbutton>
                 <dpadbutton index="4">
-                    <slots><slot><code>0x1000017</code><mode>keyboard</mode></slot></slots>
+                    <slots><slot><code>0x1000015</code><mode>keyboard</mode></slot></slots>
                 </dpadbutton>
                 <dpadbutton index="8">
                     <slots><slot><code>0x1000012</code><mode>keyboard</mode></slot></slots>
                 </dpadbutton>
             </dpad>
-            
-            
             <button index="1">
-                <slots>
-                    <slot><code>0x1000021</code><mode>keyboard</mode></slot>
-                    <slot><code>0x41</code><mode>keyboard</mode></slot>
-                </slots>
+                <slots><slot><code>1</code><mode>mousebutton</mode></slot></slots>
             </button>
-            
             <button index="2">
-                <slots>
-                    <slot><code>0x1000021</code><mode>keyboard</mode></slot>
-                    <slot><code>0x5A</code><mode>keyboard</mode></slot>
-                </slots>
+                <slots><slot><code>0x1000023</code><mode>keyboard</mode></slot><slot><code>0x1000012</code><mode>keyboard</mode></slot></slots>
             </button>
-            
             <button index="3">
-                <slots>
-                    <slot><code>0x1000021</code><mode>keyboard</mode></slot>
-                    <slot><code>0x58</code><mode>keyboard</mode></slot>
-                </slots>
+                <slots><slot><code>0x1000003</code><mode>keyboard</mode></slot></slots>
             </button>
-            
             <button index="4">
-                <!--Y in Ctrl layer = Copy--><slots><slot><mode>execute</mode><path>/home/elijah/scripts/controller_copy.py</path></slot></slots>
+                <slots><slot><mode>execute</mode><path>/home/elijah/scripts/controller_paste.py</path></slot></slots>
             </button>
-            
             <button index="5">
-                <!--Back/View in Ctrl layer = Delete--><slots><slot><code>0x1000007</code><mode>keyboard</mode></slot></slots>
+                <!--Back/View = Close Keyboard-->
+                <slots><slot><mode>execute</mode><path>/home/elijah/scripts/close-keyboard.sh</path></slot></slots>
             </button>
             <button index="6">
-                <!--Guide in Ctrl layer = F14 toggle--><slots><slot><code>0x100003d</code><mode>keyboard</mode></slot></slots>
+                <slots><slot><code>0x1000004</code><mode>keyboard</mode></slot></slots>
             </button>
             <button index="7">
-                <!--Start in Ctrl layer = Return--><slots><slot><code>0x1000004</code><mode>keyboard</mode></slot></slots>
+                <slots><slot><code>0x1000004</code><mode>keyboard</mode></slot></slots>
             </button>
             <button index="8">
-                <!--LS click in Ctrl layer = Space--><slots><slot><code>0x20</code><mode>keyboard</mode></slot></slots>
+                <slots><slot><code>0x1000020</code><mode>keyboard</mode></slot></slots>
             </button>
             <button index="9">
-                <!--RS click in Ctrl layer = F14 toggle--><slots><slot><code>0x100003d</code><mode>keyboard</mode></slot></slots>
+                <!--RS Click = Open Keyboard-->
+                <slots><slot><mode>execute</mode><path>/home/elijah/scripts/open-keyboard.sh</path></slot></slots>
             </button>
             <button index="10">
-                <!--LB in Ctrl layer = Shift+Tab--><slots><slot><code>0x1000020</code><mode>keyboard</mode></slot><slot><code>0x1000001</code><mode>keyboard</mode></slot></slots>
+                <slots><slot><code>0x1000001</code><mode>keyboard</mode></slot></slots>
             </button>
             <button index="11">
-                <!--RB in Ctrl layer = Escape--><slots><slot><code>0x1000000</code><mode>keyboard</mode></slot></slots>
-            </button>
-        </set>
-        
-        
-        
-        
-        
-        <set index="3">
-
-            <stick index="1">
-                <deadZone>6500</deadZone>
-                <maxZone>28000</maxZone>
-                <stickbutton index="1">
-                    <slots><slot><code>1</code><mode>mousemovement</mode></slot></slots>
-                </stickbutton>
-                <stickbutton index="3">
-                    <slots><slot><code>4</code><mode>mousemovement</mode></slot></slots>
-                </stickbutton>
-                <stickbutton index="5">
-                    <slots><slot><code>2</code><mode>mousemovement</mode></slot></slots>
-                </stickbutton>
-                <stickbutton index="7">
-                    <slots><slot><code>3</code><mode>mousemovement</mode></slot></slots>
-                </stickbutton>
-            </stick>
-
-            <stick index="2">
-                <deadZone>6500</deadZone>
-                <maxZone>28000</maxZone>
-                <stickbutton index="1">
-                    <slots><slot><code>4</code><mode>mousebutton</mode></slot></slots>
-                </stickbutton>
-                <stickbutton index="5">
-                    <slots><slot><code>5</code><mode>mousebutton</mode></slot></slots>
-                </stickbutton>
-            </stick>
-
-            <dpad index="1">
-                <!--F14/16/17/18 intercepted by controller-keyboard.py pynput — never reach active window-->
-                <dpadbutton index="1">
-                    <!--Up = F18 prev row--><slots><slot><code>0x1000041</code><mode>keyboard</mode></slot></slots>
-                </dpadbutton>
-                <dpadbutton index="2">
-                    <!--Right = F14 next key--><slots><slot><code>0x100003d</code><mode>keyboard</mode></slot></slots>
-                </dpadbutton>
-                <dpadbutton index="4">
-                    <!--Down = F17 next row--><slots><slot><code>0x1000040</code><mode>keyboard</mode></slot></slots>
-                </dpadbutton>
-                <dpadbutton index="8">
-                    <!--Left = F16 prev key--><slots><slot><code>0x100003f</code><mode>keyboard</mode></slot></slots>
-                </dpadbutton>
-            </dpad>
-
-            <button index="1">
-                <!--A = F15 type highlighted key-->
-                <slots><slot><code>0x100003e</code><mode>keyboard</mode></slot></slots>
-            </button>
-            
-            <button index="2">
-                <!--B = Backspace--><slots><slot><code>0x1000003</code><mode>keyboard</mode></slot></slots></button>
-            
-            <button index="5">
-                <!--Back/View = close keyboard + return to desktop set-->
-                <slots>
-                    <slot><mode>execute</mode><path>/home/elijah/scripts/close-keyboard.sh</path></slot>
-                    <slot><setIndex>1</setIndex><mode>set</mode></slot>
-                </slots>
-            </button>
-            
-            <button index="7">
-                <!--Back/View = Escape--><slots><slot><code>0x1000000</code><mode>keyboard</mode></slot></slots></button>
-            
-            <trigger index="6">
-                <throttle>positivehalf</throttle>
-                <triggerbutton index="2">
-                    <slots><slot><code>0x100003c</code><mode>keyboard</mode></slot></slots>
-                </triggerbutton>
-            </trigger>
-            <button index="6">
-                <!--Guide ⊙ = close keyboard + return to desktop set-->
-                <slots>
-                    <slot><mode>execute</mode><path>/home/elijah/scripts/close-keyboard.sh</path></slot>
-                    <slot><setIndex>1</setIndex><mode>set</mode></slot>
-                </slots>
-            </button>
-            <button index="9">
-                <!--RS click = toggle onboard keyboard closed + return to desktop set-->
-                <slots>
-                    <slot><mode>execute</mode><path>/home/elijah/scripts/close-keyboard.sh</path></slot>
-                    <slot><setIndex>1</setIndex><mode>set</mode></slot>
-                </slots>
+                <slots><slot><code>3</code><mode>mousebutton</mode></slot></slots>
             </button>
         </set>
     </sets>
