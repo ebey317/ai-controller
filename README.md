@@ -1,25 +1,18 @@
-# AI Controller Profile
+# AI Controller Profile - $10 Couch Computing Solution
 
-**Run a full computer from a couch using only a controller and a mic.**
-
-No keyboard. No mouse. Just talk and point.
-
----
+**Plug in an Xbox/PlayStation controller → talk to AI with voice commands → hear responses. No keyboard. No mouse.**
 
 ## What This Is
 
-Three pre-built controller profiles that cover every mode:
+A standalone, power-loss safe AI controller that turns your gamepad into a voice-controlled computer interface. Works out of the box on Linux (Ubuntu/Debian/Mint), with partial macOS support and manual Windows setup.
 
-| Profile | When It Activates | Based On |
-|---|---|---|
-| **Desktop** | Always (fallback) | Steam Deck Lizard Mode |
-| **Browser** | Chrome / Firefox / Edge in focus | Xbox Dashboard |
-| **IPTV** | MPV / Kodi / VLC / Hypnotix in focus | Vizio remote + standard IPTV |
-
-Plug in Xbox or PlayStation controller → profiles load automatically.  
-Works out of the box on Linux. macOS partial. Windows manual.
-
----
+### Features
+- **Universal Controller Support**: Works with Xbox, PlayStation, or any USB gamepad
+- **Voice Control**: Press Right Trigger (RT) to talk, release to listen
+- **On-Screen Keyboard**: Use left stick to type without physical keyboard
+- **HUD Display**: See button mappings on screen (controller-legend)
+- **Auto-Profile Switching**: Browser focus → browser layout, Kodi → TV remote layout
+- **Persistent State**: All settings saved in git, survives power loss
 
 ## Quick Start
 
@@ -29,128 +22,62 @@ cd ai-controller-profile
 bash install.sh
 ```
 
-Done. Plug in controller. antimicroX loads the right profile automatically.
+## Installation Steps
 
----
+1. **Run installer**: `bash install.sh`
+2. **Connect controller**: Plug in Xbox/PlayStation controller
+3. **AntimicroX auto-starts**: First run downloads and sets up AntiMicroX
+4. **Profiles auto-activate**: Browser → browser layout, Kodi → TV remote
+5. **Push-to-talk**: Right Trigger (RT) = F13 key (bind to your voice software)
 
-## Button Layout
+## Pricing & Release
 
-### Desktop (Universal)
-```
-Left Stick  → Mouse cursor
-Right Stick → Scroll
-D-Pad       → Arrow keys
-A           → Left click / Enter
-B           → Escape
-X           → Copy (Ctrl+C)
-Y           → Paste (Ctrl+V)
-LB / RB     → Switch workspace
-LT          → Right click
-RT          → *** PUSH TO TALK *** (see config below)
-START       → App launcher (Super key)
-BACK        → Alt+Tab
-L3          → Middle click
-R3          → Close window (Ctrl+W)
-```
+- **Price**: $10 (one-time payment)
+- **What you get**: Complete installer package with all scripts, profiles, and documentation
+- **License**: MIT (free to use, modify, and distribute)
 
-### Browser (Chrome / Edge / Firefox)
-```
-Left Stick  → Mouse cursor (fine control for links)
-Right Stick → Scroll (up/down/left/right)
-D-UP/DOWN   → Tab between links (Tab / Shift+Tab)
-D-LEFT      → Page back
-D-RIGHT     → Page forward
-A           → Click
-B           → Back
-X           → Reload (F5)
-Y           → New tab (Ctrl+T)
-LB / RB     → Previous / Next tab
-LT          → Right click (context menu)
-RT          → PUSH TO TALK
-START       → Address bar — speak your URL (Ctrl+L)
-BACK        → Bookmark (Ctrl+D)
-L3          → Open link in new tab (middle click)
-R3          → Close tab (Ctrl+W)
-```
+## Support
 
-### IPTV (MPV / Kodi / VLC / Hypnotix)
-```
-Left Stick  → Menu navigation
-Right Stick → Seek within stream
-D-UP        → Previous channel
-D-DOWN      → Next channel
-D-LEFT      → Volume down
-D-RIGHT     → Volume up
-A           → Play / Pause (Space)
-B           → Stop / Back (Escape)
-X           → Show info (i)
-Y           → Fullscreen (f)
-LB          → Jump back 10 channels (PageUp)
-RB          → Jump forward 10 channels (PageDown)
-LT          → Rewind 30s
-RT          → Fast forward 30s
-START       → Playlist / menu (m)
-BACK        → EPG / guide (g)
-L3          → Mute
-R3          → Subtitles
-```
+- **Documentation**: `AI_CONTROLLER_COMPLETE_REFERENCE.md`
+- **Troubleshooting**: Check systemd services with `systemctl --user status antimicrox-autoload.service voice-bridge.service ptt-pynput.service`
+- **Contact**: Elijah (github.com/ebey317)
 
----
+## System Requirements
 
-## Push-to-Talk Setup
+- **OS**: Linux (Ubuntu/Debian/Mint) - fully supported
+- **Hardware**: 
+  - Controller (Xbox/PS/USB gamepad)
+  - Microphone (built-in or external)
+  - Speaker/headphones
+- **Dependencies**: 
+  - Python 3.7+
+  - AntiMicroX (auto-installed)
+  - Git (for version control)
 
-**Edit `scripts/push-to-talk.sh` — top section only:**
+## How It Works
 
-```bash
-# Your mic button
-MIC_TRIGGER="F13"              # Default: RT on controller maps to F13
-# MIC_TRIGGER="XF86AudioMicMute"  # ← use this if your headset has an inline mic button
+1. **Controller**: AntiMicroX maps controller buttons to keyboard events
+2. **Voice**: ptt_pynput.py listens for F13 (RT button) and records audio
+3. **STT**: voice-bridge.py sends audio to Groq Whisper for transcription
+4. **Agent**: Transcript sent to AI agent (Hermes or any LLM API)
+5. **TTS**: Agent response played back through speakers/headphones
 
-# What happens after you speak
-SEND_BEHAVIOR="release"   # sends automatically when you let go
-# SEND_BEHAVIOR="review"  # shows you the text first — press Enter to send, ESC to cancel
-```
+## Power Loss Safety
 
-### To find your headphone mic button:
-```bash
-bash scripts/push-to-talk.sh --detect-button
-# Press your headphone button when prompted — it prints the key name
-# Paste that name into MIC_TRIGGER above
-```
+All configuration files are saved on disk. After power loss:
+- Machine boots normally
+- AntiMicroX auto-starts via systemd
+- Profiles auto-load based on last active window
+- No data loss - everything is git-tracked
 
----
+## Getting Started
 
-## Requirements
-
-- Linux (Ubuntu 20.04+, Mint, PopOS, etc.)
-- [antimicroX](https://github.com/AntiMicroX/antimicrox) (installed by `install.sh`)
-- Xbox One/Series or PlayStation 4/5 controller (USB or Bluetooth)
-- `arecord`, `curl`, `xdotool` (installed by `install.sh`)
-
----
-
-## Transferring to Another Machine
-
-```bash
-# From any machine with this repo:
-bash install.sh
-# That's it. Profiles copy to ~/.config/antimicrox/ and service enables.
-```
-
-With Tailscale: `scp -r ai-controller-profile/ remote-machine:~/projects/`
-
----
-
-## Credits
-
-Button layouts stolen (with respect) from:
-- Steam Deck Lizard Mode (Valve)
-- Xbox Dashboard navigation design (Microsoft)  
-- Vizio remote layout (industry IPTV standard)
-- MPV `--input-gamepad=yes` native gamepad mode
-
----
+1. Clone this repo
+2. Run `bash install.sh`
+3. Plug in your controller
+4. Press Right Trigger (RT) to start talking
+5. Say "What's the weather?" and hear the response
 
 ## License
 
-MIT — free to use, free to fork, free to sell your own polished version.
+MIT License - use it for personal or commercial purposes.
