@@ -13,6 +13,7 @@ SENSEI_SESSION = os.environ.get("SENSEI_SESSION", "focus-engine")
 # Transcription style toggle (controlled by slide_keyboard.py mode button)
 # ---------------------------------------------------------------------------
 MODE_FILE = os.path.expanduser("~/.config/ptt_mode")
+VOCAB_FILE = os.path.expanduser("~/.config/ptt_vocabulary.json")
 
 
 
@@ -156,6 +157,41 @@ def _transform_text(text: str, mode: str) -> str:
     elif mode == "big":
         text = _to_big(text)
     return text
+
+
+def _load_vocabulary() -> dict[str, str]:
+    """Load personal STT vocabulary corrections."""
+    try:
+        with open(VOCAB_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("replacements", {})
+    except Exception:
+        return {}
+
+
+_VOCAB_CACHE: dict[str, str] | None = None
+_VOCAB_RE: re.Pattern | None = None
+
+
+def _apply_vocabulary(text: str) -> str:
+    """Fast personal-vocabulary autocorrect. No LLM, no network."""
+    global _VOCAB_CACHE, _VOCAB_RE
+    if _VOCAB_CACHE is None:
+        _VOCAB_CACHE = _load_vocabulary()
+        if _VOCAB_CACHE:
+            # Build regex that matches any vocabulary key with word boundaries
+            pattern = "|".join(re.escape(k) for k in _VOCAB_CACHE)
+            _VOCAB_RE = re.compile(r"(?i)\b(" + pattern + r")\b")
+        else:
+            _VOCAB_RE = None
+    if not _VOCAB_CACHE or _VOCAB_RE is None:
+        return text
+
+    def replace_match(m: re.Match) -> str:
+        key = m.group(1).lower()
+        return _VOCAB_CACHE.get(key, m.group(1))
+
+    return _VOCAB_RE.sub(replace_match, text)
 
 
 def _active_window_class():
@@ -400,6 +436,9 @@ def stop_and_send():
         # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
         transcript = data.get('text', data.get('transcript', ''))
         response = data.get('response', data.get('error', '')).strip()
+
+        # Fast personal-vocabulary autocorrect (applies to PRO and BUBBLY)
+        transcript = _apply_vocabulary(transcript)
 
         # Apply PRO / BUBBLY / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
         mode = _load_ptt_mode()

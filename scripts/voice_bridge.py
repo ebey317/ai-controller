@@ -182,7 +182,15 @@ async def voice(
                             GROQ_STT_URL,
                             headers={"Authorization": f"Bearer {GROQ_KEY}"},
                             files={"file": ("audio.wav", fp, "audio/wav")},
-                            data={"model": "whisper-large-v3-turbo"},
+                            data={
+                                "model": "whisper-large-v3-turbo",
+                                "prompt": (
+                                    "Common terms: AntiMicroX, CLAF, Madam Mary, Hermes, Kimi, "
+                                    "Groq, Whisper, STT, TTS, PTT, Xbox, Microsoft, AI controller, "
+                                    "AI Desktop, Fair Chance, Command Center, Monday.com, Railway, "
+                                    "Meta, Facebook, Indeed, ZipRecruiter, Discord, Telegram, Sensei."
+                                ),
+                            },
                         )
                         r.raise_for_status()
                     except httpx.HTTPStatusError as exc:
