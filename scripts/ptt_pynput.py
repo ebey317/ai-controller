@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, subprocess, os, tempfile, json, threading, wave, struct, time, re
+import sys, subprocess, os, tempfile, json, threading, wave, struct, time, re, random
 from datetime import datetime
 import urllib.request
 import urllib.error
@@ -14,6 +14,7 @@ SENSEI_SESSION = os.environ.get("SENSEI_SESSION", "focus-engine")
 # ---------------------------------------------------------------------------
 MODE_FILE = os.path.expanduser("~/.config/ptt_mode")
 VOCAB_FILE = os.path.expanduser("~/.config/ptt_vocabulary.json")
+INPUT_TARGET_FILE = os.path.expanduser("~/.config/ai_controller_input_target")
 
 
 
@@ -97,15 +98,48 @@ _EMOJI_MAP = {
 
 
 def _load_ptt_mode() -> str:
-    """Return current PTT style mode: 'pro', 'bubbly', 'bold', or 'big'."""
+    """Return current PTT style mode: 'pro', 'bubbly', 'casual', 'bold', or 'big'."""
     try:
         with open(MODE_FILE, "r", encoding="utf-8") as f:
             mode = f.read().strip().lower()
-            if mode in ("pro", "bubbly", "bold", "big"):
+            if mode in ("pro", "bubbly", "casual", "bold", "big"):
                 return mode
     except Exception:
         pass
     return "pro"
+
+
+def _load_input_target() -> str:
+    """Return input target: 'type' (default) or 'clipboard' (copy only)."""
+    try:
+        with open(INPUT_TARGET_FILE, "r", encoding="utf-8") as f:
+            target = f.read().strip().lower()
+            if target in ("type", "clipboard"):
+                return target
+    except Exception:
+        pass
+    return "type"
+
+
+def _type_text_fast(text: str) -> None:
+    """Type text into the focused window.
+
+    xdotool type is the only method that works reliably across terminals,
+    browsers, Discord, games, etc. Unicode (BUBBLY/BOLD/BIG) is injected
+    character-by-character, so it is slower than ASCII; clipboard paste was
+    tried but is not reliable in the operator's target windows.
+
+    PRO/CASUAL use delay 0. Unicode modes use a tiny delay so multi-byte
+    characters don't get dropped by the target field.
+    """
+    env = {**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')}
+    # ASCII (PRO/CASUAL) can be fired as fast as possible.
+    delay = _XDOTOOL_TYPE_DELAY_MS
+    if any(ord(ch) >= 128 for ch in text):
+        delay = 2  # ms; just enough to keep Unicode chars from being dropped
+    subprocess.run(['xdotool', 'type', '--clearmodifiers',
+                    f'--delay={delay}', '--', text],
+                   env=env)
 
 
 def _to_cursive(text: str) -> str:
@@ -140,18 +174,31 @@ def _add_emojis(text: str) -> str:
     return text
 
 
-def _transform_text(text: str, mode: str) -> str:
-    """Apply bubbly/bold/big style: styled letters + simple emoji keywords.
+# Casual-mode emoji boost: appended when no keyword emoji already fired.
+_CASUAL_EMOJIS = ["👋", "☕", "😊", "✌️", "🙌", "🤙", "😎", "✨", "💯", "🔥", "🫡"]
 
-    PRO returns the raw transcript with no changes. BUBBLY uses italic Unicode
-    instead of cursive because cursive glyphs are missing from many fonts,
-    causing gaps and slow rendering. Italic is cursive-like but renders fast.
+
+def _casual_emoji_boost(text: str) -> str:
+    """Append a casual emoji if the text doesn't already end with one."""
+    if any(text.endswith(emoji) for emoji in _EMOJI_MAP.values()):
+        return text
+    return f"{text} {random.choice(_CASUAL_EMOJIS)}"
+
+
+def _transform_text(text: str, mode: str) -> str:
+    """Apply style to transcript based on active mode.
+
+    PRO returns the raw transcript with no changes. BUBBLY uses italic Unicode.
+    CASUAL lowercases everything and gets an extra emoji boost. BOLD and BIG
+    use their respective Unicode letter blocks.
     """
     if mode == "pro":
         return text
     text = _add_emojis(text)
     if mode == "bubbly":
         text = _to_italic(text)
+    elif mode == "casual":
+        text = _casual_emoji_boost(text.lower())
     elif mode == "bold":
         text = _to_bold(text)
     elif mode == "big":
@@ -338,6 +385,12 @@ def _build_wav(raw_path: str, wav_path: str):
         wf.writeframes(data)
 
 
+def _mute_tts():
+    """Kill any playing TTS audio so the mic doesn't capture it."""
+    subprocess.run(['pkill', '-f', 'ai_controller_tts'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def start_recording():
     global recording, rec_proc, rawfile, wavfile, _last_f13_time, _focus_window
     with lock:
@@ -347,10 +400,12 @@ def start_recording():
         if (now - _last_f13_time) * 1000 < _DEBOUNCE_MS:
             return
         _last_f13_time = now
+        # Mute any agent TTS before we open the mic.
+        _mute_tts()
         # Save the currently focused window so we can restore focus before typing.
         # AntiMicroX or other apps may steal focus during recording.
         _focus_window = _active_window()
-        # Auto-space before dictation
+        # Auto-space before dictation so consecutive utterances don't run together.
         subprocess.run(['xdotool', 'key', 'space'],
                        env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')})
         rawfile = tempfile.mktemp(suffix='.raw', dir='/tmp')
@@ -440,21 +495,41 @@ def stop_and_send():
         # Fast personal-vocabulary autocorrect (applies to PRO and BUBBLY)
         transcript = _apply_vocabulary(transcript)
 
-        # Apply PRO / BUBBLY / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
+        # Apply PRO / BUBBLY / CASUAL / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
         mode = _load_ptt_mode()
-        if mode in ("bubbly", "bold", "big") and transcript:
+        if mode in ("bubbly", "casual", "bold", "big") and transcript:
             transcript = _transform_text(transcript, mode)
 
         if response:
             print(f"  Response: {response}", flush=True)
         elif transcript:
-            print(f"  Typed: {transcript}", flush=True)
+            target = _load_input_target()
+            mode = _load_ptt_mode()
+            
+            # Unicode-heavy modes use clipboard paste for speed (xdotool types Unicode char-by-char, which is slow)
+            use_clipboard = (target == "clipboard" or 
+                            _is_discord_voice_window() or 
+                            (_is_browser_window()) or
+                            (mode in ("bubbly", "bold", "big") and len(transcript) > 20))
+            
+            print(f"  Output ({'clipboard' if use_clipboard else 'type'}): {transcript}", flush=True)
             time.sleep(_TYPE_SETTLE_MS / 1000.0)
-            if _is_discord_voice_window():
-                # Discord voice channels have no focused text field; auto-typing
-                # would fall through to the last text channel. Queue it instead.
+            
+            if use_clipboard:
+                # Clipboard paste for Unicode-heavy modes or explicit clipboard target
                 _set_clipboard_text(transcript)
-                _queue_discord_text(transcript)
+                if _is_discord_voice_window():
+                    _queue_discord_text(transcript)
+                elif mode in ("bubbly", "bold", "big") and len(transcript) > 20:
+                    # Unicode modes: paste automatically via Ctrl+V
+                    time.sleep(0.1)  # Give clipboard time to settle
+                    subprocess.run(
+                        ['xdotool', 'key', 'ctrl+v'],
+                        env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=2,
+                    )
             elif _is_browser_window():
                 result = _send_browser_text(transcript)
                 if not result.get("ok"):
@@ -476,9 +551,7 @@ def stop_and_send():
                 # correctly every time, nothing ever appeared on screen).
                 # Plain `xdotool type`, no --window, uses XTestFakeKeyEvent
                 # and goes to whatever has real focus.
-                cmd = ['xdotool', 'type', '--clearmodifiers',
-                       f'--delay={_XDOTOOL_TYPE_DELAY_MS}', '--', transcript]
-                subprocess.run(cmd, env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')})
+                _type_text_fast(transcript)
         else:
             print("  (nothing heard)", flush=True)
     except Exception as ex:
