@@ -6,9 +6,9 @@ Wants=graphical-session.target
 [Service]
 Type=simple
 ExecStart=/bin/bash %h/scripts/controller-profile-switcher.sh
-ExecStopPost=/usr/bin/pkill -f antimicrox.AppImage
-Restart=on-failure
-RestartSec=5
+ExecStopPost=/bin/sh -c '/usr/bin/pkill -x antimicrox || true'
+Restart=always
+RestartSec=2
 Environment=DISPLAY=:0
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 

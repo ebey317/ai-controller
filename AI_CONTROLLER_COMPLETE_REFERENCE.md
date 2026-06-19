@@ -202,6 +202,27 @@ confirmed 2026-06-16 independent of the controller. Replaced entirely.
 - `--show` flag for immediate appearance on launch
 - Dark/orange HUD theme matching the controller-legend overlay
 
+### Keyboard Layout (updated 2026-06-18)
+
+**Lower layer (default):**
+- Row 1: ` 1 2 3 4 5 6 7 8 9 0 - = [backspace]
+- Row 2: [tab] q w e r t y u i o p [ ] \
+- Row 3: [shift] a s d f g h j k l ; ' [enter]
+- Row 4: [ctrl] z x c v b n m , . / [shift]
+
+**Upper layer (Shift held):**
+- Row 1: ~ ! @ # $ % ^ & * ( ) _ + [backspace]
+- Row 2: [tab] Q W E R T Y U I O P { } |
+- Row 3: [shift] A S D F G H J K L : " [enter]
+- Row 4: [ctrl] Z X C V B N M < > ? [shift]
+
+### Ctrl/Alt Combo Support (added 2026-06-18)
+
+- Hold LT (Ctrl) or Alt on controller → open keyboard (View) → click any letter
+- Sends ctrl+letter or alt+letter to the focused app
+- Uses one-shot Gdk.Keymap modifier state read (no listener)
+- No conflict with ptt_pynput.py — state is read once per keystroke, not held
+
 ### Toggle Script
 
 **toggle-slide-keyboard.sh** — Wired to View button (button 5):
@@ -396,6 +417,10 @@ pactl set-default-source alsa_input.usb-Microsoft_Controller_*
 - Restart: on-failure
 - After: claf.service
 - Port: 8002
+- TTS: Edge TTS (en-US-AriaNeural, -22Hz pitch, +12% rate) via edge-tts CLI
+- Fallback: spd-say if Edge TTS unavailable
+- Playback: ~/scripts/hermes_tts_play.sh → mpv lowpass=3000
+- Updated 2026-06-18: _speak() now uses Edge TTS instead of Piper for spoken responses
 
 ---
 

@@ -29,6 +29,11 @@ def _load_env(path: str) -> dict:
                 k, _, v = line.partition("=")
                 out[k.strip()] = v.strip()
     except FileNotFoundError:
+        subprocess.Popen(
+            ["spd-say", "-w", spoken],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         pass
     return out
 
@@ -46,6 +51,56 @@ MAX_TRANSCRIPT_CHARS = int(os.environ.get("VOICE_BRIDGE_MAX_TRANSCRIPT_CHARS", "
 app = FastAPI(title="voice-bridge", version="1.1")
 
 PIPER_MODEL = os.path.expanduser("~/.local/share/piper/en_US-joe-medium.onnx")
+HERMES_TTS_PLAY = os.path.expanduser("~/scripts/hermes_tts_play.sh")
+EDGE_VOICE = "en-US-AriaNeural"
+EDGE_PITCH = "-22Hz"
+EDGE_RATE = "+12%"
+
+
+def _speak(text: str) -> None:
+    """Speak text using Edge TTS (AriaNeural) with tuned voice settings."""
+    if not text:
+        return
+    spoken = text[:500].split("\n")[0]
+    try:
+        # Use Edge TTS for high-fidelity AriaNeural voice
+        mp3_fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
+        os.close(mp3_fd)
+        
+        # Generate TTS with tuned settings
+        subprocess.run(
+            ["edge-tts", "--voice", EDGE_VOICE,
+             "--pitch", EDGE_PITCH,
+             "--rate", EDGE_RATE,
+             "--text", spoken,
+             "--write-media", mp3_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+            timeout=30
+        )
+        
+        # Play through tuned mpv pipeline (lowpass filter, correct sink)
+        if os.path.exists(HERMES_TTS_PLAY):
+            subprocess.Popen(
+                [HERMES_TTS_PLAY, mp3_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            # Fallback: direct mpv playback
+            subprocess.Popen(
+                ["mpv", "--no-video", "--af=lowpass=f=3000", mp3_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except Exception:
+        # Ultimate fallback to spd-say
+        subprocess.Popen(
+            ["spd-say", "-w", spoken],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -80,33 +135,6 @@ async def _secure(request: Request) -> None:
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
-
-def _speak(text: str) -> None:
-    if not text:
-        return
-    spoken = text[:500].split("\n")[0]
-    if os.path.exists(PIPER_MODEL):
-        p1 = subprocess.Popen(
-            ["piper", "-m", PIPER_MODEL, "--output-raw"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        )
-        p2 = subprocess.Popen(
-            ["paplay", "--raw", "--rate=22050", "--format=s16le", "--channels=1"],
-            stdin=p1.stdout,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        p1.stdin.write(spoken.encode())
-        p1.stdin.close()
-        p2.wait()
-    else:
-        subprocess.Popen(
-            ["spd-say", "-w", spoken],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
 
 
 def _extract_claf_text(payload: dict) -> str:
@@ -177,30 +205,37 @@ async def voice(
     if mode == "transcribe_only":
         return JSONResponse({"text": transcript})
 
-    # ── LLM — route voice commands through CLAF ───────────────────────────────
+    # ── LLM — route voice commands through Groq free tier ───────────────────
+    # Direct Groq call instead of CLAF local Ollama for speed.
+    # Free models: llama-3.3-70b-versatile, llama-3.1-8b-instant, qwen3-32b
+    GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+    GROQ_LLM_MODEL = os.environ.get("VOICE_BRIDGE_LLM_MODEL", "llama-3.3-70b-versatile")
     payload = {
-        "model": "qwen2.5-coder:7b",
+        "model": GROQ_LLM_MODEL,
         "messages": [{"role": "user", "content": transcript}],
         "max_tokens": 256,
     }
 
-    async with httpx.AsyncClient(timeout=CLAF_TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=GROQ_TIMEOUT) as client:
         try:
             r = await client.post(
-                f"{CLAF_URL}/v1/messages",
-                headers={"Content-Type": "application/json"},
+                GROQ_CHAT_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {GROQ_KEY}",
+                },
                 json=payload,
             )
             r.raise_for_status()
-            response_text = _extract_claf_text(r.json())
+            response_text = _extract_groq_text(r.json())
         except httpx.HTTPStatusError as exc:
             return JSONResponse(
-                {"transcript": transcript, "error": f"CLAF HTTP {exc.response.status_code}"},
+                {"transcript": transcript, "error": f"Groq LLM HTTP {exc.response.status_code}"},
                 status_code=502,
             )
         except httpx.RequestError as exc:
             return JSONResponse(
-                {"transcript": transcript, "error": f"CLAF request failed: {exc}"},
+                {"transcript": transcript, "error": f"Groq LLM request failed: {exc}"},
                 status_code=502,
             )
 

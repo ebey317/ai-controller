@@ -1,0 +1,14 @@
+[Unit]
+Description=Voice Bridge — PTT → Groq Whisper → CLAF → spd-say
+After=claf.service
+Wants=claf.service
+
+[Service]
+ExecStart=/home/elijah/projects/claf/.venv/bin/python3 \
+    /home/elijah/projects/ai-controller-profile/scripts/voice_bridge.py
+WorkingDirectory=/home/elijah/projects/ai-controller-profile
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
