@@ -1,12 +1,8 @@
 #!/bin/bash
-# Hermes TTS playback wrapper - routes audio to controller headphones via mpv
-# Locked settings: pitch=-22Hz, rate=+12%, voice=en-US-AriaNeural
+# Hermes TTS playback wrapper — routes audio to the configured output device.
+# Reads AUDIO_OUTPUT from ~/.config/ai-controller/config.env if available.
 
 AUDIO_FILE="$1"
-# Controller headphones (requires xone_gip_headset, currently blacklisted)
-#SINK="pulse/alsa_output.usb-Microsoft_Controller_3039373130383038333134313433-00.stereo-fallback"
-# Motherboard analog (3.5mm jack)
-SINK="pulse/alsa_output.pci-0000_28_00.4.analog-stereo"
 
 if [[ -z "$AUDIO_FILE" ]]; then
     echo "Usage: $0 <audio_file.mp3>"
@@ -18,5 +14,17 @@ if [[ ! -f "$AUDIO_FILE" ]]; then
     exit 1
 fi
 
-# Play with mpv, no video, to controller headphones
-mpv --no-video --audio-device="$SINK" --af=lowpass=f=3000 "$AUDIO_FILE" 2>/dev/null
+CONFIG_FILE="${HOME}/.config/ai-controller/config.env"
+AUDIO_OUTPUT=""
+if [[ -f "$CONFIG_FILE" ]]; then
+    # shellcheck source=/dev/null
+    AUDIO_OUTPUT=$(set -a; source "$CONFIG_FILE" 2>/dev/null; echo "${AUDIO_OUTPUT:-}")
+fi
+
+if [[ -n "$AUDIO_OUTPUT" ]]; then
+    SINK="pulse/${AUDIO_OUTPUT}"
+    mpv --no-video --audio-device="$SINK" --af=lowpass=f=3000 "$AUDIO_FILE" 2>/dev/null
+else
+    # No output device configured — let PulseAudio use the default sink.
+    mpv --no-video --af=lowpass=f=3000 "$AUDIO_FILE" 2>/dev/null
+fi

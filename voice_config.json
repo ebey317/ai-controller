@@ -1,0 +1,9 @@
+{
+  "model_path": "/home/elijah/scripts/voices/en_US-lessac-medium.onnx",
+  "length_scale": 1.1,
+  "inter_sentence_pause": 0.6,
+  "sink": "alsa_output.usb-Microsoft_Controller_3039373130383038333134313433-00.stereo-fallback",
+  "edge_voice": "en-US-AriaNeural",
+  "edge_pitch": "-22Hz",
+  "edge_rate": "+12%"
+}

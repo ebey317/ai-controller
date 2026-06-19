@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import tempfile
 from typing import Optional
 
@@ -14,32 +15,19 @@ import httpx
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
+# Make ai_controller_paths importable when running from any cwd.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+from ai_controller_paths import ai_controller_dir, load_env
+
 
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
 
-def _load_env(path: str) -> dict:
-    """Pull keys from CLAF .env without importing dotenv."""
-    out: dict[str, str] = {}
-    try:
-        for line in open(os.path.expanduser(path), encoding="utf-8"):
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                out[k.strip()] = v.strip()
-    except FileNotFoundError:
-        subprocess.Popen(
-            ["spd-say", "-w", spoken],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        pass
-    return out
-
-
-_env = _load_env("~/projects/claf/.env")
-GROQ_KEY = _env.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY", "")
+_env = load_env()
+GROQ_KEY = os.environ.get("GROQ_API_KEY") or _env.get("GROQ_API_KEY", "")
 CLAF_URL = (os.environ.get("CLAF_URL") or _env.get("CLAF_URL") or "http://localhost:8000").rstrip("/")
 VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
 
@@ -50,8 +38,9 @@ MAX_TRANSCRIPT_CHARS = int(os.environ.get("VOICE_BRIDGE_MAX_TRANSCRIPT_CHARS", "
 
 app = FastAPI(title="voice-bridge", version="1.1")
 
-PIPER_MODEL = os.path.expanduser("~/.local/share/piper/en_US-joe-medium.onnx")
-HERMES_TTS_PLAY = os.path.expanduser("~/scripts/hermes_tts_play.sh")
+AI_DIR = ai_controller_dir()
+PIPER_MODEL = os.path.join(AI_DIR, "voices", "en_US-joe-medium.onnx")
+HERMES_TTS_PLAY = os.path.join(AI_DIR, "scripts", "hermes_tts_play.sh")
 EDGE_VOICE = "en-US-AriaNeural"
 EDGE_PITCH = "-22Hz"
 EDGE_RATE = "+12%"
@@ -69,9 +58,9 @@ def _speak(text: str) -> None:
         
         # Generate TTS with tuned settings
         subprocess.run(
-            ["edge-tts", "--voice", EDGE_VOICE,
-             "--pitch", EDGE_PITCH,
-             "--rate", EDGE_RATE,
+            [sys.executable, "-m", "edge_tts", "--voice", EDGE_VOICE,
+             "--pitch=" + EDGE_PITCH,
+             "--rate=" + EDGE_RATE,
              "--text", spoken,
              "--write-media", mp3_path],
             stdout=subprocess.DEVNULL,
