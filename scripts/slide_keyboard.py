@@ -16,6 +16,7 @@ styled to match the controller-legend HUD (same dark/orange theme, rounded
 panel) so it reads as part of the same floating-overlay family instead of
 a separate full-width dock. Press F14 again to pop it back down.
 """
+import os
 import signal
 import subprocess
 import sys
@@ -24,6 +25,9 @@ import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, GLib
+
+# Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
+PTT_MODE_FILE = os.path.expanduser("~/.config/ptt_mode")
 
 ROWS_LOWER = [
     ["`", "esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "bksp"],
@@ -91,6 +95,7 @@ button {
 }
 button:hover { background-color: #2f2f3a; }
 button.special { background-color: #1a2226; color: #FF6A00; border-color: #4a3318; }
+button.mode { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; padding: 2px 10px; }
 """
 
 
@@ -148,10 +153,22 @@ class SlideKeyboard(Gtk.Window):
         self.panel.set_margin_bottom(10)
         self.add(self.panel)
 
+        # Header bar: PRO / BUBBLY mode toggle for voice transcription style
+        self.header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.header.set_margin_start(8)
+        self.header.set_margin_end(8)
+        self.header.set_margin_top(6)
+        self.panel.pack_start(self.header, False, False, 0)
+
+        self.mode_btn = Gtk.Button(label=self._mode_label())
+        self.mode_btn.get_style_context().add_class("mode")
+        self.mode_btn.connect("clicked", self._on_mode_toggle)
+        self.header.pack_end(self.mode_btn, False, False, 0)
+
         self.grid = Gtk.Grid(column_spacing=4, row_spacing=4)
         self.grid.set_margin_start(8)
         self.grid.set_margin_end(8)
-        self.grid.set_margin_top(8)
+        self.grid.set_margin_top(6)
         self.grid.set_margin_bottom(8)
         self.panel.pack_start(self.grid, True, True, 0)
         self._build_keys()
@@ -176,6 +193,29 @@ class SlideKeyboard(Gtk.Window):
         self.set_opacity(0.0)
         self.visible_state = False
         self._anim_id = None
+
+    def _load_ptt_mode(self) -> str:
+        try:
+            with open(PTT_MODE_FILE, "r", encoding="utf-8") as f:
+                mode = f.read().strip().lower()
+                if mode in ("pro", "bubbly"):
+                    return mode
+        except Exception:
+            pass
+        return "pro"
+
+    def _save_ptt_mode(self, mode: str) -> None:
+        os.makedirs(os.path.dirname(PTT_MODE_FILE), exist_ok=True)
+        with open(PTT_MODE_FILE, "w", encoding="utf-8") as f:
+            f.write(mode)
+
+    def _mode_label(self) -> str:
+        return "BUBBLY ✨" if self._load_ptt_mode() == "bubbly" else "PRO 🎩"
+
+    def _on_mode_toggle(self, _widget):
+        new_mode = "bubbly" if self._load_ptt_mode() == "pro" else "pro"
+        self._save_ptt_mode(new_mode)
+        self.mode_btn.set_label(self._mode_label())
 
     def _build_keys(self):
         for child in self.grid.get_children():

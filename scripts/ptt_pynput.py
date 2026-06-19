@@ -9,6 +9,154 @@ endpoint = "http://localhost:8002/voice"
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8080")
 SENSEI_SESSION = os.environ.get("SENSEI_SESSION", "focus-engine")
 
+# ---------------------------------------------------------------------------
+# Transcription style toggle (controlled by slide_keyboard.py mode button)
+# ---------------------------------------------------------------------------
+MODE_FILE = os.path.expanduser("~/.config/ptt_mode")
+
+
+
+# Unicode font maps (standalone, no dependencies)
+_CURSIVE_LOWER = "𝓪𝓫𝓬𝓭𝓮𝓯𝓰𝓱𝓲𝓳𝓴𝓵𝓶𝓷𝓸𝓹𝓺𝓻𝓼𝓽𝓾𝓿𝔀𝔁𝔂𝔃"
+_CURSIVE_UPPER = "𝓐𝓑𝓒𝓓𝓔𝓕𝓖𝓗𝓘𝓙𝓚𝓛𝓜𝓝𝓞𝓟𝓠𝓡𝓢𝓣𝓤𝓥𝓦𝓧𝓨𝓩"
+_CURSIVE_MAP = {
+    **{chr(0x61 + i): _CURSIVE_LOWER[i] for i in range(26)},
+    **{chr(0x41 + i): _CURSIVE_UPPER[i] for i in range(26)},
+}
+
+_BOLD_LOWER = "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
+_BOLD_UPPER = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
+_BOLD_MAP = {
+    **{chr(0x61 + i): _BOLD_LOWER[i] for i in range(26)},
+    **{chr(0x41 + i): _BOLD_UPPER[i] for i in range(26)},
+}
+
+# Sans-serif italic — cursive-like but renders faster and more complete than script
+_ITALIC_LOWER = "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻"
+_ITALIC_UPPER = "𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘑𝘒𝘓𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝘞𝘟𝘠𝘡"
+_ITALIC_MAP = {
+    **{chr(0x61 + i): _ITALIC_LOWER[i] for i in range(26)},
+    **{chr(0x41 + i): _ITALIC_UPPER[i] for i in range(26)},
+}
+
+# Fullwidth characters: visually wider/larger than normal ASCII
+_FULLWIDTH_LOWER = "ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ"
+_FULLWIDTH_UPPER = "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ"
+_FULLWIDTH_DIGITS = "０１２３４５６７８９"
+_FULLWIDTH_MAP = {
+    **{chr(0x61 + i): _FULLWIDTH_LOWER[i] for i in range(26)},
+    **{chr(0x41 + i): _FULLWIDTH_UPPER[i] for i in range(26)},
+    **{chr(0x30 + i): _FULLWIDTH_DIGITS[i] for i in range(10)},
+}
+
+# Big standalone emoji keyword map — no LLM, no network, instant
+_EMOJI_MAP = {
+    # emotions
+    "happy": "happy 😊", "sad": "sad 😢", "love": "love ❤️", "hate": "hate 😠",
+    "heart": "heart ❤️", "excited": "excited 🤩", "bored": "bored 😐",
+    "angry": "angry 😠", "mad": "mad 🤬", "tired": "tired 😴", "sleepy": "sleepy 😴",
+    "sick": "sick 🤒", "surprised": "surprised 😲", "shocked": "shocked 😱",
+    "confused": "confused 😕", "worried": "worried 😟", "proud": "proud 🥹",
+    "embarrassed": "embarrassed 😳", "scared": "scared 😨", "lonely": "lonely 🥺",
+    # reactions
+    "lol": "lol 😂", "haha": "haha 😂", "lmao": "lmao 🤣", "wow": "wow 🤯",
+    "omg": "omg 😱", "yay": "yay 🎉", "woo": "woo 🥳", "yikes": "yikes 😬",
+    "ugh": "ugh 😩", "meh": "meh 😒", "hm": "hm 🤔", "hmm": "hmm 🤔",
+    # greetings / goodbyes
+    "hello": "hello 👋", "hi": "hi 👋", "hey": "hey 👋",
+    "goodbye": "goodbye 👋", "bye": "bye 👋", "see you": "see you 👋",
+    "good morning": "good morning 🌅", "good night": "good night 🌙",
+    "thank you": "thank you 🙏", "thanks": "thanks 🙏", "please": "please 🥺",
+    "sorry": "sorry 😔", "apologize": "apologize 🙇",
+    # quality
+    "fire": "fire 🔥", "cool": "cool 😎", "nice": "nice ✨", "great": "great 🎉",
+    "awesome": "awesome 🤩", "amazing": "amazing 🤩", "perfect": "perfect 💯",
+    "good": "good 👍", "bad": "bad 👎", "ok": "ok 👌", "okay": "okay 👌",
+    "yes": "yes ✅", "no": "no ❌", "maybe": "maybe 🤷", "definitely": "definitely 💯",
+    "check": "check ✅", "done": "done ✅", "finished": "finished ✅",
+    # food / drink
+    "hungry": "hungry 🍔", "coffee": "coffee ☕", "beer": "beer 🍺", "wine": "wine 🍷",
+    "pizza": "pizza 🍕", "taco": "taco 🌮", "burger": "burger 🍔", "fries": "fries 🍟",
+    "cake": "cake 🍰", "ice cream": "ice cream 🍦", "chocolate": "chocolate 🍫",
+    "water": "water 💧", "tea": "tea 🍵", "breakfast": "breakfast 🍳", "dinner": "dinner 🍽️",
+    # objects / tech
+    "phone": "phone 📱", "computer": "computer 💻", "laptop": "laptop 💻",
+    "game": "game 🎮", "controller": "controller 🎮", "music": "music 🎵",
+    "book": "book 📚", "movie": "movie 🎬", "tv": "tv 📺", "money": "money 💰",
+    "idea": "idea 💡", "light": "light 💡", "warning": "warning ⚠️", "rocket": "rocket 🚀",
+    "time": "time ⏰", "date": "date 📅", "mail": "mail 📧", "email": "email 📧",
+    # nature / animals
+    "sun": "sun ☀️", "moon": "moon 🌙", "star": "star ⭐", "rain": "rain 🌧️",
+    "snow": "snow ❄️", "fire": "fire 🔥", "ghost": "ghost 👻", "skull": "skull 💀",
+    "cat": "cat 🐱", "dog": "dog 🐶", "bird": "bird 🐦", "fish": "fish 🐟",
+    # events
+    "party": "party 🎉", "birthday": "birthday 🎂", "congratulations": "congratulations 🎉",
+    "weekend": "weekend 🎉", "work": "work 💼", "job": "job 💼",
+}
+
+
+def _load_ptt_mode() -> str:
+    """Return current PTT style mode: 'pro', 'bubbly', 'bold', or 'big'."""
+    try:
+        with open(MODE_FILE, "r", encoding="utf-8") as f:
+            mode = f.read().strip().lower()
+            if mode in ("pro", "bubbly", "bold", "big"):
+                return mode
+    except Exception:
+        pass
+    return "pro"
+
+
+def _to_cursive(text: str) -> str:
+    """Map ASCII letters to cursive script Unicode."""
+    return "".join(_CURSIVE_MAP.get(ch, ch) for ch in text)
+
+
+def _to_bold(text: str) -> str:
+    """Map ASCII letters to bold mathematical Unicode."""
+    return "".join(_BOLD_MAP.get(ch, ch) for ch in text)
+
+
+def _to_italic(text: str) -> str:
+    """Map ASCII letters to sans-serif italic Unicode."""
+    return "".join(_ITALIC_MAP.get(ch, ch) for ch in text)
+
+
+def _to_big(text: str) -> str:
+    """Map ASCII letters/digits to fullwidth Unicode (visually larger)."""
+    return "".join(_FULLWIDTH_MAP.get(ch, ch) for ch in text)
+
+
+def _add_emojis(text: str) -> str:
+    """Append an emoji when a known keyword is present. Preserves full text."""
+    lowered = text.lower()
+    # Longer phrases first so 'thank you' beats 'thanks'
+    for phrase in sorted(_EMOJI_MAP, key=len, reverse=True):
+        if phrase in lowered:
+            # Strip the keyword prefix from the mapped value to get just the emoji
+            emoji = _EMOJI_MAP[phrase][len(phrase):].strip()
+            return f"{text} {emoji}"
+    return text
+
+
+def _transform_text(text: str, mode: str) -> str:
+    """Apply bubbly/bold/big style: styled letters + simple emoji keywords.
+
+    PRO returns the raw transcript with no changes. BUBBLY uses italic Unicode
+    instead of cursive because cursive glyphs are missing from many fonts,
+    causing gaps and slow rendering. Italic is cursive-like but renders fast.
+    """
+    if mode == "pro":
+        return text
+    text = _add_emojis(text)
+    if mode == "bubbly":
+        text = _to_italic(text)
+    elif mode == "bold":
+        text = _to_bold(text)
+    elif mode == "big":
+        text = _to_big(text)
+    return text
+
 
 def _active_window_class():
     """Return WM_CLASS of active X11 window, or ''."""
@@ -126,7 +274,7 @@ _focus_window = None  # saved at recording start so we can restore focus before 
 _last_f13_time = 0.0
 _DEBOUNCE_MS = 200
 # Time for the user's finger to come off the controller before we inject keys.
-_TYPE_SETTLE_MS = 300
+_TYPE_SETTLE_MS = 50
 # Type as fast as xdotool allows to minimize the window for controller interference.
 _XDOTOOL_TYPE_DELAY_MS = 0
 
@@ -252,6 +400,12 @@ def stop_and_send():
         # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
         transcript = data.get('text', data.get('transcript', ''))
         response = data.get('response', data.get('error', '')).strip()
+
+        # Apply PRO / BUBBLY / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
+        mode = _load_ptt_mode()
+        if mode in ("bubbly", "bold", "big") and transcript:
+            transcript = _transform_text(transcript, mode)
+
         if response:
             print(f"  Response: {response}", flush=True)
         elif transcript:
