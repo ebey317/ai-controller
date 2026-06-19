@@ -15,7 +15,7 @@ PAGE_STATE = os.path.expanduser("~/.controller_legend_page")
 # All button mappings organized by profile (can span multiple pages)
 ALL_LAYOUTS = {
     "desktop": [
-        # Active profile: ai-desktop.amgp
+        # User-confirmed controller layout (active AntiMicroX profile is ai-desktop.amgp)
         ("A",    "Click"),
         ("B",    "Bksp"),
         ("X",    "Del"),
@@ -24,11 +24,11 @@ ALL_LAYOUTS = {
         ("RB",   "W·Tab"),
         ("LT",   "Ctrl"),
         ("RT",   "Talk"),
-        ("View", "Tab"),
-        ("≡",    "Space"),
-        ("Logo", "R·Clk"),
-        ("LS",   "Enter"),
-        ("RS",   "Shift"),
+        ("⧉",    "Tab"),    # View (back)
+        ("☰",    "Space"),  # Menu / Start
+        ("🎮",   "R·Clk"),  # Xbox/Guide button
+        ("LS",   "Space"),
+        ("RS",   "Enter"),
         ("D↕",   "Arrows"),
     ],
     "browser": [
@@ -66,7 +66,7 @@ ALL_LAYOUTS = {
 }
 
 BUTTONS_PER_PAGE = 14  # Fit desktop layout on a single page
-POINTER_H = 8  # height of the smoke triangle above the box
+POINTER_H = 10  # height of the smoke triangle above the box
 
 CSS = b"""
 window {
@@ -106,11 +106,11 @@ class Legend(Gtk.Window):
         # Main strip
         self.grid = Gtk.Grid()
         self.grid.set_column_spacing(5)
-        self.grid.set_row_spacing(1)
+        self.grid.set_row_spacing(2)
         self.grid.set_margin_start(6)
-        self.grid.set_margin_end(6)
-        self.grid.set_margin_top(3)
-        self.grid.set_margin_bottom(3)
+        self.grid.set_margin_end(2)
+        self.grid.set_margin_top(5)
+        self.grid.set_margin_bottom(5)
         outer.pack_start(self.grid, False, False, 0)
 
         # Profile badge top-right
@@ -120,7 +120,7 @@ class Legend(Gtk.Window):
 
         # Page indicator bottom-right
         self.page_lbl = Gtk.Label()
-        self.page_lbl.set_markup('<span font_family="monospace" font_size="5000" foreground="#666666">1/1</span>')
+        self.page_lbl.set_markup('<span font_family="monospace" font_size="6000" foreground="#666666">1/1</span>')
         self.page_lbl.set_halign(Gtk.Align.END)
         outer.pack_start(self.page_lbl, False, False, 0)
 
@@ -240,19 +240,21 @@ class Legend(Gtk.Window):
             f'<span font_family="monospace" font_size="6000" foreground="#666666">{self._current_page + 1}/{total_pages}</span>')
         self.mode_lbl.set_markup(
             f'<span font_family="monospace" weight="bold" '
-            f'font_size="5000" foreground="#FF6A00">{profile.upper()}</span>')
+            f'font_size="6000" foreground="#FF6A00">{profile.upper()}</span>')
         # Update button labels for current page
         page_layout = self._get_page_layout(layout, self._current_page)
         for i, (bl, al) in enumerate(zip(self.btn_labels, self.act_labels)):
             if i < len(page_layout):
                 b, a = page_layout[i]
+                bl.show()
+                al.show()
                 bl.set_markup(f'<span font_family="monospace" weight="bold" '
-                               f'font_size="7000" foreground="#FF6A00">{b}</span>')
+                               f'font_size="9000" foreground="#FF6A00">{b}</span>')
                 al.set_markup(f'<span font_family="monospace" '
-                               f'font_size="6000" foreground="#aaaaaa">{a}</span>')
+                               f'font_size="8500" foreground="#aaaaaa">{a}</span>')
             else:
-                bl.set_markup("")
-                al.set_markup("")
+                bl.hide()
+                al.hide()
 
     def next_page(self):
         """Go to next page."""
@@ -312,7 +314,7 @@ class Legend(Gtk.Window):
 
 def get_profile():
     try:
-        return open(PROFILE_STATE).read().strip()
+        return open(PROFILE_STATE).read().strip().lower()
     except:
         return "desktop"
 
