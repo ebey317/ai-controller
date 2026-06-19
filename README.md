@@ -1,4 +1,7 @@
-# AI Controller Profile - $10 Couch Computing Solution
+# AI Controller Profile — $10 Couch Computing Solution
+
+> **Consolidated into [`-AI-controller.`](https://github.com/ebey317/-AI-controller.)**  
+> This repo is kept for history. The canonical standalone archive (now $30) lives at the link above.
 
 **Plug in an Xbox/PlayStation controller → talk to AI with voice commands → hear responses. No keyboard. No mouse.**
 
