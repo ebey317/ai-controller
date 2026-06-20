@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
-import sys, subprocess, os, tempfile, json, threading, wave, struct, time, re, random
-from datetime import datetime
-import urllib.request
+import json
+import os
+import random
+import re
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import time
 import urllib.error
+import urllib.request
+import wave
+from datetime import datetime
+
 from pynput import keyboard
 
 endpoint = "http://localhost:8002/voice"
