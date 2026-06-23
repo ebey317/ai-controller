@@ -52,6 +52,33 @@ Mouse uses `<mode>mousebutton</mode>` with `<code>1</code>` (left), `2` (right),
 
 ---
 
+## FINAL 100% LINUX LAYOUT — DESKTOP (locked 2026-06-20)
+
+The canonical single-profile desktop mapping. Text-editing first: precise caret
+control, modifier-holds for copy/paste/select, dictation on RT. This is the
+reference the `ai-desktop.amgp` profile should match.
+
+| Controller Input | Linux Action / Output | Purpose & Workflow |
+|------------------|-----------------------|--------------------|
+| **Left Joystick** | Smooth mouse move | Move cursor anywhere without disrupting text boxes |
+| **Left Stick Click (LS)** | Spacebar | Standard gaps while typing |
+| **Right Joystick** | Mouse scroll wheel | Scroll vertically through chats, web pages, code |
+| **Right Stick Click (RS)** | Enter | Submit text fields, searches, or forms instantly |
+| **D-Pad (all dirs)** | Arrow keys | Move the caret letter-by-letter for precise edits |
+| **Right Trigger (RT)** | Linux STT (dictation) | Hold to dictate to the caret; release to stop |
+| **Left Trigger (LT)** | Hold Ctrl | Hold while clicking keys to copy/paste (Ctrl+C) |
+| **Right Bumper (RB)** | Right-click | Context menus, spellcheck, options |
+| **Left Bumper (LB)** | Hold Shift | Capitalize letters or highlight lines |
+| **A** | Left-click | Select items, plant caret insertion point |
+| **B** | Backspace / Escape | Erase previous letters or back out of menus |
+| **X** | Delete | Erase characters in front of the caret |
+| **Y** | Super (Windows key) | Launch App Launcher / Activity Overview |
+| **View (⧉)** | Toggle onboard | Open/collapse the virtual keyboard |
+| **Menu (☰)** | Tab | Skip to the next text box / field |
+| **Xbox Guide** | Super+Tab (Alt-Tab) | Cycle through all open windows/apps |
+
+---
+
 ## BUTTON LAYOUTS
 
 | Button | Desktop | Browser | IPTV / TV |

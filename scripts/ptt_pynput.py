@@ -517,34 +517,38 @@ def stop_and_send():
             target = _load_input_target()
             mode = _load_ptt_mode()
             
-            # Unicode-heavy modes use clipboard paste for speed (xdotool types Unicode char-by-char, which is slow)
-            use_clipboard = (target == "clipboard" or 
-                            _is_discord_voice_window() or 
-                            (_is_browser_window()) or
-                            (mode in ("bubbly", "bold", "big") and len(transcript) > 20))
-            
-            print(f"  Output ({'clipboard' if use_clipboard else 'type'}): {transcript}", flush=True)
+            # Unicode modes always use clipboard — xdotool type drops multi-byte chars.
+            # Browser windows always use clipboard so ctrl+v or Sensei inject can fire.
+            is_browser = _is_browser_window()
+            is_discord = _is_discord_voice_window()
+            is_unicode_mode = mode in ("bubbly", "bold", "big")
+            use_clipboard = (target == "clipboard" or is_discord or is_browser or is_unicode_mode)
+
+            print(f"  Output ({'clipboard' if use_clipboard else 'type'}, mode={mode}): {transcript}", flush=True)
             time.sleep(_TYPE_SETTLE_MS / 1000.0)
-            
+
             if use_clipboard:
-                # Clipboard paste for Unicode-heavy modes or explicit clipboard target
                 _set_clipboard_text(transcript)
-                if _is_discord_voice_window():
+                if is_discord:
                     _queue_discord_text(transcript)
-                elif mode in ("bubbly", "bold", "big") and len(transcript) > 20:
-                    # Unicode modes: paste automatically via Ctrl+V
-                    time.sleep(0.1)  # Give clipboard time to settle
+                elif is_browser:
+                    result = _send_browser_text(transcript)
+                    if not result.get("ok"):
+                        print(f"  Browser inject failed: {result.get('error')} — falling back to ctrl+v", flush=True)
+                        time.sleep(0.1)
+                        subprocess.run(
+                            ['xdotool', 'key', 'ctrl+v'],
+                            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
+                        )
+                elif is_unicode_mode:
+                    # Paste Unicode text automatically; plain clipboard target leaves it to the user.
+                    time.sleep(0.1)
                     subprocess.run(
                         ['xdotool', 'key', 'ctrl+v'],
                         env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=2,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
                     )
-            elif _is_browser_window():
-                result = _send_browser_text(transcript)
-                if not result.get("ok"):
-                    print(f"  Browser inject failed: {result.get('error')}", flush=True)
             else:
                 # Restore focus to the window that was active when recording
                 # started — AntiMicroX or other apps may have stolen it.
