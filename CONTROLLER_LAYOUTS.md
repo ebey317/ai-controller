@@ -96,8 +96,8 @@ reference the `ai-desktop.amgp` profile should match.
 | **R-stick** | Scroll wheel | Scroll wheel | Scroll wheel |
 | **Back/View** | Delete | Bookmark (Ctrl+D) | Guide/EPG (g) |
 | **Start/Menu** | Middle click | Address bar (Ctrl+L) | Menu (m) |
-| **L3** | F13 (PTT) | Middle click | Mute (m) |
-| **R3** | Super | Close tab (Ctrl+W) | Subtitles (j) |
+| **L3 (LS click)** | Spacebar | Middle click | Mute (m) |
+| **R3 (RS click)** | Enter / Return | Close tab (Ctrl+W) | Subtitles (j) |
 
 ---
 
