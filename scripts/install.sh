@@ -83,6 +83,101 @@ echo "→ Installing push-to-talk script..."
 cp "$SCRIPT_DIR/scripts/push-to-talk.sh" "$HOME/scripts/push-to-talk.sh"
 chmod +x "$HOME/scripts/push-to-talk.sh"
 
+# ── 6. F13 KEYMAP PERSISTENCE (Linux only) ────────────────────────────────────
+# RT emits keysym F13 for dictation, but F13 has no keycode in the default X11
+# keymap, and desktop keyboard daemons (Cinnamon csd-keyboard, GNOME, etc.)
+# wipe xmodmap changes shortly after login. Three layers make F13 survive:
+#   (a) ~/.Xmodmap          — the keycode definitions (source of truth)
+#   (b) ~/.xsessionrc       — load them at X session start
+#   (c) autostart .desktop  — re-load AFTER the keyboard daemon resets the map
+#   (d) ptt service ExecStartPre also re-applies it (installed in step 4)
+if [[ "$OS" == "linux" ]]; then
+    echo ""
+    echo "→ Installing F13-F18 keymap persistence..."
+
+    # (a) keycode definitions — only write if ours aren't already present
+    if [[ ! -f "$HOME/.Xmodmap" ]] || ! grep -q "keycode 202 = F13" "$HOME/.Xmodmap" 2>/dev/null; then
+        cat >> "$HOME/.Xmodmap" << 'EOF'
+! F13-F18 keycodes for AI Controller (PTT + onboard keyboard scanner)
+! These survive restart when loaded via .xsessionrc + autostart + ptt service.
+keycode 191 = F13
+keycode 202 = F13
+keycode 197 = F14
+keycode 217 = F15
+keycode 219 = F16
+keycode 222 = F17
+keycode 230 = F18
+EOF
+    fi
+
+    # (b) load at X session start (idempotent)
+    if ! grep -q "xmodmap ~/.Xmodmap" "$HOME/.xsessionrc" 2>/dev/null; then
+        echo '[ -f ~/.Xmodmap ] && xmodmap ~/.Xmodmap' >> "$HOME/.xsessionrc"
+    fi
+
+    # (c) re-apply after the desktop keyboard daemon resets the keymap
+    mkdir -p "$HOME/.config/autostart"
+    cat > "$HOME/.config/autostart/fix-f13-keymap.desktop" << 'EOF'
+[Desktop Entry]
+Name=Fix F13 Keymap
+Comment=Re-apply ~/.Xmodmap after the keyboard daemon resets the keymap, so RT->F13 dictation survives login
+Exec=bash -c 'sleep 5; xmodmap ~/.Xmodmap'
+Type=Application
+Terminal=false
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+Categories=Utility;Accessibility;
+EOF
+
+    # apply to the running session immediately
+    [ -n "$DISPLAY" ] && xmodmap "$HOME/.Xmodmap" 2>/dev/null || true
+    echo "✓ F13 keymap will persist across login + service restart"
+fi
+
+# ── 7. XBOX CONTROLLER HEADSET AUDIO DRIVER (Linux only) ──────────────────────
+# Dictation mic + headset audio comes through the controller's 3.5mm jack,
+# exposed by the xone-gip-headset kernel module. It must load at boot and must
+# NOT be blacklisted. (xpad / mt76x2u stay blacklisted — they conflict.)
+if [[ "$OS" == "linux" ]] && command -v sudo &>/dev/null; then
+    echo ""
+    echo "→ Configuring Xbox controller headset audio driver (needs sudo)..."
+
+    # load at boot
+    echo "xone-gip-headset" | sudo tee /etc/modules-load.d/xone-headset.conf >/dev/null
+
+    # neutralize any blacklist of the headset module (preserve other blacklists)
+    for f in /etc/modprobe.d/*.conf; do
+        if grep -q "blacklist[[:space:]]\+xone_gip_headset" "$f" 2>/dev/null; then
+            sudo sed -i 's/^[[:space:]]*blacklist[[:space:]]\+xone_gip_headset/# &  (disabled by ai-controller installer: needed for headset audio)/' "$f"
+            echo "  ✓ removed headset blacklist in $(basename "$f")"
+        fi
+    done
+
+    # load it now
+    sudo modprobe xone-gip-headset 2>/dev/null || true
+    if lsmod | grep -q xone_gip_headset; then
+        echo "✓ Headset audio driver loaded and set to load at boot"
+    else
+        echo "  ! xone-gip-headset not loaded — is the xone DKMS package installed?"
+    fi
+fi
+
+# ── 8. HEADSET MIC AUTO-WAKE (Linux only) ─────────────────────────────────────
+# The controller announces its headset over GIP only on an analog insertion
+# edge, so on boot/reconnect with the plug already seated the mic stays dead
+# until a manual 3.5mm reseat. This installs a udev-triggered service that
+# performs that reseat in software on connect — no plug-pull needed.
+if [[ "$OS" == "linux" ]] && command -v sudo &>/dev/null; then
+    echo ""
+    echo "→ Installing headset mic auto-wake (needs sudo)..."
+    sudo install -m 0755 "$SCRIPT_DIR/scripts/xbox-headset-wake.sh" /usr/local/bin/xbox-headset-wake.sh
+    sudo install -m 0644 "$SCRIPT_DIR/systemd/xbox-headset-wake.service" /etc/systemd/system/xbox-headset-wake.service
+    sudo install -m 0644 "$SCRIPT_DIR/udev/52-xbox-headset-wake.rules" /etc/udev/rules.d/52-xbox-headset-wake.rules
+    sudo systemctl daemon-reload
+    sudo udevadm control --reload-rules
+    echo "✓ Headset mic will auto-wake on controller connect (no manual reseat)"
+fi
+
 echo ""
 echo "======================================"
 echo "  INSTALLATION COMPLETE"

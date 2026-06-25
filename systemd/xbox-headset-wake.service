@@ -1,0 +1,9 @@
+[Unit]
+Description=Wake Xbox controller headset mic on connect (software reseat)
+# Started --no-block by udev on controller connect; runs once and exits.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/xbox-headset-wake.sh
+# Hard cap so a stuck kick never lingers (3+2+1+3s of sleeps = ~9s worst case).
+TimeoutStartSec=30
