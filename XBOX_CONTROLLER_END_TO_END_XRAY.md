@@ -78,9 +78,9 @@ usb1 (root hub, xhci_hcd)
 | `/sys/bus/usb/devices/1-4/power/wakeup` | `disabled` | Controller can't wake hub |
 | `/sys/bus/usb/devices/1-4/power/autosuspend_delay_ms` | `-1000` | Autosuspend disabled |
 | `/sys/bus/usb/devices/1-4/power/runtime_enabled` | `forbidden` | Runtime PM disabled |
-| `/sys/bus/usb/devices/usb1/power/control` | `auto` | ⚠️ root hub still autosuspends |
+| `/sys/bus/usb/devices/usb1/power/control` | `on` | ✅ locked by udev rule |
 
-The controller-side power fix persists via udev. The root hub (`usb1`) does **not** persist yet — it is set to `on` at runtime by `fix_xbox_usb_power.sh`, but reverts to `auto` after reboot.
+The controller-side power fix persists via udev. The root hub (`usb1`) is now also locked `on` via `/etc/udev/rules.d/49-xbox-root-hub-no-autosuspend.rules`.
 
 ---
 
@@ -141,6 +141,7 @@ All system rules live in `/etc/udev/rules.d/`:
 
 | Rule file | Purpose |
 |-----------|---------|
+| `49-xbox-root-hub-no-autosuspend.rules` | Locks root hub `usb1` `power/control=on` |
 | `50-xbox-controller-no-autosuspend.rules` | Sets controller `power/control=on`, `power/wakeup=disabled` |
 | `50-xbox-controller-stable.rules` | Also sets `power/control=on`, `power/autosuspend=-1` |
 | `50-xbox-controller-no-headset.rules` | Disables interface `1-4:1.1` (`authorized=0`) |
@@ -511,7 +512,6 @@ Recent installer additions (2026-06-25):
 ### 12.2 What does NOT survive reboot
 | Item | Why | Fix needed |
 |------|-----|------------|
-| Root hub `usb1/power/control` | No udev rule or service targets `usb1` | Add root-hub rule or boot service |
 | PulseAudio card profile | Defaults to `input:mono-fallback` | Run `reset-controller-audio.sh` at boot |
 | Default sink | Falls back to PC speakers | Run `lock_audio_routing.sh` at boot |
 | `ptt_mode` style | Service resets to `pro` on restart | Remove reset or persist user choice |
@@ -524,6 +524,7 @@ Recent installer additions (2026-06-25):
 ```
 /etc/modules-load.d/xone-headset.conf
 /etc/modprobe.d/xone-blacklist.conf
+/etc/udev/rules.d/49-xbox-root-hub-no-autosuspend.rules
 /etc/udev/rules.d/50-xbox-controller-no-autosuspend.rules
 /etc/udev/rules.d/50-xbox-controller-no-headset.rules
 /etc/udev/rules.d/50-xbox-controller-stable.rules
@@ -601,16 +602,14 @@ Voice bridge:    running on 127.0.0.1:8002
 PulseAudio card: alsa_card.usb-Microsoft_Controller_... active profile input:mono-fallback
 Default source:  Xbox mono mic
 Default sink:    PC analog stereo
-Root hub power:  auto (not yet persistent)
+Root hub power:  on (locked via udev)
 ```
 
 ---
 
 ## 15. Known Gaps / Next Steps
 
-1. **Root hub autosuspend not persistent** — `usb1/power/control` returns to `auto` after reboot. Add a udev rule matching `KERNEL=="usb1"` or a systemd service that sets it at boot.
-
-2. **Audio output not enabled by default** — card boots to `input:mono-fallback`. Add a systemd user unit that runs `reset-controller-audio.sh` (with `CONTROLLER_AUDIO_PROFILE=combined`) after PulseAudio starts.
+1. **Audio output not enabled by default** — card boots to `input:mono-fallback`. Add a systemd user unit that runs `reset-controller-audio.sh` (with `CONTROLLER_AUDIO_PROFILE=combined`) after PulseAudio starts.
 
 3. **Active AntiMicroX profile mismatch** — live profile is `good_1n.gamecontroller.amgp`, not the documented `ai-desktop.amgp`. Align installer, switcher, and legend.
 

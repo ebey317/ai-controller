@@ -1,0 +1,4 @@
+# Keep the xhci root hub awake for stable Xbox controller isochronous audio.
+# The controller is on bus 1 / root hub usb1; autosuspend on the root hub
+# introduces latency that causes xone-gip-headset buffer failures (-ENOSPC).
+SUBSYSTEM=="usb", KERNEL=="usb1", ATTR{power/control}="on"

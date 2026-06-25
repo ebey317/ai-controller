@@ -162,6 +162,21 @@ if [[ "$OS" == "linux" ]] && command -v sudo &>/dev/null; then
     fi
 fi
 
+# ── 7.5. ROOT HUB POWER LOCK (Linux only) ────────────────────────────────────
+# The Xbox controller hangs off xhci root hub usb1. Autosuspend on the root
+# hub introduces latency for isochronous audio traffic and causes xone-gip
+# buffer exhaustion (dmesg: gip_send_audio_samples: get buffer failed: -28).
+# This rule keeps the root hub awake permanently.
+if [[ "$OS" == "linux" ]] && command -v sudo &>/dev/null; then
+    echo ""
+    echo "→ Locking xhci root hub usb1 power to 'on' (needs sudo)..."
+    sudo install -m 0644 "$SCRIPT_DIR/udev/49-xbox-root-hub-no-autosuspend.rules" /etc/udev/rules.d/49-xbox-root-hub-no-autosuspend.rules
+    echo on | sudo tee /sys/bus/usb/devices/usb1/power/control >/dev/null
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger --subsystem-match=usb --attr-match=busnum=1 --attr-match=devnum=1
+    echo "✓ Root hub usb1 power locked on"
+fi
+
 # ── 8. HEADSET MIC AUTO-WAKE (Linux only) ─────────────────────────────────────
 # The controller announces its headset over GIP only on an analog insertion
 # edge, so on boot/reconnect with the plug already seated the mic stays dead
