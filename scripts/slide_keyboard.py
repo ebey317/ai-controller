@@ -16,6 +16,7 @@ styled to match the controller-legend HUD (same dark/orange theme, rounded
 panel) so it reads as part of the same floating-overlay family instead of
 a separate full-width dock. Press F14 again to pop it back down.
 """
+
 import os
 import signal
 import subprocess
@@ -26,8 +27,9 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import gi
-gi.require_version('Gtk', '3.0')
-gi.require_version('Gdk', '3.0')
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 from gi.repository import Gtk, Gdk, GLib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -56,15 +58,31 @@ ROWS_UPPER = [
 
 # keys that send a named X11 key (xdotool key ...) instead of a literal char
 SPECIAL = {
-    "esc": "Escape", "bksp": "BackSpace", "tab": "Tab", "enter": "Return",
-    "space": "space", "left": "Left", "right": "Right", "up": "Up", "down": "Down",
+    "esc": "Escape",
+    "bksp": "BackSpace",
+    "tab": "Tab",
+    "enter": "Return",
+    "space": "space",
+    "left": "Left",
+    "right": "Right",
+    "up": "Up",
+    "down": "Down",
     "⇧tab": "shift+Tab",
 }
 LABELS = {
-    "esc": "Esc", "bksp": "⌫", "tab": "Tab ⇥", "enter": "Enter ↵",
-    "space": "Space", "left": "←", "right": "→", "up": "↑", "down": "↓",
-    "shift": "⇧", "⇧tab": "⇧Tab\n(cycle)",
+    "esc": "Esc",
+    "bksp": "⌫",
+    "tab": "Tab ⇥",
+    "enter": "Enter ↵",
+    "space": "Space",
+    "left": "←",
+    "right": "→",
+    "up": "↑",
+    "down": "↓",
+    "shift": "⇧",
+    "⇧tab": "⇧Tab\n(cycle)",
 }
+
 
 # Same dark/orange family as controller-legend.py's HUD, so the two read as
 # one floating-overlay system instead of unrelated widgets.
@@ -76,8 +94,10 @@ def _modifier_state():
         except Exception:
             keymap = Gdk.Keymap.get_default()
         mask = keymap.get_modifier_state()
-        return (bool(mask & Gdk.ModifierType.CONTROL_MASK),
-                bool(mask & Gdk.ModifierType.MOD1_MASK))
+        return (
+            bool(mask & Gdk.ModifierType.CONTROL_MASK),
+            bool(mask & Gdk.ModifierType.MOD1_MASK),
+        )
     except Exception:
         return False, False
 
@@ -121,7 +141,9 @@ def send(key, ctrl=False, alt=False):
         else:
             subprocess.run(["xdotool", "key", prefix + key.lower()], check=False)
     elif key in SPECIAL:
-        subprocess.run(["xdotool", "key", "--clearmodifiers", SPECIAL[key]], check=False)
+        subprocess.run(
+            ["xdotool", "key", "--clearmodifiers", SPECIAL[key]], check=False
+        )
     else:
         subprocess.run(["xdotool", "type", "--clearmodifiers", key], check=False)
 
@@ -152,7 +174,8 @@ class SlideKeyboard(Gtk.Window):
         css = Gtk.CssProvider()
         css.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(
-            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         self.shift_on = False
 

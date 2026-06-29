@@ -49,7 +49,6 @@ INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
 
-
 # Unicode font maps (standalone, no dependencies)
 _CURSIVE_LOWER = "𝓪𝓫𝓬𝓭𝓮𝓯𝓰𝓱𝓲𝓳𝓴𝓵𝓶𝓷𝓸𝓹𝓺𝓻𝓼𝓽𝓾𝓿𝔀𝔁𝔂𝔃"
 _CURSIVE_UPPER = "𝓐𝓑𝓒𝓓𝓔𝓕𝓖𝓗𝓘𝓙𝓚𝓛𝓜𝓝𝓞𝓟𝓠𝓡𝓢𝓣𝓤𝓥𝓦𝓧𝓨𝓩"
@@ -86,46 +85,127 @@ _FULLWIDTH_MAP = {
 # Big standalone emoji keyword map — no LLM, no network, instant
 _EMOJI_MAP = {
     # emotions
-    "happy": "happy 😊", "sad": "sad 😢", "love": "love ❤️", "hate": "hate 😠",
-    "heart": "heart ❤️", "excited": "excited 🤩", "bored": "bored 😐",
-    "angry": "angry 😠", "mad": "mad 🤬", "tired": "tired 😴", "sleepy": "sleepy 😴",
-    "sick": "sick 🤒", "surprised": "surprised 😲", "shocked": "shocked 😱",
-    "confused": "confused 😕", "worried": "worried 😟", "proud": "proud 🥹",
-    "embarrassed": "embarrassed 😳", "scared": "scared 😨", "lonely": "lonely 🥺",
+    "happy": "happy 😊",
+    "sad": "sad 😢",
+    "love": "love ❤️",
+    "hate": "hate 😠",
+    "heart": "heart ❤️",
+    "excited": "excited 🤩",
+    "bored": "bored 😐",
+    "angry": "angry 😠",
+    "mad": "mad 🤬",
+    "tired": "tired 😴",
+    "sleepy": "sleepy 😴",
+    "sick": "sick 🤒",
+    "surprised": "surprised 😲",
+    "shocked": "shocked 😱",
+    "confused": "confused 😕",
+    "worried": "worried 😟",
+    "proud": "proud 🥹",
+    "embarrassed": "embarrassed 😳",
+    "scared": "scared 😨",
+    "lonely": "lonely 🥺",
     # reactions
-    "lol": "lol 😂", "haha": "haha 😂", "lmao": "lmao 🤣", "wow": "wow 🤯",
-    "omg": "omg 😱", "yay": "yay 🎉", "woo": "woo 🥳", "yikes": "yikes 😬",
-    "ugh": "ugh 😩", "meh": "meh 😒", "hm": "hm 🤔", "hmm": "hmm 🤔",
+    "lol": "lol 😂",
+    "haha": "haha 😂",
+    "lmao": "lmao 🤣",
+    "wow": "wow 🤯",
+    "omg": "omg 😱",
+    "yay": "yay 🎉",
+    "woo": "woo 🥳",
+    "yikes": "yikes 😬",
+    "ugh": "ugh 😩",
+    "meh": "meh 😒",
+    "hm": "hm 🤔",
+    "hmm": "hmm 🤔",
     # greetings / goodbyes
-    "hello": "hello 👋", "hi": "hi 👋", "hey": "hey 👋",
-    "goodbye": "goodbye 👋", "bye": "bye 👋", "see you": "see you 👋",
-    "good morning": "good morning 🌅", "good night": "good night 🌙",
-    "thank you": "thank you 🙏", "thanks": "thanks 🙏", "please": "please 🥺",
-    "sorry": "sorry 😔", "apologize": "apologize 🙇",
+    "hello": "hello 👋",
+    "hi": "hi 👋",
+    "hey": "hey 👋",
+    "goodbye": "goodbye 👋",
+    "bye": "bye 👋",
+    "see you": "see you 👋",
+    "good morning": "good morning 🌅",
+    "good night": "good night 🌙",
+    "thank you": "thank you 🙏",
+    "thanks": "thanks 🙏",
+    "please": "please 🥺",
+    "sorry": "sorry 😔",
+    "apologize": "apologize 🙇",
     # quality
-    "fire": "fire 🔥", "cool": "cool 😎", "nice": "nice ✨", "great": "great 🎉",
-    "awesome": "awesome 🤩", "amazing": "amazing 🤩", "perfect": "perfect 💯",
-    "good": "good 👍", "bad": "bad 👎", "ok": "ok 👌", "okay": "okay 👌",
-    "yes": "yes ✅", "no": "no ❌", "maybe": "maybe 🤷", "definitely": "definitely 💯",
-    "check": "check ✅", "done": "done ✅", "finished": "finished ✅",
+    "fire": "fire 🔥",
+    "cool": "cool 😎",
+    "nice": "nice ✨",
+    "great": "great 🎉",
+    "awesome": "awesome 🤩",
+    "amazing": "amazing 🤩",
+    "perfect": "perfect 💯",
+    "good": "good 👍",
+    "bad": "bad 👎",
+    "ok": "ok 👌",
+    "okay": "okay 👌",
+    "yes": "yes ✅",
+    "no": "no ❌",
+    "maybe": "maybe 🤷",
+    "definitely": "definitely 💯",
+    "check": "check ✅",
+    "done": "done ✅",
+    "finished": "finished ✅",
     # food / drink
-    "hungry": "hungry 🍔", "coffee": "coffee ☕", "beer": "beer 🍺", "wine": "wine 🍷",
-    "pizza": "pizza 🍕", "taco": "taco 🌮", "burger": "burger 🍔", "fries": "fries 🍟",
-    "cake": "cake 🍰", "ice cream": "ice cream 🍦", "chocolate": "chocolate 🍫",
-    "water": "water 💧", "tea": "tea 🍵", "breakfast": "breakfast 🍳", "dinner": "dinner 🍽️",
+    "hungry": "hungry 🍔",
+    "coffee": "coffee ☕",
+    "beer": "beer 🍺",
+    "wine": "wine 🍷",
+    "pizza": "pizza 🍕",
+    "taco": "taco 🌮",
+    "burger": "burger 🍔",
+    "fries": "fries 🍟",
+    "cake": "cake 🍰",
+    "ice cream": "ice cream 🍦",
+    "chocolate": "chocolate 🍫",
+    "water": "water 💧",
+    "tea": "tea 🍵",
+    "breakfast": "breakfast 🍳",
+    "dinner": "dinner 🍽️",
     # objects / tech
-    "phone": "phone 📱", "computer": "computer 💻", "laptop": "laptop 💻",
-    "game": "game 🎮", "controller": "controller 🎮", "music": "music 🎵",
-    "book": "book 📚", "movie": "movie 🎬", "tv": "tv 📺", "money": "money 💰",
-    "idea": "idea 💡", "light": "light 💡", "warning": "warning ⚠️", "rocket": "rocket 🚀",
-    "time": "time ⏰", "date": "date 📅", "mail": "mail 📧", "email": "email 📧",
+    "phone": "phone 📱",
+    "computer": "computer 💻",
+    "laptop": "laptop 💻",
+    "game": "game 🎮",
+    "controller": "controller 🎮",
+    "music": "music 🎵",
+    "book": "book 📚",
+    "movie": "movie 🎬",
+    "tv": "tv 📺",
+    "money": "money 💰",
+    "idea": "idea 💡",
+    "light": "light 💡",
+    "warning": "warning ⚠️",
+    "rocket": "rocket 🚀",
+    "time": "time ⏰",
+    "date": "date 📅",
+    "mail": "mail 📧",
+    "email": "email 📧",
     # nature / animals
-    "sun": "sun ☀️", "moon": "moon 🌙", "star": "star ⭐", "rain": "rain 🌧️",
-    "snow": "snow ❄️", "fire": "fire 🔥", "ghost": "ghost 👻", "skull": "skull 💀",
-    "cat": "cat 🐱", "dog": "dog 🐶", "bird": "bird 🐦", "fish": "fish 🐟",
+    "sun": "sun ☀️",
+    "moon": "moon 🌙",
+    "star": "star ⭐",
+    "rain": "rain 🌧️",
+    "snow": "snow ❄️",
+    "fire": "fire 🔥",
+    "ghost": "ghost 👻",
+    "skull": "skull 💀",
+    "cat": "cat 🐱",
+    "dog": "dog 🐶",
+    "bird": "bird 🐦",
+    "fish": "fish 🐟",
     # events
-    "party": "party 🎉", "birthday": "birthday 🎂", "congratulations": "congratulations 🎉",
-    "weekend": "weekend 🎉", "work": "work 💼", "job": "job 💼",
+    "party": "party 🎉",
+    "birthday": "birthday 🎂",
+    "congratulations": "congratulations 🎉",
+    "weekend": "weekend 🎉",
+    "work": "work 💼",
+    "job": "job 💼",
 }
 
 
@@ -161,15 +241,15 @@ def _type_text_fast(text: str, mode: str = "pro") -> None:
     character, so they are slower than ASCII; clipboard paste was tried but
     is not reliable in the operator's target windows.
     """
-    env = {**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')}
+    env = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
     # ASCII (PRO/CASUAL) can be fired as fast as possible.
     delay = _XDOTOOL_TYPE_DELAY_MS
     if any(ord(ch) >= 128 for ch in text):
         # Cursive (Mathematical Script) needs more time than bold/fullwidth.
         delay = 55 if mode == "bubbly" else 35
-    subprocess.run(['xdotool', 'type', '--clearmodifiers',
-                    f'--delay={delay}', '--', text],
-                   env=env)
+    subprocess.run(
+        ["xdotool", "type", "--clearmodifiers", f"--delay={delay}", "--", text], env=env
+    )
 
 
 def _typing_hud(mode: str, text: str):
@@ -185,10 +265,15 @@ def _typing_hud(mode: str, text: str):
     }
     try:
         return subprocess.Popen(
-            [sys.executable, os.path.join(os.path.dirname(__file__), "typing_hud.py"),
-             labels.get(mode, "Typing..."), mode],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+            [
+                sys.executable,
+                os.path.join(os.path.dirname(__file__), "typing_hud.py"),
+                labels.get(mode, "Typing..."),
+                mode,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
         )
     except Exception:
         return None
@@ -247,7 +332,7 @@ def _add_emojis(text: str) -> str:
     for phrase in sorted(_EMOJI_MAP, key=len, reverse=True):
         if phrase in lowered:
             # Strip the keyword prefix from the mapped value to get just the emoji
-            emoji = _EMOJI_MAP[phrase][len(phrase):].strip()
+            emoji = _EMOJI_MAP[phrase][len(phrase) :].strip()
             return f"{text} {emoji}"
     return text
 
@@ -259,16 +344,16 @@ _CASUAL_EMOJIS = ["👋", "☕", "😊", "✌️", "🙌", "🤙", "😎", "✨"
 # Face emojis (😊, 😎, etc.) do not support skin tones in Unicode.
 _SKIN_TONE = "🏿"
 _TONEABLE_BASES = {
-    "\U0001F44B",  # 👋 waving hand
-    "\u270C",       # ✌ victory hand
-    "\U0001F64C",   # 🙌 raising hands
-    "\U0001F919",   # 🤙 call me hand
-    "\U0001F64F",   # 🙏 folded hands
-    "\U0001F647",   # 🙇 person bowing
-    "\U0001F44D",   # 👍 thumbs up
-    "\U0001F44E",   # 👎 thumbs down
-    "\U0001F44C",   # 👌 OK hand
-    "\U0001F937",   # 🤷 shrug
+    "\U0001f44b",  # 👋 waving hand
+    "\u270c",  # ✌ victory hand
+    "\U0001f64c",  # 🙌 raising hands
+    "\U0001f919",  # 🤙 call me hand
+    "\U0001f64f",  # 🙏 folded hands
+    "\U0001f647",  # 🙇 person bowing
+    "\U0001f44d",  # 👍 thumbs up
+    "\U0001f44e",  # 👎 thumbs down
+    "\U0001f44c",  # 👌 OK hand
+    "\U0001f937",  # 🤷 shrug
 }
 
 
@@ -378,8 +463,14 @@ def _active_window_class():
 
 def _is_browser_window():
     cls = _active_window_class()
-    return cls in ("google-chrome", "chrome", "firefox", "librewolf", "brave-browser", "chromium")
-
+    return cls in (
+        "google-chrome",
+        "chrome",
+        "firefox",
+        "librewolf",
+        "brave-browser",
+        "chromium",
+    )
 
 
 DISCORD_QUEUE = os.path.expanduser("~/.cache/ptt_discord_queue.txt")
@@ -457,6 +548,7 @@ def _send_browser_text(text):
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
+
 # Controller headset mic is 24000 Hz mono s16le. Capture at native rate
 # through PulseAudio (parec) to avoid ALSA resampling artifacts.
 SAMPLE_RATE = 24000
@@ -483,8 +575,20 @@ _TYPE_SETTLE_MS = 50
 _XDOTOOL_TYPE_DELAY_MS = 0
 # Short accidental trigger presses often hallucinate these words from fan/mic noise.
 _SHORT_HALLUCINATIONS = {
-    "thank you", "thanks", "thank", "check", "yellow", "yep", "yup",
-    "mm", "hmm", "um", "uh", "mhm", "okay", "ok",
+    "thank you",
+    "thanks",
+    "thank",
+    "check",
+    "yellow",
+    "yep",
+    "yup",
+    "mm",
+    "hmm",
+    "um",
+    "uh",
+    "mhm",
+    "okay",
+    "ok",
 }
 
 
@@ -492,9 +596,11 @@ def _active_window():
     """Return the currently focused X11 window ID, or None."""
     try:
         out = subprocess.check_output(
-            ['xdotool', 'getactivewindow'],
-            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-            stderr=subprocess.DEVNULL, timeout=2)
+            ["xdotool", "getactivewindow"],
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
         return out.decode().strip()
     except Exception:
         return None
@@ -513,8 +619,11 @@ def _build_wav(raw_path: str, wav_path: str):
 
 def _mute_tts():
     """Kill any playing TTS audio so the mic doesn't capture it."""
-    subprocess.run(['pkill', '-f', 'ai_controller_tts'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["pkill", "-f", "ai_controller_tts"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def start_recording():
@@ -532,21 +641,32 @@ def start_recording():
         # AntiMicroX or other apps may steal focus during recording.
         _focus_window = _active_window()
         # Auto-space before dictation so consecutive utterances don't run together.
-        subprocess.run(['xdotool', 'key', 'space'],
-                       env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-        fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
+        subprocess.run(
+            ["xdotool", "key", "space"],
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+        fd, rawfile = tempfile.mkstemp(suffix=".raw", dir="/tmp")
         os.close(fd)
-        fd, wavfile = tempfile.mkstemp(suffix='.wav', dir='/tmp')
+        fd, wavfile = tempfile.mkstemp(suffix=".wav", dir="/tmp")
         os.close(fd)
         rec_cmd = [
-            'stdbuf', '-o0', 'parec',
-            '--rate', str(SAMPLE_RATE), '--channels', str(CHANNELS),
-            '--format', 's16le', '--raw',
+            "stdbuf",
+            "-o0",
+            "parec",
+            "--rate",
+            str(SAMPLE_RATE),
+            "--channels",
+            str(CHANNELS),
+            "--format",
+            "s16le",
+            "--raw",
         ] + _PAREC_DEVICE_ARGS
         rec_proc = subprocess.Popen(
-            rec_cmd,
-            stdout=open(rawfile, 'wb'), stderr=subprocess.DEVNULL)
+            rec_cmd, stdout=open(rawfile, "wb"), stderr=subprocess.DEVNULL
+        )
         recording = True
         log.info("Recording...")
 
@@ -554,12 +674,12 @@ def start_recording():
 def _wav_stats(path):
     """Return (duration_seconds, rms) for a WAV file."""
     try:
-        with wave.open(path, 'rb') as wf:
+        with wave.open(path, "rb") as wf:
             raw = wf.readframes(wf.getnframes())
             rate = wf.getframerate()
         if len(raw) < 2 or rate == 0:
             return 0.0, 0.0
-        samples = struct.unpack(f'<{len(raw)//2}h', raw[:len(raw) & ~1])
+        samples = struct.unpack(f"<{len(raw)//2}h", raw[: len(raw) & ~1])
         rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
         return len(samples) / rate, rms
     except Exception:
@@ -624,14 +744,27 @@ def stop_and_send():
     transcript = ""
     try:
         r = subprocess.run(
-            ['curl', '-s', '-X', 'POST', endpoint,
-             '-F', f'audio=@{wavfile}', '-F', 'mode=transcribe_only',
-             '-H', 'Accept: application/json'],
-            capture_output=True, text=True, timeout=30)
+            [
+                "curl",
+                "-s",
+                "-X",
+                "POST",
+                endpoint,
+                "-F",
+                f"audio=@{wavfile}",
+                "-F",
+                "mode=transcribe_only",
+                "-H",
+                "Accept: application/json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         data = json.loads(r.stdout)
         # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
-        transcript = data.get('text', data.get('transcript', ''))
-        response = data.get('response', data.get('error', '')).strip()
+        transcript = data.get("text", data.get("transcript", ""))
+        response = data.get("response", data.get("error", "")).strip()
 
         # Short accidental trigger presses often produce hallucinated single words
         # from controller/mic noise. Skip them instead of typing garbage.
@@ -655,9 +788,11 @@ def stop_and_send():
             # Only explicit clipboard target skips typing. Everything else goes
             # through xdotool type — clipboard auto-paste proved unreliable in
             # the operator's target windows.
-            use_clipboard = (target == "clipboard")
+            use_clipboard = target == "clipboard"
 
-            log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
+            log.info(
+                f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}"
+            )
             time.sleep(_TYPE_SETTLE_MS / 1000.0)
 
             if use_clipboard:
@@ -672,9 +807,16 @@ def stop_and_send():
                 global _focus_window
                 if _focus_window:
                     try:
-                        subprocess.run(['xdotool', 'windowactivate', _focus_window],
-                                       env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+                        subprocess.run(
+                            ["xdotool", "windowactivate", _focus_window],
+                            env={
+                                **os.environ,
+                                "DISPLAY": os.environ.get("DISPLAY", ":0"),
+                            },
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=2,
+                        )
                         time.sleep(0.05)
                     except Exception:
                         pass
@@ -691,8 +833,13 @@ def stop_and_send():
     # Save a debug copy for later inspection.
     try:
         ts = time.strftime("%Y%m%d_%H%M%S")
-        safe_text = "".join(c if c.isalnum() else "_" for c in transcript)[:40] or "no_transcript"
-        debug_path = os.path.join(DEBUG_DIR, f"ptt_{ts}_{duration:.1f}s_rms{int(rms)}_{safe_text}.wav")
+        safe_text = (
+            "".join(c if c.isalnum() else "_" for c in transcript)[:40]
+            or "no_transcript"
+        )
+        debug_path = os.path.join(
+            DEBUG_DIR, f"ptt_{ts}_{duration:.1f}s_rms{int(rms)}_{safe_text}.wav"
+        )
         os.replace(wavfile, debug_path)
     except Exception:
         if wavfile and os.path.exists(wavfile):

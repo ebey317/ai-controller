@@ -13,6 +13,7 @@ Modes:
     telegram                Poll a Telegram bot for new messages
     loop                    Repeat specific messages for a set duration
 """
+
 import argparse
 import json
 import os
@@ -47,13 +48,23 @@ DEFAULTS = {
 class Speaker:
     def __init__(self):
         self.cfg = self._load_config()
-        self.max_chars = int(self.cfg.get("SPEAK_MAX_CHARS", DEFAULTS["SPEAK_MAX_CHARS"]))
-        self.rate_per_min = int(self.cfg.get("SPEAK_RATE_PER_MIN", DEFAULTS["SPEAK_RATE_PER_MIN"]))
-        self.dedup_secs = int(self.cfg.get("SPEAK_DEDUP_SECS", DEFAULTS["SPEAK_DEDUP_SECS"]))
-        self.telegram_poll_secs = float(self.cfg.get("TELEGRAM_POLL_SECS", DEFAULTS["TELEGRAM_POLL_SECS"]))
+        self.max_chars = int(
+            self.cfg.get("SPEAK_MAX_CHARS", DEFAULTS["SPEAK_MAX_CHARS"])
+        )
+        self.rate_per_min = int(
+            self.cfg.get("SPEAK_RATE_PER_MIN", DEFAULTS["SPEAK_RATE_PER_MIN"])
+        )
+        self.dedup_secs = int(
+            self.cfg.get("SPEAK_DEDUP_SECS", DEFAULTS["SPEAK_DEDUP_SECS"])
+        )
+        self.telegram_poll_secs = float(
+            self.cfg.get("TELEGRAM_POLL_SECS", DEFAULTS["TELEGRAM_POLL_SECS"])
+        )
         self.allowed_chats = {
             int(x.strip())
-            for x in self.cfg.get("TELEGRAM_ALLOWED_CHATS", DEFAULTS["TELEGRAM_ALLOWED_CHATS"]).split(",")
+            for x in self.cfg.get(
+                "TELEGRAM_ALLOWED_CHATS", DEFAULTS["TELEGRAM_ALLOWED_CHATS"]
+            ).split(",")
             if x.strip()
         }
         self._recent = deque()  # (timestamp, text_hash)
@@ -146,16 +157,23 @@ def cmd_loop(args):
             print(f"[error] could not read messages file: {exc}", file=sys.stderr)
             sys.exit(1)
     if not messages:
-        print("[error] no messages provided; use --message or --messages-file", file=sys.stderr)
+        print(
+            "[error] no messages provided; use --message or --messages-file",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     end = time.time() + args.duration
     idx = 0
     fixed = args.interval is not None
     if fixed:
-        print(f"[loop] running for {args.duration}s, fixed interval {args.interval}s, {len(messages)} message(s)")
+        print(
+            f"[loop] running for {args.duration}s, fixed interval {args.interval}s, {len(messages)} message(s)"
+        )
     else:
-        print(f"[loop] running for {args.duration}s, random gaps {args.min_interval}s-{args.max_interval}s, {len(messages)} message(s)")
+        print(
+            f"[loop] running for {args.duration}s, random gaps {args.min_interval}s-{args.max_interval}s, {len(messages)} message(s)"
+        )
 
     while time.time() < end:
         if args.shuffle:
@@ -251,7 +269,11 @@ def cmd_telegram(args):
 
         for upd in data.get("result", []):
             offset = max(offset, upd.get("update_id", 0) + 1)
-            msg = upd.get("message") or upd.get("channel_post") or upd.get("edited_message")
+            msg = (
+                upd.get("message")
+                or upd.get("channel_post")
+                or upd.get("edited_message")
+            )
             if not msg:
                 continue
             text = msg.get("text") or msg.get("caption", "")
@@ -259,7 +281,11 @@ def cmd_telegram(args):
                 continue
             chat = msg.get("chat", {})
             chat_id = chat.get("id")
-            sender = msg.get("from", {}).get("username") or msg.get("from", {}).get("first_name") or ""
+            sender = (
+                msg.get("from", {}).get("username")
+                or msg.get("from", {}).get("first_name")
+                or ""
+            )
             if allowed and chat_id not in allowed:
                 continue
             who = f"{sender}: " if sender else ""
@@ -272,7 +298,9 @@ def cmd_telegram(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Perpetuate conversation through speakers")
+    parser = argparse.ArgumentParser(
+        description="Perpetuate conversation through speakers"
+    )
     sub = parser.add_subparsers(dest="command")
 
     p_say = sub.add_parser("say", help="Speak one message")
@@ -284,13 +312,42 @@ def main():
     p_tg = sub.add_parser("telegram", help="Poll Telegram and speak messages")
 
     p_loop = sub.add_parser("loop", help="Repeat specific messages for a set duration")
-    p_loop.add_argument("--duration", type=int, default=7200, help="Total seconds to run (default 7200 = 2 hours)")
-    p_loop.add_argument("--interval", type=int, default=None, help="Fixed seconds between messages (overrides random gaps)")
-    p_loop.add_argument("--min-interval", type=int, default=10, help="Minimum random gap in seconds (default 10)")
-    p_loop.add_argument("--max-interval", type=int, default=60, help="Maximum random gap in seconds (default 60)")
-    p_loop.add_argument("--shuffle", action="store_true", help="Shuffle message order each cycle")
-    p_loop.add_argument("--rate-per-min", type=int, default=120, help="Speech rate limit for this loop (default 120)")
-    p_loop.add_argument("--message", action="append", help="Message to speak; repeatable")
+    p_loop.add_argument(
+        "--duration",
+        type=int,
+        default=7200,
+        help="Total seconds to run (default 7200 = 2 hours)",
+    )
+    p_loop.add_argument(
+        "--interval",
+        type=int,
+        default=None,
+        help="Fixed seconds between messages (overrides random gaps)",
+    )
+    p_loop.add_argument(
+        "--min-interval",
+        type=int,
+        default=10,
+        help="Minimum random gap in seconds (default 10)",
+    )
+    p_loop.add_argument(
+        "--max-interval",
+        type=int,
+        default=60,
+        help="Maximum random gap in seconds (default 60)",
+    )
+    p_loop.add_argument(
+        "--shuffle", action="store_true", help="Shuffle message order each cycle"
+    )
+    p_loop.add_argument(
+        "--rate-per-min",
+        type=int,
+        default=120,
+        help="Speech rate limit for this loop (default 120)",
+    )
+    p_loop.add_argument(
+        "--message", action="append", help="Message to speak; repeatable"
+    )
     p_loop.add_argument("--messages-file", help="File with one message per line")
 
     args = parser.parse_args()

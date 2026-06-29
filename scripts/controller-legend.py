@@ -3,9 +3,11 @@
 Controller Legend HUD — horizontal strip below cursor with smoke pointer.
 Supports pagination (Left/Right to scroll through button mapping pages).
 """
+
 import gi
-gi.require_version('Gtk', '3.0')
-gi.require_version('Gdk', '3.0')
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 from gi.repository import Gtk, Gdk, GLib
 import cairo, os, glob, fcntl, sys
 
@@ -32,55 +34,55 @@ TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 ALL_LAYOUTS = {
     "desktop": [
         # Matches good_1n.gamecontroller.amgp (the active profile)
-        ("A",    "Click"),
-        ("B",    "Bksp"),
-        ("X",    "Del"),
-        ("Y",    "Super"),
-        ("LB",   "Shift"),
-        ("RB",   "R·Clk"),
-        ("LT",   "Ctrl"),
-        ("RT",   "Talk"),
-        ("⧉",    "Kbd"),     # View/Back = toggle on-screen keyboard
-        ("☰",    "Tab"),     # Start = Tab
-        ("🎮",   "S·Tab"),   # Guide = Super+Tab window switcher
-        ("LS",   "Space"),   # LS click = Space
-        ("RS",   "Enter"),   # RS click = Return
+        ("A", "Click"),
+        ("B", "Bksp"),
+        ("X", "Del"),
+        ("Y", "Super"),
+        ("LB", "Shift"),
+        ("RB", "R·Clk"),
+        ("LT", "Ctrl"),
+        ("RT", "Talk"),
+        ("⧉", "Kbd"),  # View/Back = toggle on-screen keyboard
+        ("☰", "Tab"),  # Start = Tab
+        ("🎮", "S·Tab"),  # Guide = Super+Tab window switcher
+        ("LS", "Space"),  # LS click = Space
+        ("RS", "Enter"),  # RS click = Return
     ],
     "browser": [
-        ("A",   "Click"),
-        ("B",   "Back"),
-        ("X",   "Reload"),
-        ("Y",   "New Tab"),
-        ("○●",  "Address"),
-        ("●○",  "Bookmark"),
-        ("LB",  "← Tab"),
-        ("RB",  "Tab →"),
-        ("LT",  "R·Clk"),
-        ("RT",  "Talk"),
-        ("L3",  "Space"),
-        ("D↔",  "Bk/Fwd"),
-        ("D↑",  "Scroll↑"),
-        ("D↓",  "Scroll↓"),
+        ("A", "Click"),
+        ("B", "Back"),
+        ("X", "Reload"),
+        ("Y", "New Tab"),
+        ("○●", "Address"),
+        ("●○", "Bookmark"),
+        ("LB", "← Tab"),
+        ("RB", "Tab →"),
+        ("LT", "R·Clk"),
+        ("RT", "Talk"),
+        ("L3", "Space"),
+        ("D↔", "Bk/Fwd"),
+        ("D↑", "Scroll↑"),
+        ("D↓", "Scroll↓"),
     ],
     "iptv": [
-        ("A",   "▶ ‖"),
-        ("B",   "Stop"),
-        ("X",   "Info"),
-        ("Y",   "Full"),
-        ("○●",  "Menu"),
-        ("●○",  "Guide"),
-        ("LB",  "Ch ↑"),
-        ("RB",  "Ch ↓"),
-        ("LT",  "◀◀"),
-        ("RT",  "▶▶"),
-        ("L3",  "Space"),
-        ("D↕",  "Ch/Vol"),
-        ("D←",  "Prev"),
-        ("D→",  "Next"),
+        ("A", "▶ ‖"),
+        ("B", "Stop"),
+        ("X", "Info"),
+        ("Y", "Full"),
+        ("○●", "Menu"),
+        ("●○", "Guide"),
+        ("LB", "Ch ↑"),
+        ("RB", "Ch ↓"),
+        ("LT", "◀◀"),
+        ("RT", "▶▶"),
+        ("L3", "Space"),
+        ("D↕", "Ch/Vol"),
+        ("D←", "Prev"),
+        ("D→", "Next"),
     ],
 }
 
-LEGEND_BOX_SCALE = 0.42   # shrink the chrome/margins of the legend
+LEGEND_BOX_SCALE = 0.42  # shrink the chrome/margins of the legend
 LEGEND_FONT_SCALE = 1.05  # make button/action text readable
 BUTTONS_PER_PAGE = 14  # Fit desktop layout on a single page
 POINTER_H = 4  # height of the smoke triangle above the box
@@ -91,6 +93,7 @@ window {
     background-color: transparent;
 }
 """
+
 
 class Legend(Gtk.Window):
     def __init__(self):
@@ -110,7 +113,8 @@ class Legend(Gtk.Window):
         css = Gtk.CssProvider()
         css.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(
-            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         self.connect("draw", self.on_draw)
         self.connect("realize", self._make_clickthrough)
@@ -143,7 +147,9 @@ class Legend(Gtk.Window):
 
         # Page indicator bottom-right
         self.page_lbl = Gtk.Label()
-        self.page_lbl.set_markup(f'<span font_family="monospace" font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="#666666">1/1</span>')
+        self.page_lbl.set_markup(
+            f'<span font_family="monospace" font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="#666666">1/1</span>'
+        )
         self.page_lbl.set_halign(Gtk.Align.END)
         self.content_box.pack_start(self.page_lbl, False, False, 0)
 
@@ -154,8 +160,10 @@ class Legend(Gtk.Window):
         self.typing_lbl.set_valign(Gtk.Align.CENTER)
         self.typing_lbl.set_line_wrap(True)
         self.typing_lbl.set_justify(Gtk.Justification.CENTER)
-        self.typing_lbl.set_markup('<span font_family="monospace" weight="bold" '
-                                    'font_size="16000" foreground="#FF6A00">✨  Typing...</span>')
+        self.typing_lbl.set_markup(
+            '<span font_family="monospace" weight="bold" '
+            'font_size="16000" foreground="#FF6A00">✨  Typing...</span>'
+        )
         outer.pack_start(self.typing_lbl, True, True, 0)
         self.typing_lbl.hide()
 
@@ -238,17 +246,17 @@ class Legend(Gtk.Window):
             # Left arrow
             if self._current_page > 0:
                 cr.set_source_rgba(1.0, 0.416, 0.0, 0.6)
-                cr.move_to(25, by + bh/2)
-                cr.line_to(20, by + bh/2 - 8)
-                cr.line_to(20, by + bh/2 + 8)
+                cr.move_to(25, by + bh / 2)
+                cr.line_to(20, by + bh / 2 - 8)
+                cr.line_to(20, by + bh / 2 + 8)
                 cr.close_path()
                 cr.fill()
             # Right arrow
             if self._current_page < total_pages - 1:
                 cr.set_source_rgba(1.0, 0.416, 0.0, 0.6)
-                cr.move_to(w - 25, by + bh/2)
-                cr.line_to(w - 20, by + bh/2 - 8)
-                cr.line_to(w - 20, by + bh/2 + 8)
+                cr.move_to(w - 25, by + bh / 2)
+                cr.line_to(w - 20, by + bh / 2 - 8)
+                cr.line_to(w - 20, by + bh / 2 + 8)
                 cr.close_path()
                 cr.fill()
 
@@ -277,10 +285,12 @@ class Legend(Gtk.Window):
         self._current_layout = layout
         total_pages = self._get_total_pages(layout)
         self.page_lbl.set_markup(
-            f'<span font_family="monospace" font_size="6000" foreground="#666666">{self._current_page + 1}/{total_pages}</span>')
+            f'<span font_family="monospace" font_size="6000" foreground="#666666">{self._current_page + 1}/{total_pages}</span>'
+        )
         self.mode_lbl.set_markup(
             f'<span font_family="monospace" weight="bold" '
-            f'font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="#FF6A00">{profile.upper()}</span>')
+            f'font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="#FF6A00">{profile.upper()}</span>'
+        )
         # Update button labels for current page
         page_layout = self._get_page_layout(layout, self._current_page)
         for i, (bl, al) in enumerate(zip(self.btn_labels, self.act_labels)):
@@ -288,10 +298,14 @@ class Legend(Gtk.Window):
                 b, a = page_layout[i]
                 bl.show()
                 al.show()
-                bl.set_markup(f'<span font_family="monospace" weight="bold" '
-                               f'font_size="{int(9000 * LEGEND_FONT_SCALE)}" foreground="#FF6A00">{b}</span>')
-                al.set_markup(f'<span font_family="monospace" '
-                               f'font_size="{int(8000 * LEGEND_FONT_SCALE)}" foreground="#eeeeee">{a}</span>')
+                bl.set_markup(
+                    f'<span font_family="monospace" weight="bold" '
+                    f'font_size="{int(9000 * LEGEND_FONT_SCALE)}" foreground="#FF6A00">{b}</span>'
+                )
+                al.set_markup(
+                    f'<span font_family="monospace" '
+                    f'font_size="{int(8000 * LEGEND_FONT_SCALE)}" foreground="#eeeeee">{a}</span>'
+                )
             else:
                 bl.hide()
                 al.hide()
@@ -314,7 +328,7 @@ class Legend(Gtk.Window):
 
     def tick(self):
         # Auto-detect: hide when no controller plugged in
-        controller_present = bool(glob.glob('/dev/input/js*'))
+        controller_present = bool(glob.glob("/dev/input/js*"))
         if not controller_present:
             if self.get_visible():
                 self.hide()
@@ -339,7 +353,7 @@ class Legend(Gtk.Window):
         sh = self.get_screen().get_height()
 
         OFFSET_X = 60  # pixels right of cursor
-        OFFSET_Y = 2   # keep legend tight under the cursor
+        OFFSET_Y = 2  # keep legend tight under the cursor
 
         # If legend would go off the bottom, flip it above the cursor.
         if cy + OFFSET_Y + h + 4 > sh:
@@ -410,15 +424,17 @@ def get_profile():
     except Exception:
         return "desktop"
 
+
 def load_page():
     try:
         return int(open(PAGE_STATE).read().strip())
     except Exception:
         return 0
 
+
 def save_page(page):
     try:
-        with open(PAGE_STATE, 'w') as f:
+        with open(PAGE_STATE, "w") as f:
             f.write(str(page))
     except Exception:
         pass

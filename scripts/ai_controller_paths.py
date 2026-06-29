@@ -3,6 +3,7 @@
 Every script uses these helpers so the install can live anywhere under $HOME
 and never hardcode the original developer's home directory.
 """
+
 import os
 from pathlib import Path
 
@@ -43,7 +44,7 @@ def load_env(path: str | None = None) -> dict[str, str]:
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 k, _, v = line.partition("=")
-                out[k.strip()] = v.strip().strip('"\'')
+                out[k.strip()] = v.strip().strip("\"'")
     except FileNotFoundError:
         pass
     return out

@@ -4,6 +4,7 @@ Toggle the active AI controller TTS voice between available Piper voice packs.
 State is stored in ~/.config/ai_controller_voice.
 Can be triggered from the keyboard, a controller button, or the command line.
 """
+
 import json
 import os
 import re
@@ -59,19 +60,21 @@ def _discover_voices():
             if model_file is None and not cfg.get("locked"):
                 # base/free Piper voices must have a working model
                 continue
-        voices.append({
-            "id": voice_id,
-            "name": cfg.get("name", voice_id),
-            "label": cfg.get("label", voice_id.upper()),
-            "engine": engine,
-            "voice": cfg.get("voice", ""),
-            "pitch": cfg.get("pitch", "+0Hz"),
-            "rate": cfg.get("rate", "+0%"),
-            "locked": bool(cfg.get("locked", False)),
-            "price": cfg.get("price", ""),
-            "description": cfg.get("description", ""),
-            "model": os.path.join(voice_path, model_file) if model_file else None,
-        })
+        voices.append(
+            {
+                "id": voice_id,
+                "name": cfg.get("name", voice_id),
+                "label": cfg.get("label", voice_id.upper()),
+                "engine": engine,
+                "voice": cfg.get("voice", ""),
+                "pitch": cfg.get("pitch", "+0Hz"),
+                "rate": cfg.get("rate", "+0%"),
+                "locked": bool(cfg.get("locked", False)),
+                "price": cfg.get("price", ""),
+                "description": cfg.get("description", ""),
+                "model": os.path.join(voice_path, model_file) if model_file else None,
+            }
+        )
     return voices
 
 
@@ -144,17 +147,18 @@ def list_voices():
 
 def _split_sentences(text):
     """Split text into sentence-sized chunks for back-end spacing."""
-    chunks = re.split(r'(?<=[.!?])\s+', text.strip())
+    chunks = re.split(r"(?<=[.!?])\s+", text.strip())
     return [c for c in chunks if c]
 
 
 def _synthesize_sentence(model_path, sentence, output_path):
     """Generate one sentence with Piper using the stock model config."""
     subprocess.run(
-        ["piper", "--model", model_path,
-         "--output_file", output_path],
-        input=sentence.encode(), check=False,
-        stdout=_DEVNULL, stderr=_DEVNULL
+        ["piper", "--model", model_path, "--output_file", output_path],
+        input=sentence.encode(),
+        check=False,
+        stdout=_DEVNULL,
+        stderr=_DEVNULL,
     )
 
 
@@ -188,16 +192,30 @@ def _speak_edge(text, voice):
     os.close(mp3_fd)
     try:
         subprocess.run(
-            [sys.executable, "-m", "edge_tts",
-             "--voice", voice.get("voice", "en-US-AriaNeural"),
-             "--pitch=" + voice.get("pitch", "+0Hz"),
-             "--rate=" + voice.get("rate", "+0%"),
-             "--text", text,
-             "--write-media", mp3_path],
-            stdout=_DEVNULL, stderr=_DEVNULL, check=True, timeout=30
+            [
+                sys.executable,
+                "-m",
+                "edge_tts",
+                "--voice",
+                voice.get("voice", "en-US-AriaNeural"),
+                "--pitch=" + voice.get("pitch", "+0Hz"),
+                "--rate=" + voice.get("rate", "+0%"),
+                "--text",
+                text,
+                "--write-media",
+                mp3_path,
+            ],
+            stdout=_DEVNULL,
+            stderr=_DEVNULL,
+            check=True,
+            timeout=30,
         )
-        subprocess.run(["mpv", "--no-video", mp3_path],
-                       check=False, stdout=_DEVNULL, stderr=_DEVNULL)
+        subprocess.run(
+            ["mpv", "--no-video", mp3_path],
+            check=False,
+            stdout=_DEVNULL,
+            stderr=_DEVNULL,
+        )
         return True
     except Exception:
         return False
@@ -210,8 +228,7 @@ def _speak_edge(text, voice):
 
 def _speak_spd(text):
     """Ultimate fallback using the system's speech-dispatcher voice."""
-    subprocess.run(["spd-say", "-w", text[:500]],
-                   stdout=_DEVNULL, stderr=_DEVNULL)
+    subprocess.run(["spd-say", "-w", text[:500]], stdout=_DEVNULL, stderr=_DEVNULL)
 
 
 def _piper_speak(text, model_path):
@@ -231,7 +248,9 @@ def _piper_speak(text, model_path):
             if os.path.exists(out) and os.path.getsize(out) > 0:
                 paths.append(out)
         if paths:
-            _concat_with_pauses(paths, pause_ms=180, output_path="/tmp/ai_controller_tts.wav")
+            _concat_with_pauses(
+                paths, pause_ms=180, output_path="/tmp/ai_controller_tts.wav"
+            )
     finally:
         for f in os.listdir(tmp_dir):
             try:
@@ -244,8 +263,12 @@ def _piper_speak(text, model_path):
     if not os.path.exists(output_wav) or os.path.getsize(output_wav) == 0:
         return False
 
-    subprocess.run(["mpv", "--no-video", "--speed=0.97", output_wav],
-                   check=False, stdout=_DEVNULL, stderr=_DEVNULL)
+    subprocess.run(
+        ["mpv", "--no-video", "--speed=0.97", output_wav],
+        check=False,
+        stdout=_DEVNULL,
+        stderr=_DEVNULL,
+    )
     return True
 
 

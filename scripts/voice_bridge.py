@@ -3,6 +3,7 @@
 Voice bridge — audio → Groq Whisper → CLAF → TTS
 Runs on :8002. push-to-talk.sh POSTs audio to /voice?mode=transcribe_only.
 """
+
 from __future__ import annotations
 
 import os
@@ -22,13 +23,14 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from ai_controller_paths import ai_controller_dir, load_env
 
-
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
 
 _env = load_env()
-CLAF_URL = (os.environ.get("CLAF_URL") or _env.get("CLAF_URL") or "http://localhost:8000").rstrip("/")
+CLAF_URL = (
+    os.environ.get("CLAF_URL") or _env.get("CLAF_URL") or "http://localhost:8000"
+).rstrip("/")
 VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
 
 
@@ -46,7 +48,7 @@ def _load_groq_key() -> str:
         try:
             for line in keychain.read_text().splitlines():
                 if line.strip().startswith("GROQ_API_KEY="):
-                    key = line.split("=", 1)[1].strip().strip('"\'')
+                    key = line.split("=", 1)[1].strip().strip("\"'")
                     if key and not key.startswith("***") and len(key) > 20:
                         return key
         except Exception:
@@ -80,20 +82,28 @@ def _speak(text: str) -> None:
         # Use Edge TTS for high-fidelity AriaNeural voice
         mp3_fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
         os.close(mp3_fd)
-        
+
         # Generate TTS with tuned settings
         subprocess.run(
-            [sys.executable, "-m", "edge_tts", "--voice", EDGE_VOICE,
-             "--pitch=" + EDGE_PITCH,
-             "--rate=" + EDGE_RATE,
-             "--text", spoken,
-             "--write-media", mp3_path],
+            [
+                sys.executable,
+                "-m",
+                "edge_tts",
+                "--voice",
+                EDGE_VOICE,
+                "--pitch=" + EDGE_PITCH,
+                "--rate=" + EDGE_RATE,
+                "--text",
+                spoken,
+                "--write-media",
+                mp3_path,
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=True,
-            timeout=30
+            timeout=30,
         )
-        
+
         # Play through tuned mpv pipeline (lowpass filter, correct sink)
         if os.path.exists(HERMES_TTS_PLAY):
             subprocess.Popen(
@@ -121,6 +131,7 @@ def _speak(text: str) -> None:
 # Security: local-only + optional API key
 # -----------------------------------------------------------------------------
 
+
 def _local_only(request: Request) -> None:
     """Reject requests that do not originate from localhost."""
     host = request.client.host if request.client else None
@@ -128,6 +139,7 @@ def _local_only(request: Request) -> None:
     allowed = {"127.0.0.1", "::1", "localhost", "testclient", None}
     if host not in allowed:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=403, detail="voice bridge is localhost-only")
 
 
@@ -138,6 +150,7 @@ def _api_key_ok(request: Request) -> None:
     header = request.headers.get("x-api-key", "")
     if header != VOICE_BRIDGE_API_KEY:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
@@ -168,6 +181,7 @@ def _extract_groq_text(payload: dict) -> str:
 # -----------------------------------------------------------------------------
 # Routes
 # -----------------------------------------------------------------------------
+
 
 @app.post("/voice")
 async def voice(
@@ -252,7 +266,10 @@ async def voice(
             response_text = _extract_groq_text(r.json())
         except httpx.HTTPStatusError as exc:
             return JSONResponse(
-                {"transcript": transcript, "error": f"Groq LLM HTTP {exc.response.status_code}"},
+                {
+                    "transcript": transcript,
+                    "error": f"Groq LLM HTTP {exc.response.status_code}",
+                },
                 status_code=502,
             )
         except httpx.RequestError as exc:

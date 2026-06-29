@@ -12,6 +12,7 @@ without touching keyboard or mouse.
 Personas live in scripts/personas/<name>.json and define the system prompt,
 voice, and premium lock status. Locked personas can be sold as add-on packs.
 """
+
 import argparse
 import json
 import os
@@ -126,10 +127,23 @@ def build_wav(raw_path, wav_path):
 def transcribe(wav_path):
     try:
         r = subprocess.run(
-            ["curl", "-s", "-X", "POST", VOICE_BRIDGE_URL,
-             "-F", f"audio=@{wav_path}", "-F", "mode=transcribe_only",
-             "-H", "Accept: application/json"],
-            capture_output=True, text=True, timeout=30)
+            [
+                "curl",
+                "-s",
+                "-X",
+                "POST",
+                VOICE_BRIDGE_URL,
+                "-F",
+                f"audio=@{wav_path}",
+                "-F",
+                "mode=transcribe_only",
+                "-H",
+                "Accept: application/json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         data = json.loads(r.stdout)
         return data.get("text", data.get("transcript", "")).strip()
     except Exception as ex:
@@ -142,7 +156,8 @@ def chat_with_ollama(messages, model):
         r = httpx.post(
             f"{OLLAMA_URL}/api/chat",
             json={"model": model, "messages": messages, "stream": False},
-            timeout=120)
+            timeout=120,
+        )
         r.raise_for_status()
         return r.json().get("message", {}).get("content", "").strip()
     except Exception as ex:
@@ -158,12 +173,18 @@ def start_recording():
     wavfile = tempfile.mktemp(suffix=".wav", dir="/tmp")
     rec_cmd = [
         "parec",
-        "--rate", str(SAMPLE_RATE), "--channels", str(CHANNELS),
-        "--format", "s16le", "--raw", rawfile,
+        "--rate",
+        str(SAMPLE_RATE),
+        "--channels",
+        str(CHANNELS),
+        "--format",
+        "s16le",
+        "--raw",
+        rawfile,
     ] + _PAREC_DEVICE_ARGS
     rec_proc = subprocess.Popen(
-        rec_cmd,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        rec_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
     recording = True
     print("  Listening...")
 
@@ -234,9 +255,19 @@ def main():
         current_persona = new_cfg
         voice = current_persona.get("voice")
         model = current_persona.get("model", OLLAMA_MODEL)
-        messages = [{"role": "system", "content": current_persona.get("system_prompt", "You are a helpful assistant.")}]
+        messages = [
+            {
+                "role": "system",
+                "content": current_persona.get(
+                    "system_prompt", "You are a helpful assistant."
+                ),
+            }
+        ]
         print(f"Switched to: {current_persona.get('name', current_pid)}")
-        speak(current_persona.get("greeting", f"Switched to {current_pid} mode."), voice=voice)
+        speak(
+            current_persona.get("greeting", f"Switched to {current_pid} mode."),
+            voice=voice,
+        )
 
     try:
         while True:

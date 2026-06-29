@@ -12,6 +12,7 @@ Commands:
 Voice packs are folders under voices/ with a config.json and (for free/unlocked
 voices) a Piper .onnx model.
 """
+
 import argparse
 import json
 import os
@@ -54,7 +55,9 @@ def cmd_list():
     for v in voices:
         is_active = "*" if v["id"] == active else ""
         status = "UNLOCKED" if v["unlocked"] else "LOCKED"
-        print(f"{is_active:6} {v['id']:12} {v['name']:12} {status:10} {v.get('description', '')}")
+        print(
+            f"{is_active:6} {v['id']:12} {v['name']:12} {status:10} {v.get('description', '')}"
+        )
 
 
 def cmd_install(zip_path: str):
@@ -123,10 +126,16 @@ def cmd_remove(voice_id: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Manage AI Controller voice packs")
-    parser.add_argument("--list", action="store_true", help="List installed voice packs")
-    parser.add_argument("--install", metavar="ZIP", help="Install a voice pack from zip")
+    parser.add_argument(
+        "--list", action="store_true", help="List installed voice packs"
+    )
+    parser.add_argument(
+        "--install", metavar="ZIP", help="Install a voice pack from zip"
+    )
     parser.add_argument("--unlock", metavar="VOICE", help="Unlock a premium voice pack")
-    parser.add_argument("--set", metavar="VOICE", dest="set_voice", help="Set the active voice")
+    parser.add_argument(
+        "--set", metavar="VOICE", dest="set_voice", help="Set the active voice"
+    )
     parser.add_argument("--remove", metavar="VOICE", help="Remove a voice pack")
     args = parser.parse_args()
 

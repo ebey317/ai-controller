@@ -9,6 +9,7 @@ Checks:
 - Groq API key is configured
 - STT pipeline can transcribe a test WAV
 """
+
 import json
 import os
 import subprocess
@@ -24,12 +25,15 @@ from ai_controller_paths import ai_controller_dir, config_dir, load_env
 
 VOICE_BRIDGE_URL = os.environ.get("VOICE_BRIDGE_URL", "http://localhost:8002/voice")
 
+
 def _ok(msg):
     print(f"  ✅ {msg}")
+
 
 def _fail(msg):
     print(f"  ❌ {msg}")
     return False
+
 
 def _warn(msg):
     print(f"  ⚠️  {msg}")
@@ -45,7 +49,11 @@ def check_voices():
     for v in voices:
         status = "unlocked" if v["unlocked"] else "locked"
         print(f"     {v['id']}: {v['name']} [{status}] engine={v['engine']}")
-        if v["engine"] == "piper" and v["unlocked"] and not (v.get("model") and os.path.exists(v["model"])):
+        if (
+            v["engine"] == "piper"
+            and v["unlocked"]
+            and not (v.get("model") and os.path.exists(v["model"]))
+        ):
             _fail(f"{v['id']} is unlocked but model file is missing")
             return False
     return True
@@ -97,20 +105,37 @@ def check_stt():
         text = "This is a health check for speech to text."
         proc = subprocess.run(
             ["piper", "--model", model, "--output_file", wav_path],
-            input=text.encode(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30
+            input=text.encode(),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=30,
         )
         if proc.returncode != 0:
             return _fail(f"piper test audio failed: {proc.stderr.decode()[:200]}")
         proc2 = subprocess.run(
-            ["curl", "-s", "-X", "POST", VOICE_BRIDGE_URL,
-             "-F", f"audio=@{wav_path}", "-F", "mode=transcribe_only",
-             "-H", "Accept: application/json"],
-            capture_output=True, text=True, timeout=30
+            [
+                "curl",
+                "-s",
+                "-X",
+                "POST",
+                VOICE_BRIDGE_URL,
+                "-F",
+                f"audio=@{wav_path}",
+                "-F",
+                "mode=transcribe_only",
+                "-H",
+                "Accept: application/json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         try:
             result = json.loads(proc2.stdout)
         except Exception:
-            return _fail(f"STT response not JSON: {proc2.stdout[:200]} / {proc2.stderr[:200]}")
+            return _fail(
+                f"STT response not JSON: {proc2.stdout[:200]} / {proc2.stderr[:200]}"
+            )
         transcript = result.get("text", result.get("transcript", "")).strip()
         if not transcript:
             return _fail(f"STT returned empty transcript: {result}")
