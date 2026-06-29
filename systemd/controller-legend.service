@@ -1,0 +1,15 @@
+[Unit]
+Description=Controller Legend HUD
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/controller-legend.py
+Restart=on-failure
+RestartSec=3
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+
+[Install]
+WantedBy=default.target

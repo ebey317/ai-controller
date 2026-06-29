@@ -1,198 +1,125 @@
-# AI Controller Profile
+🎮 **AI Controller** — Couch Computing, Voice-First
+================================================================
 
-> **Plug in an Xbox or PlayStation controller → talk to AI with your voice → hear the response. No keyboard. No mouse.**
+![AI Controller Logo](logo.png)
 
-A standalone, power-loss-safe AI controller that turns any USB gamepad into a voice-controlled desktop interface. Runs on Linux (Ubuntu/Debian/Mint).
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue.svg)]()
+[![Platform: macOS](https://img.shields.io/badge/Platform-macOS-silver.svg)]()
+[![Platform: Windows](https://img.shields.io/badge/Platform-Windows-green.svg)]()
 
----
+**Talk to your computer from the couch. No keyboard. No mouse. Just a controller and headphones.**
 
-## What it does
+Plug in any corded or Bluetooth controller — Xbox, PlayStation, DualShock, generic USB — put on a headset, and run your entire desktop by voice. Press a trigger to talk. A floating keyboard and controller legend keep you in control without getting up.
 
-```
-Controller button (RT)
-        │  F13 keypress via AntiMicroX
-        ▼
-ptt_pynput.py     ← listens for F13, records mic audio
-        │  WAV audio POST
-        ▼
-voice_bridge.py   ← Groq Whisper STT → transcript
-        │  transcript
-        ▼
-CLAF / LLM        ← generates response
-        │  response text
-        ▼
-edge-tts + mpv    ← speaks response through headphones
-```
-
-Profile auto-switching: AntiMicroX detects the focused window and loads the matching layout automatically.
-
-| Active window | Profile loaded |
-|---|---|
-| Browser | `ai-browser.amgp` — click, scroll, tab nav |
-| Desktop / terminal | `ai-desktop.amgp` — mouse, keyboard shortcuts |
-| Kodi / IPTV | `ai-iptv.amgp` — media controls |
+> 🗂️ **Repository map** — this repo is the private software source. There are three related repos:
+> - `ebey317/ai-controller` — public landing page (README + LICENSE only)
+> - `ebey317/-AI-controller.` — this repo: the actual source code and install scripts
+> - `ebey317/ai-controller-profile` — controller profiles, systemd units, and reference docs
 
 ---
 
-## Button layout (default desktop profile)
-
-| Button | Action |
-|---|---|
-| **RT** (hold) | Push-to-talk — record voice |
-| **LB** | Scroll up |
-| **RB** | Scroll down |
-| **Start** | Open terminal |
-| **Left stick** | Mouse movement |
-| **A / B / X / Y** | Left click / Right click / Back / Enter |
-| **D-pad** | Arrow keys |
-
-Full reference: `AI_CONTROLLER_COMPLETE_REFERENCE.md`
-
----
-
-## Repository layout
+## How It Works
 
 ```
-ai-controller-profile/
-├── profiles/
-│   ├── ai-desktop.amgp         # Desktop / terminal layout
-│   ├── ai-browser.amgp         # Browser layout
-│   ├── ai-iptv.amgp            # IPTV / Kodi layout
-│   └── *.gamepad               # AntiMicroX native format copies
-├── scripts/
-│   ├── voice_bridge.py         # FastAPI STT + LLM + TTS server (port 8002)
-│   ├── ptt_pynput.py           # Push-to-talk keyboard listener (F13)
-│   ├── controller-legend.py    # On-screen HUD showing button map
-│   ├── controller-profile-switcher.sh  # Window-focus → profile swap
-│   ├── slide_keyboard.py       # On-screen keyboard (left stick input)
-│   └── hermes_tts_play.sh      # mpv playback helper with lowpass filter
-├── systemd/
-│   ├── antimicrox-autoload.service   # Auto-start AntiMicroX on login
-│   ├── ptt-pynput.service            # Push-to-talk daemon
-│   └── voice-bridge.service          # Voice bridge server daemon
-├── snapshots/                  # Profile backups before edits
-├── tests/
-│   └── test_voice_bridge.py
-├── .env.example                # All configurable env vars
-├── requirements.txt            # Python dependencies
-└── install.sh                  # Full installer
+┌─────────────────────────────────────────────────────────────┐
+│  Xbox/PlayStation Controller                                │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐  │
+│  │   RT    │    │  View   │    │   LS    │    │   RS    │  │
+│  │  Talk   │    │Keyboard │    │ Escape  │    │  Enter  │  │
+│  └─────────┘    └─────────┘    └─────────┘    └─────────┘  │
+└─────────────────────────────────────────────────────────────┘
+         │              │              │              │
+         ▼              ▼              ▼              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  AntiMicroX → F13 → ptt_pynput.py → Whisper → Text Output  │
+└─────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Dictation Modes: PRO | BUBBLY | CASUAL | BOLD | BIG       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Setup
+## Base Product — $30
 
-### 1. Prerequisites
+The base AI Controller lets you talk **to** your computer:
 
-- Linux (Ubuntu 22.04+ / Debian 12+ / Mint 21+)
-- Python 3.9+
-- USB gamepad (Xbox Series X/S, Xbox One, or PlayStation)
-- Microphone (built-in or external)
-- [CLAF](https://github.com/ebey317/claf) or any OpenAI-compatible LLM endpoint running locally
+- 🎤 **Microphone push-to-talk** — press Right Trigger, speak, release
+- 🌐 **Dynamic output** — your speech becomes plain typed text in the active app
+- ⌨️ **Floating on-screen keyboard** — toggle it with the View button, type with the stick
+- 🕹️ **Floating controller legend** — see your button mappings as an overlay
+- 🔌 **Universal controller support** — Xbox, PlayStation, DualShock, USB, Bluetooth
+- ⚙️ **Power-loss safe** — systemd services restart everything on boot
 
-### 2. Install
+**At $30, the computer listens and types. It does not talk back.**
+
+---
+
+## Level-Ups (Sold Separately) — New Identities
+
+Each level-up gives the AI Controller a new identity.
+
+### Level-Up 1: Voice Identity
+The computer talks back to you.
+
+- 🔊 **Voice response** — the AI reads answers aloud through your headphones
+- 🎙️ **Voice packs** — Joe included; premium Piper voices unlock from the shelf
+
+### Level-Up 2: Dictation Identity
+Your speech gets styled before it is typed.
+
+- ✨ **Output modes** — PRO, BUBBLY, CASUAL, BOLD, BIG text personality transforms
+
+### Power Level-Up: Full Identity
+Bundle one voice with one dictation mode. The agent sounds different **and** your words look different. That's a complete identity swap.
+
+---
+
+## 🚀 Quick Start
 
 ```bash
-git clone https://github.com/ebey317/ai-controller-profile.git
-cd ai-controller-profile
+git clone https://github.com/ebey317/-AI-controller..git
+cd '-AI-controller.'
 bash install.sh
 ```
 
-The installer:
-- Downloads AntiMicroX 3.5.1 (requires `configversion=19` schema)
-- Copies profiles to AntiMicroX's config directory
-- Installs systemd user services
-- Enables auto-start on login
+**Supported Platforms:**
+- 🐧 **Linux** — Ubuntu, Mint, Debian (apt)
+- 🍎 **macOS** — Homebrew required
+- 🪟 **Windows** — WSL2 recommended
 
-### 3. Python dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. System packages
-
-```bash
-sudo apt install mpv python3-gi gir1.2-gtk-3.0 xdotool
-pip install edge-tts        # TTS engine (not available via apt)
-```
-
-### 5. Configure environment
-
-```bash
-cp .env.example ~/.config/ai-controller/config.env
-# Edit the file — set GROQ_API_KEY to your Groq key
-```
-
-Get a free Groq API key at [console.groq.com](https://console.groq.com) — Whisper transcription and LLM responses both use the free tier.
-
-### 6. Start services
-
-```bash
-systemctl --user enable --now antimicrox-autoload.service
-systemctl --user enable --now ptt-pynput.service
-systemctl --user enable --now voice-bridge.service
-```
+1. Plug in your controller (corded or Bluetooth)
+2. Put on headphones
+3. Press **Right Trigger** and talk
+4. Press **View** to toggle the keyboard
 
 ---
 
-## Usage
+## Related Repositories
 
-1. Plug in your controller
-2. Hold **Right Trigger (RT)** and speak
-3. Release RT — audio is transcribed and sent to the LLM
-4. Response plays back through your speakers/headphones
-
-The on-screen HUD (`controller-legend.py`) shows the active button map. It updates automatically when the profile switches.
-
----
-
-## Power-loss safety
-
-All config is on disk and in git. After a crash or power loss:
-
-- Machine boots → systemd starts all three services automatically
-- AntiMicroX loads the last active profile
-- Nothing is lost — state lives in files, not memory
+| Repo | Purpose | URL |
+|---|---|---|
+| `ebey317/ai-controller` | Public landing page (README + LICENSE) | https://github.com/ebey317/ai-controller |
+| `ebey317/-AI-controller.` | **This source repo** — install scripts, launcher, voice bridge | https://github.com/ebey317/-AI-controller. |
+| `ebey317/ai-controller-profile` | AntiMicroX profiles, systemd units, reference docs | https://github.com/ebey317/ai-controller-profile |
 
 ---
 
-## Troubleshooting
+## Pricing
 
-```bash
-# Check service status
-systemctl --user status antimicrox-autoload.service
-systemctl --user status ptt-pynput.service
-systemctl --user status voice-bridge.service
-
-# View live logs
-journalctl --user -u voice-bridge.service -f
-
-# Test the voice bridge directly
-curl -s http://127.0.0.1:8002/voice \
-  -F "text=hello world" \
-  -F "mode=transcribe_only"
-```
-
-Common issues:
-
-| Symptom | Fix |
-|---|---|
-| No TTS audio | Check `mpv` is installed and the correct audio sink is selected |
-| Push-to-talk not recording | Verify microphone input device with `arecord -l` |
-| Profile not switching | Check `controller-profile-switcher.sh` is running; verify AntiMicroX window rules |
-| `GROQ_API_KEY` missing | Edit `~/.config/ai-controller/config.env` |
+- **$30** — Base AI Controller (talk to your PC, plain text output)
+- **Voice level-up** — sold separately
+- **Dictation level-up** — sold separately
+- **Power level-up** — voice + dictation bundle (save vs. buying separately)
+- **MIT licensed** — use it, modify it, resell your own builds
 
 ---
 
-## Related
+## Support
 
-- **[CLAF](https://github.com/ebey317/claf)** — Local LLM proxy; voice bridge routes through this by default
-- **[master-ai](https://github.com/ebey317/master-ai)** — Full terminal agent stack; controller is a front-end to it
-- **[AI Controller (canonical)](https://github.com/ebey317/-AI-controller.)** — Standalone product build with installer
-
----
-
-## License
-
-MIT — use freely for personal or commercial purposes.
+- Voice packs: `voices/README.md`
+- Releases & updates: `RELEASES.md`
+- Issues: https://github.com/ebey317/-AI-controller./issues

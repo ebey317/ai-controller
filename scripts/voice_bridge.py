@@ -9,10 +9,11 @@ import os
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 # Make ai_controller_paths importable when running from any cwd.
@@ -27,9 +28,33 @@ from ai_controller_paths import ai_controller_dir, load_env
 # -----------------------------------------------------------------------------
 
 _env = load_env()
-GROQ_KEY = os.environ.get("GROQ_API_KEY") or _env.get("GROQ_API_KEY", "")
 CLAF_URL = (os.environ.get("CLAF_URL") or _env.get("CLAF_URL") or "http://localhost:8000").rstrip("/")
 VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
+
+
+def _load_groq_key() -> str:
+    """Load the live Groq key from env / ai-controller config / master keychain."""
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if key and not key.startswith("***") and len(key) > 20:
+        return key
+    key = load_env().get("GROQ_API_KEY", "").strip()
+    if key and not key.startswith("***") and len(key) > 20:
+        return key
+    # Fallback to the master keychain env file (plain KEY=VALUE format).
+    keychain = Path.home() / "Desktop" / "Projects" / "keychain" / "master_ai_keys"
+    if keychain.exists():
+        try:
+            for line in keychain.read_text().splitlines():
+                if line.strip().startswith("GROQ_API_KEY="):
+                    key = line.split("=", 1)[1].strip().strip('"\'')
+                    if key and not key.startswith("***") and len(key) > 20:
+                        return key
+        except Exception:
+            pass
+    return ""
+
+
+GROQ_KEY = _load_groq_key()
 
 GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_TIMEOUT = float(os.environ.get("VOICE_BRIDGE_GROQ_TIMEOUT", "30"))
@@ -43,7 +68,7 @@ PIPER_MODEL = os.path.join(AI_DIR, "voices", "en_US-joe-medium.onnx")
 HERMES_TTS_PLAY = os.path.join(AI_DIR, "scripts", "hermes_tts_play.sh")
 EDGE_VOICE = "en-US-AriaNeural"
 EDGE_PITCH = "-22Hz"
-EDGE_RATE = "+12%"
+EDGE_RATE = "+18%"
 
 
 def _speak(text: str) -> None:
@@ -242,8 +267,17 @@ async def voice(
     return JSONResponse({"transcript": transcript, "response": response_text})
 
 
+@app.post("/speak")
+async def speak_endpoint(request: Request, text: str = Form(...)):
+    """Hermes-compatible TTS endpoint: POST text and speak it immediately."""
+    if not text:
+        return JSONResponse({"error": "empty text"}, status_code=400)
+    _speak(text[:500])
+    return JSONResponse({"spoken": True})
+
+
 # Apply security dependency to all routes.
-app.router.dependencies.append(_secure)
+app.router.dependencies.append(Depends(_secure))
 
 
 if __name__ == "__main__":

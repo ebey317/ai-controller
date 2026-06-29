@@ -8,8 +8,27 @@
 # Run via: nohup DISPLAY=:0 bash ~/scripts/controller-profile-switcher.sh &
 # Or as the systemd user service antimicrox-autoload (swap ExecStart to this).
 
-ANTIMICROX="/usr/bin/antimicrox"
-PROFILE_DIR="${HOME}/.config/antimicrox"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Prefer system AntiMicroX; fall back to bundled AppImage.
+if command -v antimicrox &>/dev/null; then
+    ANTIMICROX="$(command -v antimicrox)"
+elif [[ -x "${INSTALL_DIR}/bin/antimicrox.AppImage" ]]; then
+    ANTIMICROX="${INSTALL_DIR}/bin/antimicrox.AppImage"
+else
+    echo "ERROR: AntiMicroX not found. Install it or place antimicrox.AppImage in ${INSTALL_DIR}/bin/" >&2
+    exit 1
+fi
+
+# AntiMicroX's canonical profile directory is where the user expects profiles
+# to be loaded from. The installer symlinks our packaged profiles here, so the
+# locked desktop profile always matches what AntiMicroX itself would show.
+if [ -d "${HOME}/.config/antimicrox" ]; then
+    PROFILE_DIR="${HOME}/.config/antimicrox"
+else
+    PROFILE_DIR="${INSTALL_DIR}/profiles"
+fi
 export DISPLAY="${DISPLAY:-:0}"
 
 # Stabilize Qt / AntiMicroX: disable network bearer polling (prevent SIGBUS)
@@ -19,8 +38,9 @@ export QT_NO_NETWORK_PROBING=1
 # NOTE: removed SDL_JOYSTICK_DEVICE override. It forces js0 globally and
 # can confuse AntiMicroX when the real mouse or other devices are present.
 
-DESKTOP_PROFILE="$PROFILE_DIR/ai-desktop.amgp"
+DESKTOP_PROFILE="$PROFILE_DIR/good_1n.gamecontroller.amgp"
 BROWSER_PROFILE="$PROFILE_DIR/ai-browser.amgp"
+YOUTUBE_TV_PROFILE="$PROFILE_DIR/ai-youtube-tv.amgp"
 IPTV_PROFILE="$PROFILE_DIR/ai-iptv.amgp"
 
 # Ensure F13-F18 have X11 keycodes (not in default keymap).
@@ -35,6 +55,15 @@ DISPLAY=:0 xmodmap -e "keycode 230 = F18" 2>/dev/null || true
 # Window-class regexes (lowercased) → profile category
 is_browser() { [[ "$1" =~ (chrome|chromium|firefox|brave|edge|opera) ]]; }
 is_media()   { [[ "$1" =~ (mpv|vlc|kodi|hypnotix|stremio|smplayer|celluloid) ]]; }
+
+active_window_title() {
+    xdotool getactivewindow getwindowname 2>/dev/null || true
+}
+
+is_youtube_tv() {
+    local title="${1,,}"  # lower-case
+    [[ "$title" =~ youtube[[:space:]]tv ]] || [[ "$title" =~ youtube\.com/tv ]]
+}
 
 current_profile=""
 
@@ -118,7 +147,7 @@ load() {
     echo "$loader" > "$ANTIMICROX_PIDFILE"
     current_profile="$profile"
     echo "$label" > ~/.controller_current_profile
-    DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \
+    DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${UID}/bus" \
         notify-send --replace-id=7001 -t 1000 -u low "🎮 ${label^^} MODE" 2>/dev/null || true
     echo "$(date '+%H:%M:%S') → $label ($(basename "$profile"))"
     # Give antimicrox time to initialize joystick device before next loop
@@ -131,10 +160,24 @@ watch_controller &
 WATCH_PID=$!
 trap 'kill $WATCH_PID 2>/dev/null; rm -f /tmp/controller_state_changed; kill_antimicrox; exit 0' EXIT INT TERM
 
+LOCK_FILE="${HOME}/.config/ai-controller/lock_desktop_profile"
+
 while true; do
     if controller_present; then
-        # User wants a single general profile across all apps. Always load desktop.
-        load "$DESKTOP_PROFILE" "Desktop"
+        if [[ -f "$LOCK_FILE" ]]; then
+            # Launcher/user has requested the desktop profile stay loaded no
+            # matter which window is focused.
+            load "$DESKTOP_PROFILE" "Desktop (locked)"
+        else
+            # Default to the single general desktop profile, but switch to a
+            # specialized layout when YouTube TV is in focus.
+            title=$(active_window_title)
+            if is_youtube_tv "$title"; then
+                load "$YOUTUBE_TV_PROFILE" "YouTube TV"
+            else
+                load "$DESKTOP_PROFILE" "Desktop"
+            fi
+        fi
     else
         # No controller → make sure nothing is running, reset state
         if [[ -n "$current_profile" ]]; then

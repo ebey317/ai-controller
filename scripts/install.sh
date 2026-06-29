@@ -1,216 +1,218 @@
 #!/usr/bin/env bash
-# ai-controller-profile installer
-# Supports: Ubuntu/Debian/Mint Linux, macOS (partial), Windows (manual)
-# Controller: Xbox One/Series (also PS4/PS5)
-# Usage: bash install.sh
+# AI Controller — Consumer installer
+# Run: bash install.sh
+# Sets up a standalone, reboot-safe AI Controller on Linux, macOS, and Windows (WSL).
 
-set -e
+set -euo pipefail
 
-PROFILE_DIR="$HOME/.config/antimicrox"
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ANTIMICROX_APP="$HOME/scripts/antimicrox.AppImage"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="${HOME}/ai-controller"
+CONFIG_DIR="${HOME}/.config/ai-controller"
+SERVICE_DIR="${HOME}/.config/systemd/user"
+ANTIMICROX_PROFILE_DIR="${HOME}/.config/antimicrox"
+
+SERVICES=(
+    antimicrox-autoload.service
+    controller-legend.service
+    ptt-pynput.service
+    voice-bridge.service
+    ai-slide-keyboard.service
+)
+
+PIPER_VOICE_URL="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/joe/medium/en_US-joe-medium.onnx"
+PIPER_CONFIG_URL="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/joe/medium/en_US-joe-medium.onnx.json"
 
 echo "======================================"
-echo "  AI Controller Profile — Installer"
+echo "  AI Controller Installer"
 echo "======================================"
 echo ""
 
-# ── 1. DETECT OS ──────────────────────────────────────────────────────────────
-OS="unknown"
+# ── 1. OS CHECK ──────────────────────────────────────────────────────────────
+# Detect platform and set appropriate package manager
+PLATFORM="unknown"
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    OS="linux"
+    PLATFORM="linux"
+    echo "→ Platform: Linux (Ubuntu/Mint/Debian)"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-    OS="macos"
-    echo "macOS: partial support. antimicroX not available. Using Joystick Doctor or Controlly instead."
-elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-    OS="windows"
-    echo "Windows: Install antimicroX from https://github.com/AntiMicroX/antimicrox/releases"
-    echo "Then copy profiles from profiles/ to %APPDATA%/antimicrox/"
-    exit 0
+    PLATFORM="macos"
+    echo "→ Platform: macOS"
+elif [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]]; then
+    PLATFORM="windows"
+    echo "→ Platform: Windows (WSL/MSYS)"
+else
+    echo "⚠️  Unknown platform: $OSTYPE"
+    echo "   Continuing with best-effort installation..."
+    PLATFORM="unknown"
 fi
 
-# ── 2. INSTALL ANTIMICROX (Linux only) ───────────────────────────────────────
-if [[ "$OS" == "linux" ]]; then
-    if command -v antimicrox &>/dev/null; then
-        echo "✓ antimicroX already installed: $(which antimicrox)"
-    elif [[ -f "$ANTIMICROX_APP" ]]; then
-        echo "✓ antimicroX AppImage found at $ANTIMICROX_APP"
-        # Create desktop entry
-        mkdir -p "$HOME/.local/share/applications"
-        cat > "$HOME/.local/share/applications/antimicrox.desktop" << EOF
-[Desktop Entry]
-Name=AntiMicroX
-Exec=$ANTIMICROX_APP
-Type=Application
-Categories=Utility;
-EOF
-    else
-        echo "→ Downloading antimicroX AppImage..."
-        mkdir -p "$HOME/scripts"
-        wget -q --show-progress \
-            "https://github.com/AntiMicroX/antimicrox/releases/download/3.5.1/antimicrox-x86_64.AppImage" \
-            -O "$HOME/scripts/antimicrox.AppImage"
-        chmod +x "$HOME/scripts/antimicrox.AppImage"
-        echo "✓ Downloaded antimicroX to ~/scripts/antimicrox.AppImage"
+# ── 2. INSTALL SYSTEM DEPENDENCIES ───────────────────────────────────────────
+if [[ "${AI_CONTROLLER_SKIP_DEPS:-}" == "1" ]]; then
+    echo "→ Skipping system dependencies (AI_CONTROLLER_SKIP_DEPS=1)"
+elif [[ "$PLATFORM" == "linux" ]]; then
+    echo "→ Installing system packages (you may be asked for sudo password)..."
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq \
+        python3 python3-venv python3-pip python3-dev \
+        libgirepository1.0-dev libcairo2-dev python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+        xdotool xclip curl antimicrox pulseaudio-utils mpv wget git libportaudio2 libnotify-bin || {
+        echo "ERROR: failed to install system packages" >&2
+        exit 1
+    }
+elif [[ "$PLATFORM" == "macos" ]]; then
+    echo "→ Installing system packages via Homebrew..."
+    if ! command -v brew &>/dev/null; then
+        echo "ERROR: Homebrew not found. Install from https://brew.sh first." >&2
+        exit 1
     fi
+    brew install python3 gtk+3 cairo gobject-introspection pygobject3 \
+        xdotool xclip curl antimicrox mpv wget git portaudio || {
+        echo "ERROR: failed to install system packages via brew" >&2
+        exit 1
+    }
+elif [[ "$PLATFORM" == "windows" ]]; then
+    echo "→ Windows/WSL detected. Installing WSL-specific packages..."
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq \
+        python3 python3-venv python3-pip python3-dev \
+        libgirepository1.0-dev libcairo2-dev python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+        xdotool xclip curl antimicrox pulseaudio-utils mpv wget git libportaudio2 libnotify-bin || {
+        echo "ERROR: failed to install WSL system packages" >&2
+        exit 1
+    }
+else
+    echo "→ Platform: unknown — attempting generic Python install..."
+    echo "   You may need to install GTK3, Cairo, and PyGObject manually."
 fi
 
-# ── 3. INSTALL PROFILES ───────────────────────────────────────────────────────
-echo ""
-echo "→ Installing controller profiles..."
-mkdir -p "$PROFILE_DIR"
-cp "$SCRIPT_DIR/profiles/desktop.gamepad"  "$PROFILE_DIR/ai-desktop.amgp"
-cp "$SCRIPT_DIR/profiles/browser.gamepad"  "$PROFILE_DIR/ai-browser.amgp"
-cp "$SCRIPT_DIR/profiles/iptv.gamepad"     "$PROFILE_DIR/ai-iptv.amgp"
-echo "✓ Profiles installed to $PROFILE_DIR"
+# ── 3. COPY REPO TO INSTALL LOCATION ─────────────────────────────────────────
+echo "→ Installing AI Controller to ${INSTALL_DIR}..."
+mkdir -p "${INSTALL_DIR}"
+# Use rsync if available, otherwise copy core files.
+if command -v rsync &>/dev/null; then
+    rsync -a --delete \
+        --exclude='.git' \
+        --exclude='__pycache__' \
+        --exclude='deprecated' \
+        --exclude='scripts/extra' \
+        --exclude='scripts/install.sh' \
+        --exclude='scripts/controller-detect.sh' \
+        --exclude='scripts/push-to-talk.sh' \
+        "${REPO_DIR}/" "${INSTALL_DIR}/"
+else
+    rm -rf "${INSTALL_DIR:?}/"{scripts,profiles,systemd,docs,voices,README.md,install.sh}
+    cp -r "${REPO_DIR}/scripts" "${INSTALL_DIR}/"
+    cp -r "${REPO_DIR}/profiles" "${INSTALL_DIR}/"
+    cp -r "${REPO_DIR}/systemd" "${INSTALL_DIR}/"
+    cp -r "${REPO_DIR}/docs" "${INSTALL_DIR}/" 2>/dev/null || true
+    cp "${REPO_DIR}/README.md" "${INSTALL_DIR}/" 2>/dev/null || true
+fi
 
-# ── 4. INSTALL AUTO-DETECT SERVICE ───────────────────────────────────────────
-echo ""
-echo "→ Installing auto-detect service..."
-cp "$SCRIPT_DIR/scripts/controller-detect.sh" "$HOME/scripts/controller-detect.sh"
-chmod +x "$HOME/scripts/controller-detect.sh"
+# ── 4. PYTHON VENV + PIP DEPENDENCIES ────────────────────────────────────────
+echo "→ Creating Python virtual environment..."
+# --system-site-packages lets the venv use the distro's python3-gi/pygi packages
+# so we don't have to build PyGObject from source on every install.
+python3 -m venv --system-site-packages "${INSTALL_DIR}/.venv"
+"${INSTALL_DIR}/.venv/bin/pip" install --quiet --upgrade pip
+"${INSTALL_DIR}/.venv/bin/pip" install --quiet \
+    httpx fastapi uvicorn pynput numpy scipy piper-tts edge-tts
 
-mkdir -p "$HOME/.config/systemd/user"
-cp "$SCRIPT_DIR/systemd/antimicrox-autoload.service" "$HOME/.config/systemd/user/"
+# ── 5. PROMPT FOR GROQ API KEY ───────────────────────────────────────────────
+echo ""
+mkdir -p "${CONFIG_DIR}"
+CONFIG_FILE="${CONFIG_DIR}/config.env"
+
+if [[ -f "${CONFIG_FILE}" ]]; then
+    echo "Found existing config at ${CONFIG_FILE}"
+fi
+
+GROQ_KEY=""
+if [[ -f "${CONFIG_FILE}" ]]; then
+    # shellcheck source=/dev/null
+    GROQ_KEY=$(set -a; source "${CONFIG_FILE}" 2>/dev/null; echo "${GROQ_API_KEY:-}")
+fi
+
+# Allow non-interactive installs and testing via environment variable.
+GROQ_KEY="${GROQ_API_KEY:-${GROQ_KEY}}"
+
+if [[ -z "${GROQ_KEY}" ]]; then
+    read -rp "Enter your Groq API key (get one at https://console.groq.com/keys): " GROQ_KEY
+fi
+
+if [[ -z "${GROQ_KEY}" ]]; then
+    echo "WARNING: No Groq API key provided. STT will not work until you add one to ${CONFIG_FILE}" >&2
+fi
+
+# ── 6. WRITE CONFIG ──────────────────────────────────────────────────────────
+cat > "${CONFIG_FILE}" <<EOF
+# AI Controller configuration
+AI_CONTROLLER_DIR=${INSTALL_DIR}
+GROQ_API_KEY=${GROQ_KEY}
+# Optional: override default PulseAudio devices
+# AUDIO_INPUT=alsa_input.usb-Microsoft_Controller_....mono-fallback
+# AUDIO_OUTPUT=alsa_output.usb-Microsoft_Controller_....stereo-fallback
+EOF
+
+# ── 7. INSTALL ANTIDOTE PROFILES ─────────────────────────────────────────────
+echo "→ Installing AntiMicroX profiles..."
+mkdir -p "${ANTIMICROX_PROFILE_DIR}"
+cp "${INSTALL_DIR}/profiles/ai-desktop.amgp" "${ANTIMICROX_PROFILE_DIR}/"
+cp "${INSTALL_DIR}/profiles/ai-browser.amgp" "${ANTIMICROX_PROFILE_DIR}/" 2>/dev/null || true
+cp "${INSTALL_DIR}/profiles/ai-iptv.amgp" "${ANTIMICROX_PROFILE_DIR}/" 2>/dev/null || true
+cp "${INSTALL_DIR}/profiles/ai-youtube-tv.amgp" "${ANTIMICROX_PROFILE_DIR}/" 2>/dev/null || true
+
+# Substitute placeholder paths with the real install directory.
+sed -i "s|__AI_CONTROLLER_DIR__|${INSTALL_DIR}|g" "${ANTIMICROX_PROFILE_DIR}/ai-desktop.amgp"
+
+# ── 8. DOWNLOAD DEFAULT PIPER VOICE ──────────────────────────────────────────
+echo "→ Downloading default Piper voice (Joe)..."
+mkdir -p "${INSTALL_DIR}/voices/joe"
+wget -q --show-progress -O "${INSTALL_DIR}/voices/joe/en_US-joe-medium.onnx" "${PIPER_VOICE_URL}" || true
+wget -q --show-progress -O "${INSTALL_DIR}/voices/joe/en_US-joe-medium.onnx.json" "${PIPER_CONFIG_URL}" || true
+# The repo already ships voices/joe/config.json; ensure it exists in the install.
+if [[ ! -f "${INSTALL_DIR}/voices/joe/config.json" ]]; then
+    cp "${REPO_DIR}/voices/joe/config.json" "${INSTALL_DIR}/voices/joe/config.json"
+fi
+
+# ── 9. INSTALL SYSTEMD SERVICES ──────────────────────────────────────────────
+echo "→ Installing systemd user services..."
+mkdir -p "${SERVICE_DIR}"
+for svc in "${SERVICES[@]}"; do
+    cp "${INSTALL_DIR}/systemd/${svc}" "${SERVICE_DIR}/"
+done
+
 systemctl --user daemon-reload
-systemctl --user enable antimicrox-autoload.service
-systemctl --user start antimicrox-autoload.service
-echo "✓ Auto-detect service enabled and started"
+for svc in "${SERVICES[@]}"; do
+    systemctl --user enable "${svc}"
+done
 
-# ── 5. PUSH-TO-TALK SETUP ─────────────────────────────────────────────────────
+# ── 10. INSTALL DESKTOP LAUNCHER & AUTOSTART ─────────────────────────────────
+echo "→ Installing desktop launcher..."
+chmod +x "${INSTALL_DIR}/scripts/ai-controller-launcher.sh"
+DESKTOP_DIR="${HOME}/.local/share/applications"
+AUTOSTART_DIR="${HOME}/.config/autostart"
+mkdir -p "${DESKTOP_DIR}" "${AUTOSTART_DIR}"
+cp "${INSTALL_DIR}/ai-controller-launcher.desktop" "${DESKTOP_DIR}/"
+cp "${INSTALL_DIR}/ai-controller-launcher.desktop" "${AUTOSTART_DIR}/"
+sed -i "s|__AI_CONTROLLER_DIR__|${INSTALL_DIR}|g" "${DESKTOP_DIR}/ai-controller-launcher.desktop"
+sed -i "s|__AI_CONTROLLER_DIR__|${INSTALL_DIR}|g" "${AUTOSTART_DIR}/ai-controller-launcher.desktop"
+
+# ── 11. START SERVICES ───────────────────────────────────────────────────────
 echo ""
-echo "→ Installing push-to-talk script..."
-cp "$SCRIPT_DIR/scripts/push-to-talk.sh" "$HOME/scripts/push-to-talk.sh"
-chmod +x "$HOME/scripts/push-to-talk.sh"
-
-# ── 6. F13 KEYMAP PERSISTENCE (Linux only) ────────────────────────────────────
-# RT emits keysym F13 for dictation, but F13 has no keycode in the default X11
-# keymap, and desktop keyboard daemons (Cinnamon csd-keyboard, GNOME, etc.)
-# wipe xmodmap changes shortly after login. Three layers make F13 survive:
-#   (a) ~/.Xmodmap          — the keycode definitions (source of truth)
-#   (b) ~/.xsessionrc       — load them at X session start
-#   (c) autostart .desktop  — re-load AFTER the keyboard daemon resets the map
-#   (d) ptt service ExecStartPre also re-applies it (installed in step 4)
-if [[ "$OS" == "linux" ]]; then
-    echo ""
-    echo "→ Installing F13-F18 keymap persistence..."
-
-    # (a) keycode definitions — only write if ours aren't already present
-    if [[ ! -f "$HOME/.Xmodmap" ]] || ! grep -q "keycode 202 = F13" "$HOME/.Xmodmap" 2>/dev/null; then
-        cat >> "$HOME/.Xmodmap" << 'EOF'
-! F13-F18 keycodes for AI Controller (PTT + onboard keyboard scanner)
-! These survive restart when loaded via .xsessionrc + autostart + ptt service.
-keycode 191 = F13
-keycode 202 = F13
-keycode 197 = F14
-keycode 217 = F15
-keycode 219 = F16
-keycode 222 = F17
-keycode 230 = F18
-EOF
-    fi
-
-    # (b) load at X session start (idempotent)
-    if ! grep -q "xmodmap ~/.Xmodmap" "$HOME/.xsessionrc" 2>/dev/null; then
-        echo '[ -f ~/.Xmodmap ] && xmodmap ~/.Xmodmap' >> "$HOME/.xsessionrc"
-    fi
-
-    # (c) re-apply after the desktop keyboard daemon resets the keymap
-    mkdir -p "$HOME/.config/autostart"
-    cat > "$HOME/.config/autostart/fix-f13-keymap.desktop" << 'EOF'
-[Desktop Entry]
-Name=Fix F13 Keymap
-Comment=Re-apply ~/.Xmodmap after the keyboard daemon resets the keymap, so RT->F13 dictation survives login
-Exec=bash -c 'sleep 5; xmodmap ~/.Xmodmap'
-Type=Application
-Terminal=false
-X-GNOME-Autostart-enabled=true
-NoDisplay=true
-Categories=Utility;Accessibility;
-EOF
-
-    # apply to the running session immediately
-    [ -n "$DISPLAY" ] && xmodmap "$HOME/.Xmodmap" 2>/dev/null || true
-    echo "✓ F13 keymap will persist across login + service restart"
-fi
-
-# ── 7. XBOX CONTROLLER HEADSET AUDIO DRIVER (Linux only) ──────────────────────
-# Dictation mic + headset audio comes through the controller's 3.5mm jack,
-# exposed by the xone-gip-headset kernel module. It must load at boot and must
-# NOT be blacklisted. (xpad / mt76x2u stay blacklisted — they conflict.)
-if [[ "$OS" == "linux" ]] && command -v sudo &>/dev/null; then
-    echo ""
-    echo "→ Configuring Xbox controller headset audio driver (needs sudo)..."
-
-    # load at boot
-    echo "xone-gip-headset" | sudo tee /etc/modules-load.d/xone-headset.conf >/dev/null
-
-    # neutralize any blacklist of the headset module (preserve other blacklists)
-    for f in /etc/modprobe.d/*.conf; do
-        if grep -q "blacklist[[:space:]]\+xone_gip_headset" "$f" 2>/dev/null; then
-            sudo sed -i 's/^[[:space:]]*blacklist[[:space:]]\+xone_gip_headset/# &  (disabled by ai-controller installer: needed for headset audio)/' "$f"
-            echo "  ✓ removed headset blacklist in $(basename "$f")"
-        fi
-    done
-
-    # load it now
-    sudo modprobe xone-gip-headset 2>/dev/null || true
-    if lsmod | grep -q xone_gip_headset; then
-        echo "✓ Headset audio driver loaded and set to load at boot"
-    else
-        echo "  ! xone-gip-headset not loaded — is the xone DKMS package installed?"
-    fi
-fi
-
-# ── 7.5. ROOT HUB POWER LOCK (Linux only) ────────────────────────────────────
-# The Xbox controller hangs off xhci root hub usb1. Autosuspend on the root
-# hub introduces latency for isochronous audio traffic and causes xone-gip
-# buffer exhaustion (dmesg: gip_send_audio_samples: get buffer failed: -28).
-# This rule keeps the root hub awake permanently.
-if [[ "$OS" == "linux" ]] && command -v sudo &>/dev/null; then
-    echo ""
-    echo "→ Locking xhci root hub usb1 power to 'on' (needs sudo)..."
-    sudo install -m 0644 "$SCRIPT_DIR/udev/49-xbox-root-hub-no-autosuspend.rules" /etc/udev/rules.d/49-xbox-root-hub-no-autosuspend.rules
-    echo on | sudo tee /sys/bus/usb/devices/usb1/power/control >/dev/null
-    sudo udevadm control --reload-rules
-    sudo udevadm trigger --subsystem-match=usb --attr-match=busnum=1 --attr-match=devnum=1
-    echo "✓ Root hub usb1 power locked on"
-fi
-
-# ── 8. HEADSET MIC AUTO-WAKE (Linux only) ─────────────────────────────────────
-# The controller announces its headset over GIP only on an analog insertion
-# edge, so on boot/reconnect with the plug already seated the mic stays dead
-# until a manual 3.5mm reseat. This installs a udev-triggered service that
-# performs that reseat in software on connect — no plug-pull needed.
-if [[ "$OS" == "linux" ]] && command -v sudo &>/dev/null; then
-    echo ""
-    echo "→ Installing headset mic auto-wake (needs sudo)..."
-    sudo install -m 0755 "$SCRIPT_DIR/scripts/xbox-headset-wake.sh" /usr/local/bin/xbox-headset-wake.sh
-    sudo install -m 0644 "$SCRIPT_DIR/systemd/xbox-headset-wake.service" /etc/systemd/system/xbox-headset-wake.service
-    sudo install -m 0644 "$SCRIPT_DIR/udev/52-xbox-headset-wake.rules" /etc/udev/rules.d/52-xbox-headset-wake.rules
-    sudo systemctl daemon-reload
-    sudo udevadm control --reload-rules
-    echo "✓ Headset mic will auto-wake on controller connect (no manual reseat)"
-fi
+echo "→ Starting services..."
+for svc in "${SERVICES[@]}"; do
+    systemctl --user restart "${svc}" || true
+done
 
 echo ""
 echo "======================================"
 echo "  INSTALLATION COMPLETE"
 echo "======================================"
 echo ""
-echo "  PROFILES INSTALLED:"
-echo "  • Desktop    → ~/scripts/antimicrox.AppImage --profile ai-desktop"
-echo "  • Browser    → auto-activates on Chrome/Firefox focus"
-echo "  • IPTV       → auto-activates on MPV/VLC/Kodi/Hypnotix focus"
+echo "Install directory: ${INSTALL_DIR}"
+echo "Config file:       ${CONFIG_FILE}"
 echo ""
-echo "  PUSH-TO-TALK:"
-echo "  Right Trigger (RT) sends F13 key."
-echo "  Bind F13 to your mic/voice software."
-echo "  OR use your headphone's built-in mic button instead."
+echo "Check status with:"
+echo "  systemctl --user status ${SERVICES[*]}"
 echo ""
-echo "  START ANTIMICROX:"
-echo "  ~/scripts/antimicrox.AppImage &"
-echo ""
-echo "  LAUNCH ON BOOT:"
-echo "  systemctl --user status antimicrox-autoload.service"
-echo ""
+echo "The AI Controller launcher is in your applications menu and will autostart on login."
+echo "Plug in your controller, put on headphones, and press Right Trigger to talk."

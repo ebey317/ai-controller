@@ -5,15 +5,8 @@ Wants=graphical-session.target voice-bridge.service
 
 [Service]
 Type=simple
-# Self-heal: re-apply F13-F18 keycodes before the listener starts, in case
-# the desktop keyboard daemon (e.g. Cinnamon csd-keyboard) wiped the keymap
-# after login. Non-fatal (-) so a keymap hiccup never blocks dictation.
-ExecStartPre=-/usr/bin/xmodmap %h/.Xmodmap
-# Default dictation style to 'pro' (plain text) on startup, so a stray style
-# toggle never leaves dictation stuck in cursive/bubbly across a reboot.
-ExecStartPre=-/bin/sh -c 'mkdir -p %h/.config/ai-controller && echo pro > %h/.config/ai-controller/ptt_mode'
-ExecStart=/usr/bin/python3 %h/scripts/ptt_pynput.py
-WorkingDirectory=%h/scripts
+ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/ptt_pynput.py
+WorkingDirectory=%h/ai-controller/scripts
 Restart=on-failure
 RestartSec=3
 Environment=DISPLAY=:0

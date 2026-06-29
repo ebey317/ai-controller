@@ -20,14 +20,24 @@ import os
 import signal
 import subprocess
 import sys
+import warnings
+
+# GTK3 deprecation noise is not useful in production.
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, GLib
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ai_controller_paths import config_dir, ensure_config_dir
+
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
-PTT_MODE_FILE = os.path.expanduser("~/.config/ptt_mode")
+ensure_config_dir()
+PTT_MODE_FILE = os.path.join(config_dir(), "ptt_mode")
+INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
+TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
 ROWS_LOWER = [
     ["`", "esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "bksp"],
@@ -96,6 +106,8 @@ button {
 button:hover { background-color: #2f2f3a; }
 button.special { background-color: #1a2226; color: #FF6A00; border-color: #4a3318; }
 button.mode { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; padding: 2px 10px; }
+button.mode-active { background-color: #FF6A00; color: #0d0d12; border-color: #FF6A00; font-weight: bold; padding: 2px 10px; }
+.shelf-title { color: #FF6A00; font-weight: bold; font-size: 11px; margin-bottom: 4px; }
 """
 
 
@@ -115,8 +127,9 @@ def send(key, ctrl=False, alt=False):
 
 
 class SlideKeyboard(Gtk.Window):
-    WIDTH = 920
-    HEIGHT = 280
+    # Width fits the key grid and mode bar only (no voice-profile shelf).
+    WIDTH = 860
+    HEIGHT = 300
     POP_OFFSET = 36  # px it rises from on pop-in, for the "pop" feel
 
     def __init__(self):
@@ -145,7 +158,7 @@ class SlideKeyboard(Gtk.Window):
 
         # Outer styled panel (the rounded orange-bordered box) wraps the key
         # grid, matching the legend HUD's visual language.
-        self.panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.panel = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.panel.set_name("panel")
         self.panel.set_margin_start(10)
         self.panel.set_margin_end(10)
@@ -153,25 +166,62 @@ class SlideKeyboard(Gtk.Window):
         self.panel.set_margin_bottom(10)
         self.add(self.panel)
 
-        # Header bar: PRO / BUBBLY mode toggle for voice transcription style
-        self.header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        self.header.set_margin_start(8)
-        self.header.set_margin_end(8)
-        self.header.set_margin_top(6)
-        self.panel.pack_start(self.header, False, False, 0)
+        # LEFT COLUMN: mode bar across the top + key grid below it.
+        self.left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.panel.pack_start(self.left_col, True, True, 0)
 
-        self.mode_btn = Gtk.Button(label=self._mode_label())
-        self.mode_btn.get_style_context().add_class("mode")
-        self.mode_btn.connect("clicked", self._on_mode_toggle)
-        self.header.pack_end(self.mode_btn, False, False, 0)
+        # Mode bar: buttons left-to-right, ending at PRO.
+        self.mode_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.mode_bar.set_margin_start(8)
+        self.mode_bar.set_margin_end(8)
+        self.mode_bar.set_margin_top(6)
+        self.mode_bar.set_spacing(6)
+        self.left_col.pack_start(self.mode_bar, False, False, 0)
+
+        self._mode_buttons = []
+        for mode in ("bubbly", "casual", "bold", "big", "pro"):
+            labels = {
+                "bubbly": "✨",
+                "casual": "☕ CASUAL",
+                "bold": "BOLD",
+                "big": "BIG",
+                "pro": "PRO",
+            }
+            btn = Gtk.Button(label=labels[mode])
+            btn.get_style_context().add_class("mode")
+            btn.connect("clicked", self._on_mode_set, mode)
+            self.mode_bar.pack_start(btn, False, False, 0)
+            self._mode_buttons.append((mode, btn))
+
+        # Input target toggle: type directly vs copy to clipboard only.
+        self.target_btn = Gtk.Button(label=self._target_label())
+        self.target_btn.get_style_context().add_class("mode")
+        self.target_btn.connect("clicked", self._on_target_toggle)
+        self.mode_bar.pack_end(self.target_btn, False, False, 0)
+
+        self._refresh_mode_buttons()
 
         self.grid = Gtk.Grid(column_spacing=4, row_spacing=4)
         self.grid.set_margin_start(8)
         self.grid.set_margin_end(8)
         self.grid.set_margin_top(6)
         self.grid.set_margin_bottom(8)
-        self.panel.pack_start(self.grid, True, True, 0)
+        self.left_col.pack_start(self.grid, True, True, 0)
         self._build_keys()
+
+        # TYPING INDICATOR: replaces the keyboard content while Unicode modes
+        # emit long text. Centered in the panel, same dark/orange theme.
+        self.typing_indicator = Gtk.Label(label="")
+        self.typing_indicator.set_name("typing-indicator")
+        self.typing_indicator.set_markup(
+            f'<span font="16" weight="bold" color="{HUD_ORANGE}">✨  Typing...</span>'
+        )
+        self.typing_indicator.set_margin_start(40)
+        self.typing_indicator.set_margin_end(40)
+        self.typing_indicator.set_margin_top(30)
+        self.typing_indicator.set_margin_bottom(30)
+        self.panel.pack_start(self.typing_indicator, True, True, 0)
+        self.typing_indicator.hide()
 
         self.sw = screen.get_width()
         self.sh = screen.get_height()
@@ -194,11 +244,15 @@ class SlideKeyboard(Gtk.Window):
         self.visible_state = False
         self._anim_id = None
 
+        # Poll typing state from ptt_pynput.py so the keyboard can transform
+        # into a typing indicator while Unicode modes emit.
+        self._typing_poll_id = GLib.timeout_add(100, self._check_typing_state)
+
     def _load_ptt_mode(self) -> str:
         try:
             with open(PTT_MODE_FILE, "r", encoding="utf-8") as f:
                 mode = f.read().strip().lower()
-                if mode in ("pro", "bubbly"):
+                if mode in ("pro", "bubbly", "casual", "bold", "big"):
                     return mode
         except Exception:
             pass
@@ -209,13 +263,42 @@ class SlideKeyboard(Gtk.Window):
         with open(PTT_MODE_FILE, "w", encoding="utf-8") as f:
             f.write(mode)
 
-    def _mode_label(self) -> str:
-        return "BUBBLY ✨" if self._load_ptt_mode() == "bubbly" else "PRO 🎩"
+    def _refresh_mode_buttons(self):
+        current = self._load_ptt_mode()
+        for mode, btn in self._mode_buttons:
+            if mode == current:
+                btn.get_style_context().add_class("mode-active")
+                btn.get_style_context().remove_class("mode")
+            else:
+                btn.get_style_context().add_class("mode")
+                btn.get_style_context().remove_class("mode-active")
 
-    def _on_mode_toggle(self, _widget):
-        new_mode = "bubbly" if self._load_ptt_mode() == "pro" else "pro"
-        self._save_ptt_mode(new_mode)
-        self.mode_btn.set_label(self._mode_label())
+    def _on_mode_set(self, _widget, mode):
+        self._save_ptt_mode(mode)
+        self._refresh_mode_buttons()
+
+    def _load_input_target(self) -> str:
+        try:
+            with open(INPUT_TARGET_FILE, "r", encoding="utf-8") as f:
+                t = f.read().strip().lower()
+                if t in ("type", "clipboard"):
+                    return t
+        except Exception:
+            pass
+        return "type"
+
+    def _save_input_target(self, target: str) -> None:
+        os.makedirs(os.path.dirname(INPUT_TARGET_FILE), exist_ok=True)
+        with open(INPUT_TARGET_FILE, "w", encoding="utf-8") as f:
+            f.write(target)
+
+    def _target_label(self) -> str:
+        return "CLIPBOARD" if self._load_input_target() == "clipboard" else "TYPE"
+
+    def _on_target_toggle(self, _widget):
+        new_target = "clipboard" if self._load_input_target() == "type" else "type"
+        self._save_input_target(new_target)
+        self.target_btn.set_label(self._target_label())
 
     def _build_keys(self):
         for child in self.grid.get_children():
@@ -277,10 +360,81 @@ class SlideKeyboard(Gtk.Window):
 
         self._anim_id = GLib.timeout_add(15, step)
 
+    def _typing_state(self) -> tuple[str, str]:
+        """Read typing state file written by ptt_pynput.py."""
+        try:
+            with open(TYPING_STATE_FILE, "r", encoding="utf-8") as f:
+                parts = f.read().strip().split(":")
+                state = parts[0]
+                mode = parts[1] if len(parts) > 1 else ""
+                if state in ("typing", "idle"):
+                    return state, mode
+        except Exception:
+            pass
+        return "idle", ""
+
+    def _cursor_position(self) -> tuple[int, int]:
+        """Return current mouse pointer position as a proxy for text cursor."""
+        try:
+            out = subprocess.check_output(
+                ["xdotool", "getmouselocation"],
+                env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+                stderr=subprocess.DEVNULL,
+                timeout=1,
+            ).decode()
+            x = int(out.split()[0].split(":")[1])
+            y = int(out.split()[1].split(":")[1])
+            return x, y
+        except Exception:
+            return self.center_x, self.center_y
+
+    def _show_typing_indicator(self, mode: str):
+        labels = {
+            "bubbly": "✨  Typing cursive...",
+            "bold": "𝐁  Typing bold...",
+            "big": "Ｔ  Typing big...",
+        }
+        self.typing_indicator.set_markup(
+            f'<span font="16" weight="bold" color="{HUD_ORANGE}">'
+            f'{labels.get(mode, "Typing...")}</span>'
+        )
+        self.mode_bar.hide()
+        self.grid.hide()
+        self.typing_indicator.show()
+        # Move near cursor; keep window roughly on screen.
+        cx, cy = self._cursor_position()
+        pad = 20
+        x = max(0, min(self.sw - self.WIDTH, cx - self.WIDTH // 2))
+        y = max(0, min(self.sh - self.HEIGHT, cy - self.HEIGHT - pad))
+        self.move(x, y)
+
+    def _show_keyboard_content(self):
+        self.typing_indicator.hide()
+        self.mode_bar.show()
+        self.grid.show()
+        self.move(self.center_x, self.center_y if self.visible_state else self.hidden_y)
+
+    def _check_typing_state(self):
+        state, mode = self._typing_state()
+        currently_typing = self.typing_indicator.get_visible()
+        if state == "typing" and not currently_typing:
+            self._show_typing_indicator(mode)
+        elif state == "idle" and currently_typing:
+            self._show_keyboard_content()
+        return True  # keep polling
+
+
+PIDFILE = "/tmp/slide_keyboard.pid"
 
 if __name__ == "__main__":
     win = SlideKeyboard()
     win.connect("destroy", Gtk.main_quit)
+    # Own our PID file so external togglers always know which process to signal.
+    try:
+        with open(PIDFILE, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+    except Exception:
+        pass
     # ptt_pynput.py owns the F14 listener (it already runs persistently) and
     # toggles us via SIGUSR1 — avoids two competing F14 listeners.
     signal.signal(signal.SIGUSR1, lambda *_: win.toggle())

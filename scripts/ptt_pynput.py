@@ -1,31 +1,52 @@
 #!/usr/bin/env python3
-import json
-import os
-import random
-import re
-import struct
-import subprocess
-import sys
-import tempfile
-import threading
-import time
-import urllib.error
-import urllib.request
-import wave
+import sys, subprocess, os, tempfile, json, threading, wave, struct, time, re, random, fcntl
 from datetime import datetime
-
+import urllib.request
+import urllib.error
 from pynput import keyboard
+import logging
+
+# Persistent file log for dictation pipeline debugging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("/tmp/ptt-pynput.log"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+log = logging.getLogger("ptt_pynput")
+
+# Singleton: bail out if another instance is already running.
+_singleton_fd = os.open("/tmp/ptt_pynput.lock", os.O_CREAT | os.O_RDWR)
+try:
+    fcntl.flock(_singleton_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    log.warning("Another ptt_pynput instance is already running; exiting.")
+    sys.exit(0)
+
+# Make shared helpers available regardless of cwd.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+from ai_controller_paths import config_dir, ensure_config_dir, load_env
 
 endpoint = "http://localhost:8002/voice"
+
+# Audio input source is configurable so the installer works on any machine.
+_AUDIO_INPUT = load_env().get("AUDIO_INPUT", "")
+_PAREC_DEVICE_ARGS = ["--device", _AUDIO_INPUT] if _AUDIO_INPUT else []
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8080")
 SENSEI_SESSION = os.environ.get("SENSEI_SESSION", "focus-engine")
 
 # ---------------------------------------------------------------------------
 # Transcription style toggle (controlled by slide_keyboard.py mode button)
 # ---------------------------------------------------------------------------
-MODE_FILE = os.path.expanduser("~/.config/ptt_mode")
-VOCAB_FILE = os.path.expanduser("~/.config/ptt_vocabulary.json")
-INPUT_TARGET_FILE = os.path.expanduser("~/.config/ai_controller_input_target")
+ensure_config_dir()
+MODE_FILE = os.path.join(config_dir(), "ptt_mode")
+VOCAB_FILE = os.path.join(config_dir(), "ptt_vocabulary.json")
+INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
+TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
 
 
@@ -132,25 +153,71 @@ def _load_input_target() -> str:
     return "type"
 
 
-def _type_text_fast(text: str) -> None:
+def _type_text_fast(text: str, mode: str = "pro") -> None:
     """Type text into the focused window.
 
     xdotool type is the only method that works reliably across terminals,
-    browsers, Discord, games, etc. Unicode (BUBBLY/BOLD/BIG) is injected
-    character-by-character, so it is slower than ASCII; clipboard paste was
-    tried but is not reliable in the operator's target windows.
-
-    PRO/CASUAL use delay 0. Unicode modes use a tiny delay so multi-byte
-    characters don't get dropped by the target field.
+    browsers, Discord, games, etc. Unicode modes are injected character-by-
+    character, so they are slower than ASCII; clipboard paste was tried but
+    is not reliable in the operator's target windows.
     """
     env = {**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')}
     # ASCII (PRO/CASUAL) can be fired as fast as possible.
     delay = _XDOTOOL_TYPE_DELAY_MS
     if any(ord(ch) >= 128 for ch in text):
-        delay = 2  # ms; just enough to keep Unicode chars from being dropped
+        # Cursive (Mathematical Script) needs more time than bold/fullwidth.
+        delay = 55 if mode == "bubbly" else 35
     subprocess.run(['xdotool', 'type', '--clearmodifiers',
                     f'--delay={delay}', '--', text],
                    env=env)
+
+
+def _typing_hud(mode: str, text: str):
+    """Launch a transient HUD for slow Unicode typing modes. Returns Popen handle or None."""
+    if mode not in ("bubbly", "bold", "big"):
+        return None
+    if len(text) < 25:
+        return None
+    labels = {
+        "bubbly": "✨  Typing cursive...",
+        "bold": "𝐁  Typing bold...",
+        "big": "Ｔ  Typing big...",
+    }
+    try:
+        return subprocess.Popen(
+            [sys.executable, os.path.join(os.path.dirname(__file__), "typing_hud.py"),
+             labels.get(mode, "Typing..."), mode],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+        )
+    except Exception:
+        return None
+
+
+def _close_typing_hud(hud):
+    """Close the typing HUD if it was opened."""
+    if hud is None:
+        return
+    try:
+        hud.terminate()
+        hud.wait(timeout=1)
+    except Exception:
+        try:
+            hud.kill()
+        except Exception:
+            pass
+
+
+def _set_typing_state(state: str, mode: str = "") -> None:
+    """Write typing state for slide_keyboard.py to consume.
+
+    state: 'idle' or 'typing'
+    """
+    try:
+        with open(TYPING_STATE_FILE, "w", encoding="utf-8") as f:
+            f.write(f"{state}:{mode}" if mode else state)
+    except Exception:
+        pass
 
 
 def _to_cursive(text: str) -> str:
@@ -187,6 +254,49 @@ def _add_emojis(text: str) -> str:
 
 # Casual-mode emoji boost: appended when no keyword emoji already fired.
 _CASUAL_EMOJIS = ["👋", "☕", "😊", "✌️", "🙌", "🤙", "😎", "✨", "💯", "🔥", "🫡"]
+
+# Fitzpatrick type-6 (dark) skin tone modifier for hand/person emojis.
+# Face emojis (😊, 😎, etc.) do not support skin tones in Unicode.
+_SKIN_TONE = "🏿"
+_TONEABLE_BASES = {
+    "\U0001F44B",  # 👋 waving hand
+    "\u270C",       # ✌ victory hand
+    "\U0001F64C",   # 🙌 raising hands
+    "\U0001F919",   # 🤙 call me hand
+    "\U0001F64F",   # 🙏 folded hands
+    "\U0001F647",   # 🙇 person bowing
+    "\U0001F44D",   # 👍 thumbs up
+    "\U0001F44E",   # 👎 thumbs down
+    "\U0001F44C",   # 👌 OK hand
+    "\U0001F937",   # 🤷 shrug
+}
+
+
+def _apply_skin_tone(emoji: str) -> str:
+    """Append the dark skin tone modifier to hand/person emojis."""
+    out = []
+    chars = list(emoji)
+    i = 0
+    while i < len(chars):
+        ch = chars[i]
+        if ch in _TONEABLE_BASES:
+            out.append(ch)
+            out.append(_SKIN_TONE)
+            # Keep any emoji-variation selector after the tone.
+            if i + 1 < len(chars) and chars[i + 1] == "\ufe0f":
+                out.append("\ufe0f")
+                i += 2
+                continue
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+# Apply skin tone to all hand/person emojis in the maps.
+_EMOJI_MAP = {k: _apply_skin_tone(v) for k, v in _EMOJI_MAP.items()}
+_CASUAL_EMOJIS = [_apply_skin_tone(e) for e in _CASUAL_EMOJIS]
 
 
 def _casual_emoji_boost(text: str) -> str:
@@ -300,7 +410,7 @@ def _set_clipboard_text(text):
         )
         return True
     except Exception as exc:
-        print(f"  clipboard set failed: {exc}", flush=True)
+        log.warning(f"clipboard set failed: {exc}")
         return False
 
 
@@ -310,7 +420,7 @@ def _queue_discord_text(text):
     with open(DISCORD_QUEUE, "a", encoding="utf-8") as f:
         line = datetime.now().isoformat() + "	" + text + "\n"
         f.write(line)
-    print("  Queued for Discord: " + text, flush=True)
+    log.info(f"Queued for Discord: {text}")
 
 
 def _send_browser_text(text):
@@ -371,6 +481,11 @@ _DEBOUNCE_MS = 200
 _TYPE_SETTLE_MS = 50
 # Type as fast as xdotool allows to minimize the window for controller interference.
 _XDOTOOL_TYPE_DELAY_MS = 0
+# Short accidental trigger presses often hallucinate these words from fan/mic noise.
+_SHORT_HALLUCINATIONS = {
+    "thank you", "thanks", "thank", "check", "yellow", "yep", "yup",
+    "mm", "hmm", "um", "uh", "mhm", "okay", "ok",
+}
 
 
 def _active_window():
@@ -418,16 +533,22 @@ def start_recording():
         _focus_window = _active_window()
         # Auto-space before dictation so consecutive utterances don't run together.
         subprocess.run(['xdotool', 'key', 'space'],
-                       env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')})
-        rawfile = tempfile.mktemp(suffix='.raw', dir='/tmp')
-        wavfile = tempfile.mktemp(suffix='.wav', dir='/tmp')
+                       env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
+        os.close(fd)
+        fd, wavfile = tempfile.mkstemp(suffix='.wav', dir='/tmp')
+        os.close(fd)
+        rec_cmd = [
+            'stdbuf', '-o0', 'parec',
+            '--rate', str(SAMPLE_RATE), '--channels', str(CHANNELS),
+            '--format', 's16le', '--raw',
+        ] + _PAREC_DEVICE_ARGS
         rec_proc = subprocess.Popen(
-            ['parec', '--device=alsa_input.usb-Microsoft_Controller_3039373130383038333134313433-00.mono-fallback',
-             '--rate', str(SAMPLE_RATE), '--channels', str(CHANNELS),
-             '--format', 's16le', '--raw', rawfile],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            rec_cmd,
+            stdout=open(rawfile, 'wb'), stderr=subprocess.DEVNULL)
         recording = True
-        print("  Recording...", flush=True)
+        log.info("Recording...")
 
 
 def _wav_stats(path):
@@ -462,6 +583,8 @@ def stop_and_send():
         _last_f13_time = now
         rec_proc.terminate()
         rec_proc.wait()
+        if rec_proc.stdout:
+            rec_proc.stdout.close()
         recording = False
 
     # Build WAV from raw PCM
@@ -474,7 +597,7 @@ def stop_and_send():
 
     # Minimum ~0.5s of audio
     if not wavfile or not os.path.exists(wavfile) or os.path.getsize(wavfile) < 16000:
-        print("  Too short — skipped.", flush=True)
+        log.info("Too short — skipped.")
         if wavfile and os.path.exists(wavfile):
             os.unlink(wavfile)
         wavfile = None
@@ -482,14 +605,21 @@ def stop_and_send():
 
     # Silence check: if mic was off (power button), the WAV is flat zeros
     if _is_silence(wavfile):
-        print("  Silence detected (mic off?) — skipped.", flush=True)
+        log.info("Silence detected (mic off?) — skipped.")
         if wavfile and os.path.exists(wavfile):
             os.unlink(wavfile)
         wavfile = None
         return
 
     duration, rms = _wav_stats(wavfile)
-    print(f"  Sending... ({duration:.2f}s RMS={rms:.1f})", flush=True)
+    log.info(f"Sending... ({duration:.2f}s RMS={rms:.1f})")
+
+    # For Unicode modes, show the typing indicator immediately on trigger
+    # release so the operator gets feedback while STT runs.
+    mode = _load_ptt_mode()
+    show_indicator = mode in ("bubbly", "bold", "big")
+    if show_indicator:
+        _set_typing_state("typing", mode)
 
     transcript = ""
     try:
@@ -503,52 +633,39 @@ def stop_and_send():
         transcript = data.get('text', data.get('transcript', ''))
         response = data.get('response', data.get('error', '')).strip()
 
+        # Short accidental trigger presses often produce hallucinated single words
+        # from controller/mic noise. Skip them instead of typing garbage.
+        clean = transcript.lower().strip(".,!?;:\"'")
+        if duration < 1.5 and clean in _SHORT_HALLUCINATIONS:
+            log.info(f"Skipped short-noise hallucination: '{transcript}'")
+            transcript = ""
+
         # Fast personal-vocabulary autocorrect (applies to PRO and BUBBLY)
         transcript = _apply_vocabulary(transcript)
 
         # Apply PRO / BUBBLY / CASUAL / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
-        mode = _load_ptt_mode()
         if mode in ("bubbly", "casual", "bold", "big") and transcript:
             transcript = _transform_text(transcript, mode)
 
         if response:
-            print(f"  Response: {response}", flush=True)
+            log.info(f"Response: {response}")
         elif transcript:
             target = _load_input_target()
-            mode = _load_ptt_mode()
-            
-            # Unicode modes always use clipboard — xdotool type drops multi-byte chars.
-            # Browser windows always use clipboard so ctrl+v or Sensei inject can fire.
-            is_browser = _is_browser_window()
-            is_discord = _is_discord_voice_window()
-            is_unicode_mode = mode in ("bubbly", "bold", "big")
-            use_clipboard = (target == "clipboard" or is_discord or is_browser or is_unicode_mode)
 
-            print(f"  Output ({'clipboard' if use_clipboard else 'type'}, mode={mode}): {transcript}", flush=True)
+            # Only explicit clipboard target skips typing. Everything else goes
+            # through xdotool type — clipboard auto-paste proved unreliable in
+            # the operator's target windows.
+            use_clipboard = (target == "clipboard")
+
+            log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
             time.sleep(_TYPE_SETTLE_MS / 1000.0)
 
             if use_clipboard:
                 _set_clipboard_text(transcript)
-                if is_discord:
-                    _queue_discord_text(transcript)
-                elif is_browser:
-                    result = _send_browser_text(transcript)
-                    if not result.get("ok"):
-                        print(f"  Browser inject failed: {result.get('error')} — falling back to ctrl+v", flush=True)
-                        time.sleep(0.1)
-                        subprocess.run(
-                            ['xdotool', 'key', 'ctrl+v'],
-                            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
-                        )
-                elif is_unicode_mode:
-                    # Paste Unicode text automatically; plain clipboard target leaves it to the user.
-                    time.sleep(0.1)
-                    subprocess.run(
-                        ['xdotool', 'key', 'ctrl+v'],
-                        env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
-                    )
+            elif _is_browser_window():
+                result = _send_browser_text(transcript)
+                if not result.get("ok"):
+                    log.warning(f"Browser inject failed: {result.get('error')}")
             else:
                 # Restore focus to the window that was active when recording
                 # started — AntiMicroX or other apps may have stolen it.
@@ -561,16 +678,15 @@ def stop_and_send():
                         time.sleep(0.05)
                     except Exception:
                         pass
-                # --window <id> (XSendEvent) is silently ignored by
-                # gnome-terminal/VTE — confirmed 2026-06-16 (STT transcribed
-                # correctly every time, nothing ever appeared on screen).
-                # Plain `xdotool type`, no --window, uses XTestFakeKeyEvent
-                # and goes to whatever has real focus.
-                _type_text_fast(transcript)
+                # Leading space was already injected before capture started.
+                _type_text_fast(transcript, mode)
         else:
-            print("  (nothing heard)", flush=True)
+            log.info("(nothing heard)")
     except Exception as ex:
-        print(f"  Error: {ex}", flush=True)
+        log.error(f"Error: {ex}")
+    finally:
+        if show_indicator:
+            _set_typing_state("idle")
 
     # Save a debug copy for later inspection.
     try:
@@ -593,12 +709,12 @@ def on_release(key):
         threading.Thread(target=stop_and_send, daemon=True).start()
 
 
-print("Push-to-talk dictation (pynput — Hold RT to speak, release to type)")
-print("F13=dictation")
-print("Ctrl+C to quit.\n")
+log.info("Push-to-talk dictation (pynput — Hold RT to speak, release to type)")
+log.info("F13=dictation")
+log.info("Ctrl+C to quit.")
 
 with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
     try:
         listener.join()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        log.info("Stopped.")
