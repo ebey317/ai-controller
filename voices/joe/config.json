@@ -1,0 +1,8 @@
+{
+  "name": "Joe",
+  "label": "Joe",
+  "engine": "piper",
+  "model": "en_US-joe-medium.onnx",
+  "description": "Male local neural voice via Piper",
+  "locked": false
+}

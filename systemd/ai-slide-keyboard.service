@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Controller On-Screen Slide Keyboard
+After=graphical-session.target controller-legend.service
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/slide_keyboard.py --show
+Restart=on-failure
+RestartSec=3
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+
+[Install]
+WantedBy=default.target

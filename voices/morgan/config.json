@@ -1,0 +1,9 @@
+{
+  "name": "Morgan",
+  "label": "Morgan 🔒",
+  "engine": "piper",
+  "model": "en_US-morgan-medium.onnx",
+  "description": "Premium local neural voice — unlock to install",
+  "locked": true,
+  "price": "$5"
+}

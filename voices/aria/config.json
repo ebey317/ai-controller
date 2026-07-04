@@ -1,0 +1,8 @@
+{
+  "name": "Aria",
+  "label": "Aria",
+  "engine": "piper",
+  "model": "en_US-kristin-medium.onnx",
+  "description": "Female local neural voice via Piper",
+  "locked": false
+}

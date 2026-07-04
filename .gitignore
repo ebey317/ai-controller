@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.superpowers/
+*.onnx
+voices/*/en_US-*.onnx.json
+

@@ -1,0 +1,18 @@
+[Unit]
+Description=Push-to-Talk Dictation Listener (pynput)
+After=graphical-session.target voice-bridge.service
+Wants=graphical-session.target voice-bridge.service
+
+[Service]
+Type=simple
+ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/ptt_pynput.py
+WorkingDirectory=%h/ai-controller/scripts
+Restart=on-failure
+RestartSec=3
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=XAUTHORITY=%h/.Xauthority
+Environment=BRIDGE_URL=http://127.0.0.1:8002
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=AntiMicroX Controller Auto-Loader (window-focus profile switcher)
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/ai-controller/scripts/controller-profile-switcher.sh
+ExecStopPost=/bin/sh -c '/usr/bin/pkill -x antimicrox || true'
+Restart=always
+RestartSec=2
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+
+[Install]
+WantedBy=default.target

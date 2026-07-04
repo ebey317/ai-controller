@@ -1,0 +1,9 @@
+{
+  "name": "Lexi",
+  "label": "Lexi 🔒",
+  "engine": "piper",
+  "model": "en_US-lexi-medium.onnx",
+  "description": "Premium local neural voice — unlock to install",
+  "locked": true,
+  "price": "$5"
+}

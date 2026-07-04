@@ -1,0 +1,13 @@
+[Unit]
+Description=Voice Bridge — PTT → Groq Whisper → TTS
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/voice_bridge.py
+WorkingDirectory=%h/ai-controller
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
