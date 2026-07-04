@@ -4,3 +4,4 @@ __pycache__/
 *.onnx
 voices/*/en_US-*.onnx.json
 
+.venv/
