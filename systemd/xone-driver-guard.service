@@ -1,0 +1,14 @@
+[Unit]
+Description=AI Controller — enforce xone-only Xbox controller driver
+# Run after module loading and graphical session availability so a desktop
+# user can have their user services restarted if needed.
+After=systemd-modules-load.service graphical.target
+Wants=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/xone-driver-guard.sh
+TimeoutStartSec=30
+
+[Install]
+WantedBy=graphical.target

@@ -5,3 +5,8 @@ __pycache__/
 voices/*/en_US-*.onnx.json
 
 .venv/
+logs/*.log
+*.tar.gz
+*.tar
+*.bak.*
+*.bak

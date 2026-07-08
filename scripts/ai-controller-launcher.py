@@ -105,16 +105,24 @@ class Launcher(Gtk.Window):
         self.fix_btn.get_style_context().add_class("action")
         self.fix_btn.connect("clicked", self._on_fix)
         btn_box.pack_start(self.fix_btn, False, False, 0)
+        self.fix_btn.set_can_focus(False)
 
-        self.start_btn = Gtk.Button(label="Start AI Controller")
+        self.start_btn = Gtk.Button(label="Start Services")
         self.start_btn.get_style_context().add_class("action")
         self.start_btn.connect("clicked", self._on_start)
         btn_box.pack_start(self.start_btn, False, False, 0)
+        self.start_btn.set_can_focus(False)
+
+        self.restart_audio_btn = Gtk.Button(label="Restart Controller Audio")
+        self.restart_audio_btn.connect("clicked", self._on_restart_audio)
+        btn_box.pack_start(self.restart_audio_btn, False, False, 0)
+        self.restart_audio_btn.set_can_focus(False)
 
         self.stop_btn = Gtk.Button(label="Stop AI Controller")
         self.stop_btn.get_style_context().add_class("danger")
         self.stop_btn.connect("clicked", self._on_stop)
         btn_box.pack_start(self.stop_btn, False, False, 0)
+        self.stop_btn.set_can_focus(False)
 
         self.lock_btn = Gtk.Button(label="Lock AI Desktop Profile")
         self.lock_btn.connect("clicked", self._on_lock)
@@ -172,15 +180,27 @@ class Launcher(Gtk.Window):
 
     def _on_fix(self, _widget):
         subprocess.Popen(
-            ["bash", os.path.join(SCRIPT_DIR, "fix-xpad.sh")],
+            ["bash", os.path.join(SCRIPT_DIR, "fix-controller-driver.sh")],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.status_label.set_text("Fixing controller driver + starting services...")
+        subprocess.Popen(
+            ["systemctl", "--user", "start"] + SERVICES,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(
+            ["bash", os.path.join(SCRIPT_DIR, "reset-controller-audio.sh")],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.status_label.set_text("Fixing controller + services + audio...")
 
     def _on_start(self, _widget):
         subprocess.Popen(
             ["systemctl", "--user", "start"] + SERVICES,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.status_label.set_text("Starting services...")
+
+    def _on_restart_audio(self, _widget):
+        subprocess.Popen(
+            ["bash", os.path.join(SCRIPT_DIR, "reset-controller-audio.sh")],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.status_label.set_text("Restarting controller audio...")
 
     def _on_stop(self, _widget):
         subprocess.Popen(

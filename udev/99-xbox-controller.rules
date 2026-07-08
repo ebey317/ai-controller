@@ -1,2 +1,0 @@
-# Auto-load xpad for Xbox Wireless Controller (model 1914, USB mode)
-SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="0b12", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}+="antimicrox-autoload.service voice-bridge.service ptt-pynput.service controller-legend.service ai-slide-keyboard.service"

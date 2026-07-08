@@ -1,7 +1,7 @@
 #!/bin/bash
-# Healthcheck: ensure xone driver is loaded when Xbox controller is plugged in.
-# Delegates to xone-driver-guard.sh, which enforces xone-only and restarts user
-# services only if it had to correct the driver state.
+# Fix Xbox controller driver if xone didn't bind (e.g. after reboot/USB reconnect).
+# Now delegates to xone-driver-guard.sh, which enforces xone-only and restarts
+# user services if it had to correct anything.
 set -euo pipefail
 if [[ -x /usr/local/bin/xone-driver-guard.sh ]]; then
     sudo /usr/local/bin/xone-driver-guard.sh

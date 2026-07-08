@@ -1,9 +1,11 @@
 #!/bin/bash
-# Force-load xpad driver for Xbox controller if it doesn't bind automatically.
-# Run manually or from launcher if controller LED is on but OS shows no input.
+# DEPRECATED — this script used to force-load xpad, which is exactly what broke
+# xone audio/input. It now does the opposite: enforce xone-only.
 set -euo pipefail
-if ! lsmod | grep -q '^xpad '; then
-    sudo modprobe xpad
-    sleep 1
+logger -t ai-controller "fix-xpad.sh is deprecated; redirecting to xone-driver-guard.sh"
+if [[ -x /usr/local/bin/xone-driver-guard.sh ]]; then
+    sudo /usr/local/bin/xone-driver-guard.sh
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    sudo "${SCRIPT_DIR}/xone-driver-guard.sh"
 fi
-systemctl --user start antimicrox-autoload.service voice-bridge.service ptt-pynput.service controller-legend.service ai-slide-keyboard.service

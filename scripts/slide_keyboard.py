@@ -91,6 +91,16 @@ window { background-color: transparent; }
     border: 2px solid #FF6A00;
     border-radius: 16px;
 }
+#drag-handle {
+    background-color: rgba(26,26,32,0.85);
+    border: 1px solid #3a3a44;
+    border-radius: 8px;
+}
+.handle-label {
+    color: #8a8a92;
+    font-family: monospace;
+    font-size: 11px;
+}
 button {
     background-image: none;
     background-color: #23232b;
@@ -140,6 +150,10 @@ class SlideKeyboard(Gtk.Window):
         self.set_skip_pager_hint(True)
         self.set_accept_focus(False)  # NEVER steal focus from the target window
         self.set_app_paintable(True)
+        # Drag state for grab-anywhere moves on this override-redirect popup.
+        self._drag_active = False
+        self._drag_offset_x = 0
+        self._drag_offset_y = 0
 
         # RGBA visual so the window background can be fully transparent —
         # without this the rounded #panel corners would show square behind
@@ -158,7 +172,7 @@ class SlideKeyboard(Gtk.Window):
 
         # Outer styled panel (the rounded orange-bordered box) wraps the key
         # grid, matching the legend HUD's visual language.
-        self.panel = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.panel.set_name("panel")
         self.panel.set_margin_start(10)
         self.panel.set_margin_end(10)
@@ -166,9 +180,37 @@ class SlideKeyboard(Gtk.Window):
         self.panel.set_margin_bottom(10)
         self.add(self.panel)
 
+        # DRAG HANDLE — a thin labeled bar at the very top of the panel.
+        # The keyboard is dense buttons; without a dedicated non-button area,
+        # the window-level drag never fires (every click lands on a button
+        # widget that swallows the event). This handle gives a visible
+        # grabbable target anywhere along the top of the keyboard.
+        self.drag_handle = Gtk.EventBox()
+        self.drag_handle.set_name("drag-handle")
+        self.drag_handle.set_above_child(False)
+        self.drag_handle.connect("realize", self._on_drag_handle_realize)
+        handle_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        handle_row.set_margin_start(8)
+        handle_row.set_margin_end(8)
+        handle_row.set_margin_top(4)
+        handle_row.set_margin_bottom(4)
+        handle_label = Gtk.Label(label="\u2261  drag")
+        handle_label.set_xalign(0.5)
+        handle_label.get_style_context().add_class("handle-label")
+        handle_row.pack_start(handle_label, True, True, 0)
+        self.drag_handle.add(handle_row)
+        self.drag_handle.connect("button-press-event", self._on_handle_drag_begin)
+        self.drag_handle.connect("motion-notify-event", self._on_handle_drag_motion)
+        self.drag_handle.connect("button-release-event", self._on_handle_drag_end)
+        self.panel.pack_start(self.drag_handle, False, False, 0)
+
+        # CONTENT ROW: the existing button grid + typing indicator go here.
+        self.content_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.panel.pack_start(self.content_row, True, True, 0)
+
         # LEFT COLUMN: mode bar across the top + key grid below it.
         self.left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.panel.pack_start(self.left_col, True, True, 0)
+        self.content_row.pack_start(self.left_col, True, True, 0)
 
         # Mode bar: buttons left-to-right, ending at PRO.
         self.mode_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -220,7 +262,7 @@ class SlideKeyboard(Gtk.Window):
         self.typing_indicator.set_margin_end(40)
         self.typing_indicator.set_margin_top(30)
         self.typing_indicator.set_margin_bottom(30)
-        self.panel.pack_start(self.typing_indicator, True, True, 0)
+        self.content_row.pack_start(self.typing_indicator, True, True, 0)
         self.typing_indicator.hide()
 
         self.sw = screen.get_width()
@@ -247,6 +289,98 @@ class SlideKeyboard(Gtk.Window):
         # Poll typing state from ptt_pynput.py so the keyboard can transform
         # into a typing indicator while Unicode modes emit.
         self._typing_poll_id = GLib.timeout_add(100, self._check_typing_state)
+
+        # Mouse events on the popup itself handle window dragging (since
+        # override-redirect windows have no WM titlebar). Any drag that doesn't
+        # land on a clickable widget (button, etc.) moves the whole keyboard.
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.BUTTON_MOTION_MASK)
+        self.connect("button-press-event", self._on_window_button_press)
+        self.connect("button-release-event", self._on_window_button_release)
+        self.connect("motion-notify-event", self._on_window_motion)
+
+    def _on_window_button_press(self, widget, event):
+        # Only primary button drags the window; ignore clicks on actual buttons
+        # (they have their own handlers and event propagation stops there).
+        if event.button == 1 and not self._drag_active:
+            # Record offset so the window doesn't snap to the top-left of click.
+            self._drag_offset_x = int(event.x)
+            self._drag_offset_y = int(event.y)
+            self._drag_active = True
+        return False
+
+    def _on_window_button_release(self, widget, event):
+        if event.button == 1:
+            self._drag_active = False
+        return False
+
+    def _on_window_motion(self, widget, event):
+        if not self._drag_active:
+            return False
+        # event.x_root/y_root are in screen coordinates.
+        new_x = int(event.x_root - self._drag_offset_x)
+        new_y = int(event.y_root - self._drag_offset_y)
+        new_x, new_y = self._clamp_to_screen(new_x, new_y)
+        self.move(new_x, new_y)
+        # Update center tracking so the next pop animation stays relative to
+        # wherever the user placed it.
+        self.center_x = new_x
+        self.center_y = new_y
+        self.hidden_y = self.center_y + self.POP_OFFSET
+        return False
+
+    # ─── DRAG HANDLE ────────────────────────────────────────────────
+    # The keyboard is dense buttons; the window-level handlers above only
+    # fire on empty (non-button) regions, of which there are none. The
+    # handle bar at the top of the panel is non-interactive chrome, so
+    # button-press events reach our handler and we can drag from there.
+
+    def _on_handle_drag_begin(self, _widget, event):
+        if event.button == 1:
+            self._drag_offset_x = int(event.x_root - self.get_position().x)
+            self._drag_offset_y = int(event.y_root - self.get_position().y)
+            self._drag_active = True
+            # Don't propagate — we want the drag to start here, not fall
+            # through to the window-level handler.
+            return True
+        return False
+
+    def _on_handle_drag_motion(self, _widget, event):
+        if not self._drag_active:
+            return False
+        new_x = int(event.x_root - self._drag_offset_x)
+        new_y = int(event.y_root - self._drag_offset_y)
+        new_x, new_y = self._clamp_to_screen(new_x, new_y)
+        self.move(new_x, new_y)
+        self.center_x = new_x
+        self.center_y = new_y
+        self.hidden_y = self.center_y + self.POP_OFFSET
+        return True
+
+    def _on_handle_drag_end(self, _widget, _event):
+        self._drag_active = False
+        return True
+
+    def _on_drag_handle_realize(self, widget):
+        try:
+            widget.get_window().set_cursor(
+                Gdk.Cursor.new_from_name(Gdk.Display.get_default(), "grab")
+            )
+        except Exception:
+            pass
+
+    def _clamp_to_screen(self, x: int, y: int):
+        """Keep the keyboard at least 40px on-screen so it can't be lost
+        off a screen edge during drag."""
+        margin = 40
+        if x < -self.WIDTH + margin:
+            x = -self.WIDTH + margin
+        if y < -self.HEIGHT + margin:
+            y = -self.HEIGHT + margin
+        if x > self.sw - margin:
+            x = self.sw - margin
+        if y > self.sh - margin:
+            y = self.sh - margin
+        return x, y
 
     def _load_ptt_mode(self) -> str:
         try:
@@ -407,11 +541,22 @@ class SlideKeyboard(Gtk.Window):
         x = max(0, min(self.sw - self.WIDTH, cx - self.WIDTH // 2))
         y = max(0, min(self.sh - self.HEIGHT, cy - self.HEIGHT - pad))
         self.move(x, y)
+        # Remember user-anchored position so the keyboard returns there after.
+        self._anchor_x = self.center_x
+        self._anchor_y = self.center_y
+        self.center_x = x
+        self.center_y = y
+        self.hidden_y = y + self.POP_OFFSET
 
     def _show_keyboard_content(self):
         self.typing_indicator.hide()
         self.mode_bar.show()
         self.grid.show()
+        # Return to the last user-anchored position if we were in typing mode.
+        if hasattr(self, '_anchor_x'):
+            self.center_x = self._anchor_x
+            self.center_y = self._anchor_y
+            self.hidden_y = self.center_y + self.POP_OFFSET
         self.move(self.center_x, self.center_y if self.visible_state else self.hidden_y)
 
     def _check_typing_state(self):

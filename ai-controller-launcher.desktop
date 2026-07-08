@@ -1,8 +1,8 @@
 [Desktop Entry]
 Name=AI Controller
 Comment=Start and manage the AI Controller services
-Exec=__AI_CONTROLLER_DIR__/scripts/ai-controller-launcher.sh
-Icon=__AI_CONTROLLER_DIR__/logo.png
+Exec=/home/elijah/ai-controller/scripts/ai-controller-launcher.sh
+Icon=/home/elijah/ai-controller/logo.png
 Type=Application
 Terminal=false
 Categories=Utility;Accessibility;
