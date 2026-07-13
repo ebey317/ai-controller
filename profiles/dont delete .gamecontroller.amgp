@@ -21,6 +21,14 @@
             <stick index="2">
                 <deadZone>6500</deadZone>
                 <maxZone>28000</maxZone>
+                <stickbutton index="5">
+                    <slots>
+                        <slot>
+                            <code>5</code>
+                            <mode>mousebutton</mode>
+                        </slot>
+                    </slots>
+                </stickbutton>
                 <stickbutton index="1">
                     <slots>
                         <slot>
@@ -32,16 +40,8 @@
                 <stickbutton index="2">
                     <slots>
                         <slot>
-                            <code>0x61000028</code>
+                            <code>0x1000028</code>
                             <mode>keyboard</mode>
-                        </slot>
-                    </slots>
-                </stickbutton>
-                <stickbutton index="5">
-                    <slots>
-                        <slot>
-                            <code>5</code>
-                            <mode>mousebutton</mode>
                         </slot>
                     </slots>
                 </stickbutton>
@@ -50,6 +50,14 @@
                 <deadZone>6500</deadZone>
                 <maxZone>28000</maxZone>
                 <diagonalRange>65</diagonalRange>
+                <stickbutton index="5">
+                    <slots>
+                        <slot>
+                            <code>2</code>
+                            <mode>mousemovement</mode>
+                        </slot>
+                    </slots>
+                </stickbutton>
                 <stickbutton index="7">
                     <slots>
                         <slot>
@@ -82,20 +90,20 @@
                         </slot>
                     </slots>
                 </stickbutton>
-                <stickbutton index="5">
-                    <slots>
-                        <slot>
-                            <code>2</code>
-                            <mode>mousemovement</mode>
-                        </slot>
-                    </slots>
-                </stickbutton>
             </stick>
             <dpad index="1">
                 <dpadbutton index="8">
                     <slots>
                         <slot>
                             <code>0x1000012</code>
+                            <mode>keyboard</mode>
+                        </slot>
+                    </slots>
+                </dpadbutton>
+                <dpadbutton index="4">
+                    <slots>
+                        <slot>
+                            <code>0x1000015</code>
                             <mode>keyboard</mode>
                         </slot>
                     </slots>
@@ -112,14 +120,6 @@
                     <slots>
                         <slot>
                             <code>0x1000014</code>
-                            <mode>keyboard</mode>
-                        </slot>
-                    </slots>
-                </dpadbutton>
-                <dpadbutton index="4">
-                    <slots>
-                        <slot>
-                            <code>0x1000015</code>
                             <mode>keyboard</mode>
                         </slot>
                     </slots>
@@ -149,27 +149,27 @@
                     </slots>
                 </triggerbutton>
             </trigger>
-            <button index="10">
+            <button index="5">
                 <slots>
                     <slot>
-                        <code>0x1000020</code>
+                        <path>/home/elijah/scripts/toggle-slide-keyboard.sh</path>
+                        <mode>execute</mode>
+                    </slot>
+                </slots>
+            </button>
+            <button index="8">
+                <slots>
+                    <slot>
+                        <code>0x1000000</code>
                         <mode>keyboard</mode>
                     </slot>
                 </slots>
             </button>
-            <button index="9">
+            <button index="7">
                 <slots>
                     <slot>
-                        <code>0x1000004</code>
+                        <code>0x1000001</code>
                         <mode>keyboard</mode>
-                    </slot>
-                </slots>
-            </button>
-            <button index="11">
-                <slots>
-                    <slot>
-                        <code>3</code>
-                        <mode>mousebutton</mode>
                     </slot>
                 </slots>
             </button>
@@ -205,36 +205,22 @@
                     </slot>
                 </slots>
             </button>
+            <!-- Button 10 (LS click) removed - LS click uses stickbutton index="2" for Escape -->
+            <button index="9">
+                <slots>
+                    <slot>
+                        <code>0x1000004</code>
+                        <mode>keyboard</mode>
+                    </slot>
+                </slots>
+            </button>
+            <!-- Button 11 (RS click) removed - RS click uses stickbutton index="2" for Enter -->
             <button index="6">
                 <slots>
                     <slot>
                         <code>0x1000022</code>
                         <mode>keyboard</mode>
                     </slot>
-                    <slot>
-                        <code>0x1000001</code>
-                        <mode>keyboard</mode>
-                    </slot>
-                </slots>
-            </button>
-            <button index="5">
-                <slots>
-                    <slot>
-                        <path>/home/elijah/scripts/toggle-slide-keyboard.sh</path>
-                        <mode>execute</mode>
-                    </slot>
-                </slots>
-            </button>
-            <button index="8">
-                <slots>
-                    <slot>
-                        <code>0x1000000</code>
-                        <mode>keyboard</mode>
-                    </slot>
-                </slots>
-            </button>
-            <button index="7">
-                <slots>
                     <slot>
                         <code>0x1000001</code>
                         <mode>keyboard</mode>
