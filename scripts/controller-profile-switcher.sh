@@ -28,10 +28,15 @@ fi
 # AntiMicroX's canonical profile directory is where the user expects profiles
 # to be loaded from. The installer symlinks our packaged profiles here, so the
 # locked desktop profile always matches what AntiMicroX itself would show.
-if [ -d "${HOME}/.config/antimicrox" ]; then
+if [ -d "${HOME}/.config/antimicrox" ] && [ -f "${HOME}/.config/antimicrox/dont delete .gamecontroller.amgp" ]; then
     PROFILE_DIR="${HOME}/.config/antimicrox"
 else
     PROFILE_DIR="${INSTALL_DIR}/profiles"
+    # Warn if the repo profile still has the unresolved placeholder (install.sh not run)
+    if grep -q '__AI_CONTROLLER_DIR__' "${PROFILE_DIR}/dont delete .gamecontroller.amgp" 2>/dev/null; then
+        echo "WARNING: Profile has unresolved __AI_CONTROLLER_DIR__ placeholder." >&2
+        echo "Run install.sh to resolve paths, or the slide keyboard will not work." >&2
+    fi
 fi
 export DISPLAY="${DISPLAY:-:0}"
 
