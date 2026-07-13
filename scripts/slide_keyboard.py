@@ -32,6 +32,7 @@ from gi.repository import Gtk, Gdk, GLib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ai_controller_paths import config_dir, ensure_config_dir
+import voice_toggle
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()
@@ -235,6 +236,12 @@ class SlideKeyboard(Gtk.Window):
             self.mode_bar.pack_start(btn, False, False, 0)
             self._mode_buttons.append((mode, btn))
 
+        # Voice toggle: cycles between unlocked voice packs (aria ↔ joe).
+        self.voice_btn = Gtk.Button(label=self._voice_label())
+        self.voice_btn.get_style_context().add_class("mode")
+        self.voice_btn.connect("clicked", self._on_voice_toggle)
+        self.mode_bar.pack_end(self.voice_btn, False, False, 0)
+
         # Input target toggle: type directly vs copy to clipboard only.
         self.target_btn = Gtk.Button(label=self._target_label())
         self.target_btn.get_style_context().add_class("mode")
@@ -434,6 +441,28 @@ class SlideKeyboard(Gtk.Window):
         new_target = "clipboard" if self._load_input_target() == "type" else "type"
         self._save_input_target(new_target)
         self.target_btn.set_label(self._target_label())
+
+    def _voice_label(self) -> str:
+        """Show the active voice name with a speaker icon."""
+        try:
+            active = voice_toggle.load_voice()
+            v = voice_toggle.get_voice(active)
+            name = v["name"] if v else active.title()
+        except Exception:
+            name = "?"
+        return f"🔊 {name}"
+
+    def _on_voice_toggle(self, _widget):
+        """Cycle to the next unlocked voice and speak a confirmation."""
+        try:
+            new_voice = voice_toggle.toggle()
+            if new_voice:
+                self.voice_btn.set_label(self._voice_label())
+                voice_toggle.speak(
+                    f"Switched to {new_voice}.", voice_id=new_voice
+                )
+        except Exception:
+            pass
 
     def _build_keys(self):
         for child in self.grid.get_children():
