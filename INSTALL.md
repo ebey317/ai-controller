@@ -13,8 +13,8 @@ For complete installation instructions, see the **[Quick Start](README.md#quick-
 ## Quick Install
 
 ```bash
-git clone https://github.com/ebey317/-AI-controller..git
-cd '-AI-controller.'
+git clone https://github.com/ebey317/ai-controller.git
+cd ai-controller
 bash install.sh
 ```
 
