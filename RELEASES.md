@@ -4,7 +4,7 @@ This document explains how to ship AI Controller to buyers and keep them updated
 
 ## The model
 
-- **Private dev repo**: `ebey317/-AI-controller.` (this repo) — where you develop.
+- **Private dev repo**: `ebey317/ai-controller` (this repo) — where you develop.
 - **Public release host**: A separate public place buyers can poll for updates.
 - **Buyer archive**: A `.tar.gz` built from this repo, shipped via Gumroad/GitHub Release.
 
@@ -38,7 +38,7 @@ Upload `VERSION` and `ai-controller-latest.tar.gz` to a public bucket and point 
 ## Building a release archive
 
 ```bash
-cd /path/to/-AI-controller.
+cd /path/to/ai-controller
 VERSION=$(cat VERSION)
 tar --exclude='.git' --exclude='.github' -czf "ai-controller-${VERSION}.tar.gz" .
 cp "ai-controller-${VERSION}.tar.gz" ai-controller-latest.tar.gz
