@@ -34,7 +34,7 @@
 3. /etc/udev/rules.d/99-xbox-controller.rules — starts services on controller plug-in
 4. ai-controller-launcher.py now has "Fix Controller + Start Services" button
 5. ai-controller-healthcheck.sh runs every minute to reload xone if headset card missing
-6. GitHub pushed: https://github.com/ebey317/ai-controller-profile
+6. GitHub pushed: https://github.com/ebey317/ai-controller
 
 ## Recovery if this breaks again
 1. Unplug controller, wait 5s, replug (fixes GIP firmware state)

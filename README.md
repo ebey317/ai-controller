@@ -5,10 +5,10 @@ Xbox controller to keyboard/mouse/voice mapping for desktop accessibility.
 ![AI Controller Logo](logo.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/ebey317/ai-controller-profile)](https://github.com/ebey317/ai-controller-profile)
+[![Last Commit](https://img.shields.io/github/last-commit/ebey317/ai-controller)](https://github.com/ebey317/ai-controller)
 [![Language: Python](https://img.shields.io/badge/Language-Python-blue.svg)]()
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue.svg)]()
-[![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](https://github.com/ebey317/ai-controller-profile/releases/tag/v1.0.0)
+[![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](https://github.com/ebey317/ai-controller/releases/tag/v1.0.0)
 
 > Talk to your computer from the couch. No keyboard. No mouse. Just a controller and headphones.
 
@@ -52,8 +52,8 @@ Desktop computing assumes you have a keyboard and mouse within reach. When you'r
 ## Quick Start
 
 ```bash
-git clone https://github.com/ebey317/ai-controller-profile.git
-cd ai-controller-profile
+git clone https://github.com/ebey317/ai-controller.git
+cd ai-controller
 bash scripts/install.sh
 ```
 
@@ -184,11 +184,4 @@ Use it, modify it, resell your own builds.
 **Elijah Wilkins**
 
 - GitHub: [@ebey317](https://github.com/ebey317)
-- Repository: [ebey317/ai-controller-profile](https://github.com/ebey317/ai-controller-profile)
-
-### Related Repositories
-
-| Repo | Purpose |
-|---|---|
-| [`ebey317/ai-controller`](https://github.com/ebey317/ai-controller) | Public landing page (README + LICENSE) |
-| [`ebey317/ai-controller-profile`](https://github.com/ebey317/ai-controller-profile) | **This repo** — profiles, scripts, systemd units, reference docs |
+- Repository: [ebey317/ai-controller](https://github.com/ebey317/ai-controller)
