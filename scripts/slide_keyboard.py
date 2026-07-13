@@ -336,8 +336,9 @@ class SlideKeyboard(Gtk.Window):
 
     def _on_handle_drag_begin(self, _widget, event):
         if event.button == 1:
-            self._drag_offset_x = int(event.x_root - self.get_position().x)
-            self._drag_offset_y = int(event.y_root - self.get_position().y)
+            pos_x, pos_y = self.get_position()
+            self._drag_offset_x = int(event.x_root - pos_x)
+            self._drag_offset_y = int(event.y_root - pos_y)
             self._drag_active = True
             # Don't propagate — we want the drag to start here, not fall
             # through to the window-level handler.

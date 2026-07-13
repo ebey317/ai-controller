@@ -1,0 +1,11 @@
+# Grant user ACL access to antimicrox virtual input devices.
+#
+# Without this rule, antimicrox uinput devices (Keyboard/Mouse/Abs Mouse
+# Emulation) are created with root:input 0660 permissions but NO per-user
+# ACL. systemd user services (e.g. ptt-pynput.service) do not inherit the
+# `input` group, so evdev.list_devices() — which filters by R_OK|W_OK —
+# silently drops them. The uaccess tag makes logind/udev apply a
+# user:<username>:rw- ACL at device creation time.
+#
+# Installed to /etc/udev/rules.d/90-antimicrox.rules
+SUBSYSTEM=="input", ATTRS{name}=="antimicrox*", TAG+="uaccess"

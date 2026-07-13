@@ -162,6 +162,16 @@ curl -X POST http://localhost:8002/voice?mode=transcribe_only \
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+## Troubleshooting
+
+See **[ERROR_LOG.md](ERROR_LOG.md)** for a continuous log of bugs diagnosed and fixed.
+
+Common issues:
+
+- **Right trigger doesn't trigger dictation** — Run `bash scripts/fix-f13-keymap.sh` to re-apply the xmodmap F13 overlay (gets wiped on X server reloads or controller hotplugs)
+- **PTT service can't see antimicrox devices** — Run `sudo udevadm trigger --action=add --subsystem-match=input` then `systemctl --user restart ptt-pynput.service` (ACLs need re-applying after antimicrox restart)
+- **Duplicate antimicrox processes** — Run `systemctl --user restart antimicrox-autoload.service` (dedup logic is built into controller-profile-switcher.sh)
+
 ## Contributing
 
 1. Fork the repository

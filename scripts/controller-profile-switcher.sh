@@ -49,12 +49,19 @@ IPTV_PROFILE="/home/elijah/ai-controller/profiles/dont delete .gamecontroller.am
 
 # Ensure F13-F18 have X11 keycodes (not in default keymap).
 # Needed by ptt_pynput.py dictation and onboard keyboard scanner.
-DISPLAY=:0 xmodmap -e "keycode 202 = F13" 2>/dev/null || true
-DISPLAY=:0 xmodmap -e "keycode 197 = F14" 2>/dev/null || true
-DISPLAY=:0 xmodmap -e "keycode 217 = F15" 2>/dev/null || true
-DISPLAY=:0 xmodmap -e "keycode 219 = F16" 2>/dev/null || true
-DISPLAY=:0 xmodmap -e "keycode 222 = F17" 2>/dev/null || true
-DISPLAY=:0 xmodmap -e "keycode 230 = F18" 2>/dev/null || true
+# A desktop keymap reload (which a USB controller hotplug can trigger) silently
+# wipes this overlay, so it must be re-applied on every reconnect, not just once
+# at script start — see watch_controller()'s "present" branch below.
+ensure_f13_keymap() {
+    DISPLAY=:0 xmodmap -e "keycode 191 = F13" 2>/dev/null || true
+    DISPLAY=:0 xmodmap -e "keycode 202 = F13" 2>/dev/null || true
+    DISPLAY=:0 xmodmap -e "keycode 197 = F14" 2>/dev/null || true
+    DISPLAY=:0 xmodmap -e "keycode 217 = F15" 2>/dev/null || true
+    DISPLAY=:0 xmodmap -e "keycode 219 = F16" 2>/dev/null || true
+    DISPLAY=:0 xmodmap -e "keycode 222 = F17" 2>/dev/null || true
+    DISPLAY=:0 xmodmap -e "keycode 230 = F18" 2>/dev/null || true
+}
+ensure_f13_keymap
 
 # Window-class regexes (lowercased) → profile category
 is_browser() { [[ "$1" =~ (chrome|chromium|firefox|brave|edge|opera) ]]; }
@@ -105,6 +112,7 @@ watch_controller() {
     while true; do
         if controller_present; then
             if [[ "$last_state" != "present" ]]; then
+                ensure_f13_keymap
                 touch_controller_changed
                 last_state="present"
             fi

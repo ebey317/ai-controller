@@ -153,15 +153,13 @@ GROQ_API_KEY=${GROQ_KEY}
 EOF
 
 # ── 7. INSTALL ANTIDOTE PROFILES ─────────────────────────────────────────────
+# NOTE: the layout consolidated to a single general-purpose profile — every
+# mode (desktop/browser/IPTV/YouTube TV) points at the same .amgp file, per
+# controller-profile-switcher.sh. The old per-mode ai-*.amgp filenames this
+# installer used to expect no longer exist in the repo.
 echo "→ Installing AntiMicroX profiles..."
 mkdir -p "${ANTIMICROX_PROFILE_DIR}"
-cp "${INSTALL_DIR}/profiles/ai-desktop.amgp" "${ANTIMICROX_PROFILE_DIR}/"
-cp "${INSTALL_DIR}/profiles/ai-browser.amgp" "${ANTIMICROX_PROFILE_DIR}/" 2>/dev/null || true
-cp "${INSTALL_DIR}/profiles/ai-iptv.amgp" "${ANTIMICROX_PROFILE_DIR}/" 2>/dev/null || true
-cp "${INSTALL_DIR}/profiles/ai-youtube-tv.amgp" "${ANTIMICROX_PROFILE_DIR}/" 2>/dev/null || true
-
-# Substitute placeholder paths with the real install directory.
-sed -i "s|__AI_CONTROLLER_DIR__|${INSTALL_DIR}|g" "${ANTIMICROX_PROFILE_DIR}/ai-desktop.amgp"
+cp "${INSTALL_DIR}/profiles/dont delete .gamecontroller.amgp" "${ANTIMICROX_PROFILE_DIR}/"
 
 # ── 8. DOWNLOAD DEFAULT PIPER VOICE ──────────────────────────────────────────
 echo "→ Downloading default Piper voice (Joe)..."
@@ -178,15 +176,28 @@ fi
 # breaks both headset audio and input events. We hard-block xpad and install a
 # boot-time guard that corrects the driver state before the user services start.
 if [[ "$PLATFORM" == "linux" ]] || [[ "$PLATFORM" == "windows" ]]; then
-    echo "→ Enforcing xone-only Xbox controller driver..."
-    sudo cp "${REPO_DIR}/config/xone-blacklist.conf" /etc/modprobe.d/xone-blacklist.conf
-    # Rebuild initramfs so the blacklist applies from early boot.
-    sudo update-initramfs -u -k all || true
-    # Deploy root-level guard script and service.
-    sudo install -m 755 "${INSTALL_DIR}/scripts/xone-driver-guard.sh" /usr/local/bin/xone-driver-guard.sh
-    sudo cp "${REPO_DIR}/systemd/xone-driver-guard.service" /etc/systemd/system/xone-driver-guard.service
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now xone-driver-guard.service || true
+    echo "→ Enforcing xone-only Xbox controller driver (graphical password prompt)..."
+    DISPLAY="${DISPLAY:-:0}" pkexec bash -c "
+        cp '${REPO_DIR}/config/xone-blacklist.conf' /etc/modprobe.d/xone-blacklist.conf &&
+        update-initramfs -u -k all &&
+        install -m 755 '${INSTALL_DIR}/scripts/xone-driver-guard.sh' /usr/local/bin/xone-driver-guard.sh &&
+        cp '${REPO_DIR}/systemd/xone-driver-guard.service' /etc/systemd/system/xone-driver-guard.service &&
+        systemctl daemon-reload &&
+        systemctl enable --now xone-driver-guard.service
+    " || echo "WARNING: xone driver enforcement step failed — controller/headset may still use xpad" >&2
+fi
+
+# ── 9b. INSTALL UDEV RULE FOR ANTIMICROX VIRTUAL DEVICES ──────────────────────
+# AntiMicroX creates uinput devices (Keyboard/Mouse/Abs Mouse Emulation) that
+# need per-user ACLs so systemd user services (ptt-pynput) can read/write them.
+# Without the uaccess tag, evdev.list_devices() silently drops them.
+if [[ "$PLATFORM" == "linux" ]] || [[ "$PLATFORM" == "windows" ]]; then
+    echo "→ Installing udev rule for antimicrox virtual devices..."
+    DISPLAY="${DISPLAY:-:0}" pkexec bash -c "
+        cp '${REPO_DIR}/udev/90-antimicrox.rules' /etc/udev/rules.d/90-antimicrox.rules &&
+        udevadm control --reload-rules &&
+        udevadm trigger --action=add --subsystem-match=input
+    " || echo "WARNING: udev rule install failed — PTT may not see antimicrox devices" >&2
 fi
 
 # ── 10. INSTALL SYSTEMD SERVICES ──────────────────────────────────────────────
@@ -197,10 +208,10 @@ for svc in "${SERVICES[@]}"; do
 done
 
 systemctl --user daemon-reload
-# Services are NOT enabled — the AI Controller launcher app starts/stops them.
-# Enabling would auto-start on boot, which defeats the purpose of the launcher.
+# Services are enabled (not launcher-controlled) so a reboot/logout doesn't
+# silently kill the rig with no auto-recovery — see the 2026-07-12 fix note.
 for svc in "${SERVICES[@]}"; do
-    systemctl --user disable "${svc}" 2>/dev/null || true
+    systemctl --user enable --now "${svc}" 2>/dev/null || true
 done
 
 # ── 11. INSTALL DESKTOP LAUNCHER (no autostart — launcher app controls services) ──
