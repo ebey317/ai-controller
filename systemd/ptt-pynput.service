@@ -5,7 +5,16 @@ Wants=graphical-session.target voice-bridge.service
 
 [Service]
 Type=simple
-ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/ptt_pynput.py
+# antimicrox's uinput devices are root:input 0660. The udev rule
+# (udev/90-antimicrox.rules) grants a uaccess ACL and a group fallback, but
+# neither is guaranteed: uaccess depends on systemd-logind recognizing an
+# active seat session, and the group fallback needs the user's session to
+# have picked up `input` group membership (only happens after a fresh
+# login). `sg input -c` sidesteps both — it activates the `input`
+# supplementary group for this exec directly, regardless of session state,
+# so PTT can read antimicrox's virtual keyboard on first boot after install
+# and after every antimicrox restart, with no logout/login required.
+ExecStart=/bin/sh -c 'sg input -c "%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/ptt_pynput.py"'
 WorkingDirectory=%h/ai-controller/scripts
 Restart=on-failure
 RestartSec=3
