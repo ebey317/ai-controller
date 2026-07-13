@@ -200,7 +200,7 @@
             <button index="5">
                 <slots>
                     <slot>
-                        <path>/home/elijah/scripts/toggle-slide-keyboard.sh</path>
+                        <path>__AI_CONTROLLER_DIR__/scripts/toggle-slide-keyboard.sh</path>
                         <mode>execute</mode>
                     </slot>
                 </slots>

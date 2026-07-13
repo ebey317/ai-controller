@@ -9,7 +9,7 @@
 # Run via: nohup DISPLAY=:0 bash ~/scripts/controller-profile-switcher.sh &
 # Or as the systemd user service antimicrox-autoload (swap ExecStart to this).
 #
-# ACTIVE PROFILE (2026-07-04): /home/elijah/ai-controller/profiles/dont delete .gamecontroller.amgp
+# ACTIVE PROFILE: <PROFILE_DIR>/dont delete .gamecontroller.amgp
 # This is the ONLY profile in use - all modes use the same general-purpose layout.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,10 +42,11 @@ export QT_NO_NETWORK_PROBING=1
 # NOTE: removed SDL_JOYSTICK_DEVICE override. It forces js0 globally and
 # can confuse AntiMicroX when the real mouse or other devices are present.
 
-DESKTOP_PROFILE="/home/elijah/ai-controller/profiles/dont delete .gamecontroller.amgp"
-BROWSER_PROFILE="/home/elijah/ai-controller/profiles/dont delete .gamecontroller.amgp"
-YOUTUBE_TV_PROFILE="/home/elijah/ai-controller/profiles/dont delete .gamecontroller.amgp"
-IPTV_PROFILE="/home/elijah/ai-controller/profiles/dont delete .gamecontroller.amgp"
+PROFILE="${PROFILE_DIR}/dont delete .gamecontroller.amgp"
+DESKTOP_PROFILE="$PROFILE"
+BROWSER_PROFILE="$PROFILE"
+YOUTUBE_TV_PROFILE="$PROFILE"
+IPTV_PROFILE="$PROFILE"
 
 # Ensure F13-F18 have X11 keycodes (not in default keymap).
 # Needed by ptt_pynput.py dictation and onboard keyboard scanner.

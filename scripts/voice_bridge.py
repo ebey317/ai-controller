@@ -46,30 +46,17 @@ from ai_controller_paths import ai_controller_dir, load_env
 # Configuration
 # -----------------------------------------------------------------------------
 
-_env = load_env()
-CLAF_URL = (os.environ.get("CLAF_URL") or _env.get("CLAF_URL") or "http://localhost:8000").rstrip("/")
 VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
 
 
 def _load_groq_key() -> str:
-    """Load the live Groq key from env / ai-controller config / master keychain."""
+    """Load the live Groq key from env / ai-controller config.env."""
     key = os.environ.get("GROQ_API_KEY", "").strip()
     if key and not key.startswith("***") and len(key) > 20:
         return key
     key = load_env().get("GROQ_API_KEY", "").strip()
     if key and not key.startswith("***") and len(key) > 20:
         return key
-    # Fallback to the master keychain env file (plain KEY=VALUE format).
-    keychain = Path.home() / "Desktop" / "Projects" / "keychain" / "master_ai_keys"
-    if keychain.exists():
-        try:
-            for line in keychain.read_text().splitlines():
-                if line.strip().startswith("GROQ_API_KEY="):
-                    key = line.split("=", 1)[1].strip().strip('"\'')
-                    if key and not key.startswith("***") and len(key) > 20:
-                        return key
-        except Exception:
-            pass
     return ""
 
 
@@ -77,13 +64,11 @@ GROQ_KEY = _load_groq_key()
 
 GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_TIMEOUT = float(os.environ.get("VOICE_BRIDGE_GROQ_TIMEOUT", "30"))
-CLAF_TIMEOUT = float(os.environ.get("VOICE_BRIDGE_CLAF_TIMEOUT", "120"))
 MAX_TRANSCRIPT_CHARS = int(os.environ.get("VOICE_BRIDGE_MAX_TRANSCRIPT_CHARS", "2000"))
 
 app = FastAPI(title="voice-bridge", version="1.1")
 
 AI_DIR = ai_controller_dir()
-PIPER_MODEL = os.path.join(AI_DIR, "voices", "en_US-joe-medium.onnx")
 HERMES_TTS_PLAY = os.path.join(AI_DIR, "scripts", "hermes_tts_play.sh")
 EDGE_VOICE = "en-US-AriaNeural"
 EDGE_PITCH = "-22Hz"
@@ -170,14 +155,6 @@ async def _secure(request: Request) -> None:
 # -----------------------------------------------------------------------------
 
 
-def _extract_claf_text(payload: dict) -> str:
-    """Pull assistant text out of CLAF's Anthropic-format response."""
-    for block in payload.get("content", []):
-        if isinstance(block, dict) and block.get("type") == "text":
-            return block.get("text", "").strip()
-    return ""
-
-
 def _extract_groq_text(payload: dict) -> str:
     """Pull assistant text out of a Groq chat completion."""
     choices = payload.get("choices") or [{}]
@@ -221,10 +198,9 @@ async def voice(
                             data={
                                 "model": "whisper-large-v3-turbo",
                                 "prompt": (
-                                    "Common terms: AntiMicroX, CLAF, Madam Mary, Hermes, Kimi, "
-                                    "Groq, Whisper, STT, TTS, PTT, Xbox, Microsoft, AI controller, "
-                                    "AI Desktop, Fair Chance, Command Center, Monday.com, Railway, "
-                                    "Meta, Facebook, Indeed, ZipRecruiter, Discord, Telegram, Sensei."
+                                    "Common terms: AntiMicroX, Xbox, Microsoft, "
+                                    "AI controller, controller, headset, dictation, "
+                                    "keyboard, mouse, Discord, Telegram."
                                 ),
                             },
                         )
@@ -254,7 +230,7 @@ async def voice(
         return JSONResponse({"text": transcript})
 
     # ── LLM — route voice commands through Groq free tier ───────────────────
-    # Direct Groq call instead of CLAF local Ollama for speed.
+    # Direct Groq call for speed.
     # Free models: llama-3.3-70b-versatile, llama-3.1-8b-instant, qwen3-32b
     GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
     GROQ_LLM_MODEL = os.environ.get("VOICE_BRIDGE_LLM_MODEL", "llama-3.3-70b-versatile")

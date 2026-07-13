@@ -1,0 +1,7 @@
+httpx
+fastapi
+uvicorn
+pynput
+numpy
+scipy
+edge-tts

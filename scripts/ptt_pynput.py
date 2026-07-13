@@ -37,7 +37,6 @@ endpoint = "http://localhost:8002/voice"
 _AUDIO_INPUT = load_env().get("AUDIO_INPUT", "")
 _PAREC_DEVICE_ARGS = ["--device", _AUDIO_INPUT] if _AUDIO_INPUT else []
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8002")
-SENSEI_SESSION = os.environ.get("SENSEI_SESSION", "focus-engine")
 
 # ---------------------------------------------------------------------------
 # Transcription style toggle (controlled by slide_keyboard.py mode button)
@@ -376,12 +375,6 @@ def _active_window_class():
         return ""
 
 
-def _is_browser_window():
-    cls = _active_window_class()
-    return cls in ("google-chrome", "chrome", "firefox", "librewolf", "brave-browser", "chromium")
-
-
-
 DISCORD_QUEUE = os.path.expanduser("~/.cache/ptt_discord_queue.txt")
 
 
@@ -423,40 +416,6 @@ def _queue_discord_text(text):
     log.info(f"Queued for Discord: {text}")
 
 
-def _send_browser_text(text):
-    """Send transcript to Sensei focus engine in the active browser tab."""
-    url = f"{BRIDGE_URL}/extension/queue"
-    escaped = json.dumps(text)
-    code = f"window.__senseiFocus('set-text', {{text: {escaped}}})"
-    body = {
-        "session_id": SENSEI_SESSION,
-        "actions": [
-            {
-                "kind": "BROWSER_JS",
-                "target": code,
-                "extras": {"source": "ptt_pynput", "command": "focus-set-text"},
-            }
-        ],
-    }
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        try:
-            err = exc.read().decode("utf-8")
-        except Exception:
-            err = "unknown HTTP error"
-        return {"ok": False, "error": err}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
-
 # Controller headset mic is 24000 Hz mono s16le. Capture at native rate
 # through PulseAudio (parec) to avoid ALSA resampling artifacts.
 SAMPLE_RATE = 24000
@@ -464,8 +423,11 @@ CHANNELS = 1
 SAMPLE_WIDTH = 2  # s16le
 
 # Debug: keep every recording so we can inspect failures later.
+# Set PTT_DEBUG=1 in config.env to enable.
 DEBUG_DIR = os.path.expanduser("/tmp/ptt-debug")
-os.makedirs(DEBUG_DIR, exist_ok=True)
+PTT_DEBUG = os.environ.get("PTT_DEBUG", load_env().get("PTT_DEBUG", "0")) == "1"
+if PTT_DEBUG:
+    os.makedirs(DEBUG_DIR, exist_ok=True)
 
 recording = False
 rec_proc = None
@@ -515,8 +477,8 @@ def _mute_tts():
     """Kill any playing TTS audio so the mic doesn't capture it.
 
     Controller voice stack (voice_bridge / hermes_tts_play.sh) tags its mpv
-    player with --force-media-title=AI_TTS_BARGE. Legacy Piper dictation plays
-    /tmp/ai_controller_tts.wav. Hermes' built-in TTS (provider: piper) writes
+    player with --force-media-title=AI_TTS_BARGE. Piper voice packs play
+    /tmp/ai_controller_tts.wav. Hermes' built-in TTS writes
     MP3s under /tmp/hermes_voice/ and plays them through ffplay (preferred) or
     aplay (Linux fallback). All of those are killed here so RT -> F13 always
     barges in on agent speech.
@@ -524,7 +486,7 @@ def _mute_tts():
     # Controller voice stack: tagged mpv.
     subprocess.run(['pkill', '-f', 'AI_TTS_BARGE'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Legacy Piper /tmp/ai_controller_tts.wav playback.
+    # Piper voice pack /tmp/ai_controller_tts.wav playback.
     subprocess.run(['pkill', '-f', 'ai_controller_tts'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Hermes built-in TTS: ffplay / aplay playing /tmp/hermes_voice/*.mp3.
@@ -701,10 +663,6 @@ def stop_and_send():
 
             if use_clipboard:
                 _set_clipboard_text(transcript)
-            elif _is_browser_window():
-                result = _send_browser_text(transcript)
-                if not result.get("ok"):
-                    log.warning(f"Browser inject failed: {result.get('error')}")
             else:
                 # Restore focus to the window that was active when recording
                 # started — AntiMicroX or other apps may have stolen it.
@@ -727,13 +685,17 @@ def stop_and_send():
         if show_indicator:
             _set_typing_state("idle")
 
-    # Save a debug copy for later inspection.
-    try:
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        safe_text = "".join(c if c.isalnum() else "_" for c in transcript)[:40] or "no_transcript"
-        debug_path = os.path.join(DEBUG_DIR, f"ptt_{ts}_{duration:.1f}s_rms{int(rms)}_{safe_text}.wav")
-        os.replace(wavfile, debug_path)
-    except Exception:
+    # Save a debug copy for later inspection (only if PTT_DEBUG=1).
+    if PTT_DEBUG:
+        try:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            safe_text = "".join(c if c.isalnum() else "_" for c in transcript)[:40] or "no_transcript"
+            debug_path = os.path.join(DEBUG_DIR, f"ptt_{ts}_{duration:.1f}s_rms{int(rms)}_{safe_text}.wav")
+            os.replace(wavfile, debug_path)
+        except Exception:
+            if wavfile and os.path.exists(wavfile):
+                os.unlink(wavfile)
+    else:
         if wavfile and os.path.exists(wavfile):
             os.unlink(wavfile)
 
