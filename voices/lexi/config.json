@@ -1,9 +1,11 @@
 {
   "name": "Lexi",
   "label": "Lexi 🔒",
-  "engine": "piper",
-  "model": "en_US-lexi-medium.onnx",
-  "description": "Premium local neural voice — unlock to install",
+  "engine": "edge-tts",
+  "voice": "en-US-AvaMultilingualNeural",
+  "pitch": "-10Hz",
+  "rate": "+5%",
+  "description": "Premium female neural voice — expressive and caring",
   "locked": true,
   "price": "$5"
 }

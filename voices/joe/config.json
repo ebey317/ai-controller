@@ -1,8 +1,10 @@
 {
   "name": "Joe",
   "label": "Joe",
-  "engine": "piper",
-  "model": "en_US-joe-medium.onnx",
-  "description": "Male local neural voice via Piper",
+  "engine": "edge-tts",
+  "voice": "en-US-BrianNeural",
+  "pitch": "+0Hz",
+  "rate": "+0%",
+  "description": "Male neural voice — approachable and casual",
   "locked": false
 }

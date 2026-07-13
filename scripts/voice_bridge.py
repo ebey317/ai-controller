@@ -40,6 +40,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from ai_controller_paths import ai_controller_dir, load_env
+import voice_toggle
 
 
 # -----------------------------------------------------------------------------
@@ -70,26 +71,35 @@ app = FastAPI(title="voice-bridge", version="1.1")
 
 AI_DIR = ai_controller_dir()
 HERMES_TTS_PLAY = os.path.join(AI_DIR, "scripts", "hermes_tts_play.sh")
-EDGE_VOICE = "en-US-AriaNeural"
-EDGE_PITCH = "-22Hz"
-EDGE_RATE = "+18%"
 
 
 def _speak(text: str) -> None:
-    """Speak text using Edge TTS (AriaNeural) with tuned voice settings."""
+    """Speak text using the active AI Controller voice pack (Edge TTS)."""
     if not text:
         return
     spoken = text[:500].split("\n")[0]
+
+    # Load the active voice pack for voice/rate/pitch settings.
+    voice_id = voice_toggle.load_voice()
+    voice = voice_toggle.get_voice(voice_id)
+    if voice and voice.get("engine") == "edge-tts":
+        edge_voice = voice.get("voice", "en-US-AriaNeural")
+        edge_pitch = voice.get("pitch", "+0Hz")
+        edge_rate = voice.get("rate", "+0%")
+    else:
+        # Fallback to Aria defaults if voice pack is Piper or missing.
+        edge_voice = "en-US-AriaNeural"
+        edge_pitch = "-22Hz"
+        edge_rate = "+18%"
+
     try:
-        # Use Edge TTS for high-fidelity AriaNeural voice
         mp3_fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
         os.close(mp3_fd)
-        
-        # Generate TTS with tuned settings
+
         subprocess.run(
-            [sys.executable, "-m", "edge_tts", "--voice", EDGE_VOICE,
-             "--pitch=" + EDGE_PITCH,
-             "--rate=" + EDGE_RATE,
+            [sys.executable, "-m", "edge_tts", "--voice", edge_voice,
+             "--pitch=" + edge_pitch,
+             "--rate=" + edge_rate,
              "--text", spoken,
              "--write-media", mp3_path],
             stdout=subprocess.DEVNULL,
