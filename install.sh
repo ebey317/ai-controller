@@ -13,6 +13,7 @@ ANTIMICROX_PROFILE_DIR="${HOME}/.config/antimicrox"
 
 SERVICES=(
     antimicrox-autoload.service
+    f13-xmodmap-heal.service
     controller-legend.service
     ptt-pynput.service
     voice-bridge.service
@@ -187,14 +188,16 @@ if [[ "$PLATFORM" == "linux" ]] || [[ "$PLATFORM" == "windows" ]]; then
     " || echo "WARNING: xone driver enforcement step failed — controller/headset may still use xpad" >&2
 fi
 
-# ── 9b. INSTALL UDEV RULE FOR ANTIMICROX VIRTUAL DEVICES ──────────────────────
+# ── 9b. INSTALL UDEV RULE + DEVICE ACCESS FOR ANTIMICROX VIRTUAL DEVICES ──────
 # AntiMicroX creates uinput devices (Keyboard/Mouse/Abs Mouse Emulation) that
 # need per-user ACLs so systemd user services (ptt-pynput) can read/write them.
-# Without the uaccess tag, evdev.list_devices() silently drops them.
+# Without the uaccess tag + input group membership, evdev.list_devices() silently
+# drops them and PTT stops working.
 if [[ "$PLATFORM" == "linux" ]] || [[ "$PLATFORM" == "windows" ]]; then
-    echo "→ Installing udev rule for antimicrox virtual devices..."
+    echo "→ Installing udev rule + device access for antimicrox virtual devices..."
     DISPLAY="${DISPLAY:-:0}" pkexec bash -c "
         cp '${REPO_DIR}/udev/90-antimicrox.rules' /etc/udev/rules.d/90-antimicrox.rules &&
+        usermod -aG input '$(whoami)' &&
         udevadm control --reload-rules &&
         udevadm trigger --action=add --subsystem-match=input
     " || echo "WARNING: udev rule install failed — PTT may not see antimicrox devices" >&2

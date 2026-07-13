@@ -6,6 +6,57 @@ quick reference.
 
 ---
 
+## 2026-07-13 — Self-healing F13 overlay (durability fix)
+
+**Problem:** The xmodmap overlay (keycode 191+202 = F13) gets wiped every
+time antimicrox restarts, a controller hotplugs, or X11 reloads the
+keymap. This was the #1 cause of daily breakage — user had to manually
+re-apply xmodmap commands after every antimicrox restart.
+
+**Root cause:** `ensure_f13_keymap()` in controller-profile-switcher.sh
+only ran on controller state transitions (present→absent→present), not
+when antimicrox itself restarted. The overlay is transient — X11 owns it
+and recreates it from the default keymap on any input device change.
+
+**Fix — 3 independent safety nets:**
+
+1. **systemd ExecStartPost** on antimicrox-autoload.service:
+   Re-applies the full F13-F18 xmodmap overlay 2 seconds after
+   antimicrox starts. Runs on every service (re)start cycle.
+
+2. **f13-xmodmap-heal.service** (new systemd user service):
+   Bound to antimicrox-autoload.service via BindsTo=. Provides a
+   standalone heal unit that can be triggered independently.
+
+3. **controller-profile-switcher.sh watch loop**:
+   Already re-applies overlay on controller hotplug (unchanged).
+
+**Also fixed:**
+
+- **udev rule** updated: added `GROUP="input"` + `MODE="0660"` to
+  90-antimicrox.rules so antimicrox devices are always accessible to
+  the input group, not just via transient logind ACLs.
+
+- **install.sh** now adds the desktop user to the `input` group
+  during installation (belt-and-suspenders with udev uaccess tag).
+
+- **setup-device-access.sh** (new script): one-time sudo setup for
+  existing installs that need the udev rule + input group fix without
+  re-running the full installer.
+
+**Verification:** Restarted antimicrox-autoload.service, confirmed
+keycode 191 = 0xffca (F13) and keycode 202 = 0xffca (F13) automatically
+without any manual xmodmap commands.
+
+**Files changed:**
+- `systemd/antimicrox-autoload.service` — added ExecStartPost xmodmap heal
+- `systemd/f13-xmodmap-heal.service` — new heal service
+- `udev/90-antimicrox.rules` — added GROUP="input" + MODE="0660"
+- `install.sh` — added f13-xmodmap-heal.service to SERVICES array, added usermod input group
+- `scripts/setup-device-access.sh` — new one-time device access setup script
+
+---
+
 ## 2026-07-13 — F13 / Right Trigger pipeline failure (3 root causes)
 
 **Symptom:** Right trigger (RT) not triggering dictation. PTT service
