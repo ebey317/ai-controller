@@ -148,6 +148,7 @@ GROQ_API_KEY=${GROQ_KEY}
 # AUDIO_INPUT=alsa_input.usb-Microsoft_Controller_....mono-fallback
 # AUDIO_OUTPUT=alsa_output.usb-Microsoft_Controller_....stereo-fallback
 EOF
+chmod 600 "${CONFIG_FILE}"
 
 # ── 7. INSTALL ANTIDOTE PROFILES ─────────────────────────────────────────────
 # NOTE: the layout consolidated to a single general-purpose profile — every

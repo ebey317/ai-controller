@@ -61,8 +61,6 @@ def _load_groq_key() -> str:
     return ""
 
 
-GROQ_KEY = _load_groq_key()
-
 GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_TIMEOUT = float(os.environ.get("VOICE_BRIDGE_GROQ_TIMEOUT", "30"))
 MAX_TRANSCRIPT_CHARS = int(os.environ.get("VOICE_BRIDGE_MAX_TRANSCRIPT_CHARS", "2000"))
@@ -203,7 +201,7 @@ async def voice(
                     try:
                         r = await client.post(
                             GROQ_STT_URL,
-                            headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                            headers={"Authorization": f"Bearer {_load_groq_key()}"},
                             files={"file": ("audio.wav", fp, "audio/wav")},
                             data={
                                 "model": "whisper-large-v3-turbo",
@@ -213,6 +211,7 @@ async def voice(
                                     "keyboard, mouse, Discord, Telegram."
                                 ),
                             },
+                            timeout=GROQ_TIMEOUT,
                         )
                         r.raise_for_status()
                     except httpx.HTTPStatusError as exc:
@@ -257,7 +256,7 @@ async def voice(
                 GROQ_CHAT_URL,
                 headers={
                     "Content-Type": "application/json",
-                    "Authorization": f"Bearer {GROQ_KEY}",
+                    "Authorization": f"Bearer {_load_groq_key()}",
                 },
                 json=payload,
             )
@@ -282,6 +281,15 @@ async def voice(
     _speak(response_text)
 
     return JSONResponse({"transcript": transcript, "response": response_text})
+
+
+@app.get("/health")
+async def health_endpoint():
+    """Readiness check used by start-all.sh."""
+    key = _load_groq_key()
+    if not key:
+        return JSONResponse({"status": "not_configured", "groq_key": False}, status_code=503)
+    return JSONResponse({"status": "ok", "groq_key": True})
 
 
 @app.post("/speak")

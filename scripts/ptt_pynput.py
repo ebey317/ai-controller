@@ -31,12 +31,11 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from ai_controller_paths import config_dir, ensure_config_dir, load_env
 
-endpoint = "http://localhost:8002/voice"
-
 # Audio input source is configurable so the installer works on any machine.
 _AUDIO_INPUT = load_env().get("AUDIO_INPUT", "")
 _PAREC_DEVICE_ARGS = ["--device", _AUDIO_INPUT] if _AUDIO_INPUT else []
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8002")
+endpoint = f"{BRIDGE_URL.rstrip('/')}/voice"
 
 # ---------------------------------------------------------------------------
 # Transcription style toggle (controlled by slide_keyboard.py mode button)
