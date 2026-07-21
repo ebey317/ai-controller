@@ -160,16 +160,16 @@
             <button index="4">
                 <slots>
                     <slot>
-                        <code>0x1000022</code>
-                        <mode>keyboard</mode>
+                        <path>__AI_CONTROLLER_DIR__/scripts/ai-rofi-launcher.sh</path>
+                        <mode>execute</mode>
                     </slot>
                 </slots>
             </button>
             <button index="1">
                 <slots>
                     <slot>
-                        <code>1</code>
-                        <mode>mousebutton</mode>
+                        <path>__AI_CONTROLLER_DIR__/scripts/click_with_settle.sh</path>
+                        <mode>execute</mode>
                     </slot>
                 </slots>
             </button>

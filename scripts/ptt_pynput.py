@@ -30,6 +30,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from ai_controller_paths import config_dir, ensure_config_dir, load_env
+from focus_guard import ensure_focus
 
 # Audio input source is configurable so the installer works on any machine.
 _AUDIO_INPUT = load_env().get("AUDIO_INPUT", "")
@@ -665,17 +666,30 @@ def stop_and_send():
             else:
                 # Restore focus to the window that was active when recording
                 # started — AntiMicroX or other apps may have stolen it.
+                # ensure_focus() (focus_guard.py) retries and confirms instead
+                # of firing a single blind windowactivate: a plain one-shot
+                # call here previously had no way to detect a failed restore,
+                # so a mistimed press (target window not fully focused yet)
+                # would silently type the transcript into whatever WAS
+                # focused instead — e.g. straight into a terminal.
                 global _focus_window
+                focus_ok = True
                 if _focus_window:
-                    try:
-                        subprocess.run(['xdotool', 'windowactivate', _focus_window],
-                                       env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-                        time.sleep(0.05)
-                    except Exception:
-                        pass
-                # Leading space was already injected before capture started.
-                _type_text_fast(transcript, mode)
+                    focus_ok = ensure_focus(_focus_window)
+                if focus_ok:
+                    # Leading space was already injected before capture started.
+                    _type_text_fast(transcript, mode)
+                else:
+                    log.warning(
+                        f"Could not confirm focus on {_focus_window} before "
+                        f"typing — copied to clipboard instead of risking a "
+                        f"mistyped window: {transcript!r}")
+                    _set_clipboard_text(transcript)
+                    subprocess.run(
+                        ['notify-send', '--replace-id=7003', '-t', '3000', '-u', 'normal',
+                         'AI Controller', 'Could not confirm target window — copied to clipboard instead.'],
+                        env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             log.info("(nothing heard)")
     except Exception as ex:
