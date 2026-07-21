@@ -448,6 +448,15 @@ _SHORT_HALLUCINATIONS = {
     "thank you", "thanks", "thank", "check", "yellow", "yep", "yup",
     "mm", "hmm", "um", "uh", "mhm", "okay", "ok",
 }
+# A quick tap-and-release (used deliberately as a "just give me a space"
+# shortcut, since start_recording() already injects one) sends 0.5-1.5s of
+# room/mic idle noise to Whisper. Measured live 2026-07-21: idle noise RMS
+# 200-1000, real speech RMS 1500-3200 -- a clean gap between them.
+# _is_silence()'s threshold of 100 only catches a physically muted mic, so
+# idle noise in that 200-1000 band was still reaching Whisper and getting
+# hallucinated into "ghost" text. 1200 sits in the measured gap with margin
+# on both sides.
+_AMBIENT_NOISE_RMS = 1200
 
 
 def _active_window():
@@ -613,6 +622,17 @@ def stop_and_send():
         return
 
     duration, rms = _wav_stats(wavfile)
+
+    # Ambient-noise gate: below real speech's measured floor, above idle
+    # noise's measured ceiling (see _AMBIENT_NOISE_RMS above). Skips the
+    # Whisper round-trip entirely instead of typing a hallucinated "ghost".
+    if rms < _AMBIENT_NOISE_RMS:
+        log.info(f"Ambient noise, not speech (RMS={rms:.1f} < {_AMBIENT_NOISE_RMS}) — skipped.")
+        if wavfile and os.path.exists(wavfile):
+            os.unlink(wavfile)
+        wavfile = None
+        return
+
     log.info(f"Sending... ({duration:.2f}s RMS={rms:.1f})")
 
     # For Unicode modes, show the typing indicator immediately on trigger
