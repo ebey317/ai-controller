@@ -14,10 +14,22 @@ Type=simple
 # supplementary group for this exec directly, regardless of session state,
 # so PTT can read antimicrox's virtual keyboard on first boot after install
 # and after every antimicrox restart, with no logout/login required.
+# "type" is the standing default: a leftover CLIPBOARD toggle on
+# slide_keyboard.py's on-screen keyboard silently survives service/reboot
+# cycles and makes dictation look dead (transcript lands in the clipboard,
+# never typed). Reset it here on every start so it can't linger unnoticed.
+ExecStartPre=/bin/sh -c 'echo type > %h/.config/ai-controller/ai_controller_input_target'
 ExecStart=/bin/sh -c 'sg input -c "%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/ptt_pynput.py"'
 WorkingDirectory=%h/ai-controller/scripts
 Restart=on-failure
 RestartSec=3
+# Default KillMode (control-group) SIGTERMs every process in this unit's
+# cgroup the instant it's stopped — including an in-flight `parec` recording
+# or `xdotool type` injection (see start_new_session in ptt_pynput.py).
+# mixed signals only the main process first, so those can finish; systemd
+# still SIGKILLs anything left in the cgroup after TimeoutStopSec so nothing
+# can be orphaned forever.
+KillMode=mixed
 Environment=DISPLAY=:0
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=XAUTHORITY=%h/.Xauthority
