@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 import numpy as np
 from scipy.io import wavfile
@@ -276,7 +277,21 @@ def speak(text, voice_id=None):
     _speak_spd(text)
 
 
+# DEBOUNCE state for the voice toggle (see toggle() below).
+_LAST_VOICE_SWITCH = 0.0
+
+
 def toggle():
+    # DEBOUNCE (2026-07-16): controller input noise + AntiMicroX reload churn
+    # cause phantom voice-toggle presses while the user isn't using voice.
+    # Ignore any toggle within 2s of the previous one so chatter can't cycle
+    # the voice. A real deliberate press (separated by >2s) still works.
+    global _LAST_VOICE_SWITCH
+    now = time.time()
+    if now - _LAST_VOICE_SWITCH < 2.0:
+        return load_voice()  # no-op: swallow the phantom press
+    _LAST_VOICE_SWITCH = now
+
     voices = list_voices()
     unlocked = [v for v in voices if v["unlocked"]]
     if not unlocked:

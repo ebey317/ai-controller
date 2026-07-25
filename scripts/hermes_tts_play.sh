@@ -36,8 +36,8 @@ else
 fi
 
 if [[ -n "$SINK" ]]; then
-    mpv --no-video --force-media-title=AI_TTS_BARGE --audio-device="$SINK" --af=lowpass=f=3000 "$AUDIO_FILE" 2>/dev/null
+    mpv --no-video --force-media-title=AI_TTS_BARGE --audio-device="$SINK" "$AUDIO_FILE" 2>/dev/null
 else
     # No output device configured and no Xbox sink visible — use default sink.
-    mpv --no-video --force-media-title=AI_TTS_BARGE --af=lowpass=f=3000 "$AUDIO_FILE" 2>/dev/null
+    mpv --no-video --force-media-title=AI_TTS_BARGE "$AUDIO_FILE" 2>/dev/null
 fi

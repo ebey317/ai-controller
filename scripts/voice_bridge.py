@@ -5,6 +5,7 @@ Runs on :8002. push-to-talk.sh POSTs audio to /voice?mode=transcribe_only.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import subprocess
@@ -277,8 +278,12 @@ async def voice(
             )
 
     # ── TTS — speak response ──────────────────────────────────────────────────
+    # Offloaded to a thread: _speak() runs a blocking subprocess.run() for
+    # edge-tts generation, which would otherwise freeze uvicorn's single
+    # event loop for the whole call — stalling every other in-flight request
+    # (including the next dictation trigger press) until it returns.
     logger.info("Speaking response via TTS")
-    _speak(response_text)
+    asyncio.create_task(asyncio.to_thread(_speak, response_text))
 
     return JSONResponse({"transcript": transcript, "response": response_text})
 
@@ -297,7 +302,7 @@ async def speak_endpoint(request: Request, text: str = Form(...)):
     """Hermes-compatible TTS endpoint: POST text and speak it immediately."""
     if not text:
         return JSONResponse({"error": "empty text"}, status_code=400)
-    _speak(text[:500])
+    asyncio.create_task(asyncio.to_thread(_speak, text[:500]))
     return JSONResponse({"spoken": True})
 
 

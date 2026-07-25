@@ -16,11 +16,15 @@ styled to match the controller-legend HUD (same dark/orange theme, rounded
 panel) so it reads as part of the same floating-overlay family instead of
 a separate full-width dock. Press F14 again to pop it back down.
 """
+import logging
 import os
 import signal
 import subprocess
 import sys
 import warnings
+
+logging.basicConfig(level=logging.WARNING)
+log = logging.getLogger(__name__)
 
 # GTK3 deprecation noise is not useful in production.
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -33,6 +37,7 @@ from gi.repository import Gtk, Gdk, GLib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ai_controller_paths import config_dir, ensure_config_dir
 import voice_toggle
+import focus_guard
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()
@@ -122,19 +127,31 @@ button.mode-active { background-color: #FF6A00; color: #0d0d12; border-color: #F
 """
 
 
-def send(key, ctrl=False, alt=False):
+def send(key, ctrl=False, alt=False, target_win=None):
+    """Send `key` to `target_win`, verified focused first.
+
+    The keyboard window never takes focus (see class docstring), so every
+    keystroke used to fire at whatever xdotool considered "active" with no
+    check at all. If anything nudged focus elsewhere between opening the
+    keyboard and this click -- confirmed live: a typed sequence once landed
+    in an unrelated terminal instead of the intended dialog -- it went
+    wherever focus actually was, silently. Now it either lands where the
+    user is looking at, or it's skipped and logged -- never a silent
+    mistype into the wrong window.
+    """
     if key == "shift":
         return
-    if ctrl or alt:
-        prefix = ("ctrl+" if ctrl else "") + ("alt+" if alt else "")
-        if key in SPECIAL:
-            subprocess.run(["xdotool", "key", prefix + SPECIAL[key]], check=False)
+    try:
+        if ctrl or alt:
+            prefix = ("ctrl+" if ctrl else "") + ("alt+" if alt else "")
+            key_spec = prefix + (SPECIAL[key] if key in SPECIAL else key.lower())
+            focus_guard.guarded_key(target_win, key_spec)
+        elif key in SPECIAL:
+            focus_guard.guarded_key(target_win, SPECIAL[key])
         else:
-            subprocess.run(["xdotool", "key", prefix + key.lower()], check=False)
-    elif key in SPECIAL:
-        subprocess.run(["xdotool", "key", "--clearmodifiers", SPECIAL[key]], check=False)
-    else:
-        subprocess.run(["xdotool", "type", "--clearmodifiers", key], check=False)
+            focus_guard.guarded_type(target_win, key)
+    except focus_guard.FocusLostError as exc:
+        log.warning(f"{exc} — key '{key}' not sent")
 
 
 class SlideKeyboard(Gtk.Window):
@@ -292,6 +309,7 @@ class SlideKeyboard(Gtk.Window):
         self.set_opacity(0.0)
         self.visible_state = False
         self._anim_id = None
+        self._focus_target_win = None  # snapshotted when the keyboard opens
 
         # Poll typing state from ptt_pynput.py so the keyboard can transform
         # into a typing indicator while Unicode modes emit.
@@ -485,7 +503,7 @@ class SlideKeyboard(Gtk.Window):
             self._build_keys()
             return
         ctrl, alt = _modifier_state()
-        send(key, ctrl=ctrl, alt=alt)
+        send(key, ctrl=ctrl, alt=alt, target_win=self._focus_target_win)
         if self.shift_on:
             self.shift_on = False
             self._build_keys()
@@ -495,6 +513,11 @@ class SlideKeyboard(Gtk.Window):
 
     def _toggle_main_thread(self):
         opening = not self.visible_state
+        if opening:
+            # Snapshot whatever's focused right now -- this is where every
+            # keystroke should land for as long as the keyboard stays open,
+            # since the keyboard itself never takes focus (set_accept_focus).
+            self._focus_target_win = focus_guard.active_window()
         target_y = self.center_y if opening else self.hidden_y
         target_op = 1.0 if opening else 0.0
         self._animate_to(target_y, target_op)

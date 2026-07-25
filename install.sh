@@ -31,12 +31,34 @@ echo ""
 
 # ── 1. OS CHECK ──────────────────────────────────────────────────────────────
 if [[ "$OSTYPE" != "linux-gnu"* ]]; then
-    echo "ERROR: This installer supports Linux (Ubuntu/Mint/Debian) only." >&2
+    echo "ERROR: This installer supports Linux only (macOS/Windows have their own" >&2
+    echo "       native AI Controller apps -- this one is X11/systemd-based)." >&2
     echo "       $OSTYPE is not supported." >&2
     exit 1
 fi
 
-echo "→ Platform: Linux (Ubuntu/Mint/Debian)"
+# ── 1a. PACKAGE MANAGER DETECTION ────────────────────────────────────────────
+# Everything below this used to assume apt (Debian/Ubuntu/Mint) unconditionally.
+# Detect the real package manager so the same installer works across the
+# major Linux families, not just one. Package names verified against
+# Debian/Ubuntu repos directly on this machine; the dnf/pacman/zypper lists
+# are the standard equivalents for each distro's own repos but have NOT been
+# run on an actual Fedora/Arch/openSUSE box -- flag any mismatch you hit.
+if command -v apt-get &>/dev/null; then
+    PKG_MANAGER="apt"
+elif command -v dnf &>/dev/null; then
+    PKG_MANAGER="dnf"
+elif command -v pacman &>/dev/null; then
+    PKG_MANAGER="pacman"
+elif command -v zypper &>/dev/null; then
+    PKG_MANAGER="zypper"
+else
+    echo "ERROR: no supported package manager found (apt/dnf/pacman/zypper)." >&2
+    echo "       Install dependencies manually, then re-run with AI_CONTROLLER_SKIP_DEPS=1." >&2
+    exit 1
+fi
+
+echo "→ Platform: Linux (package manager: ${PKG_MANAGER})"
 
 # ── 1b. WAYLAND CHECK ────────────────────────────────────────────────────────
 if [[ "$XDG_SESSION_TYPE" == "wayland" ]]; then
@@ -51,15 +73,54 @@ fi
 if [[ "${AI_CONTROLLER_SKIP_DEPS:-}" == "1" ]]; then
     echo "→ Skipping system dependencies (AI_CONTROLLER_SKIP_DEPS=1)"
 else
-    echo "→ Installing system packages (you may be asked for sudo password)..."
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq \
-        python3 python3-venv python3-pip python3-dev \
-        libgirepository1.0-dev libcairo2-dev python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-        xdotool xclip curl antimicrox pulseaudio-utils mpv wget git libportaudio2 libnotify-bin || {
-        echo "ERROR: failed to install system packages" >&2
-        exit 1
-    }
+    echo "→ Installing system packages via ${PKG_MANAGER} (you may be asked for sudo password)..."
+    # antimicrox is often missing or outdated in non-Debian repos (e.g. not in
+    # core Fedora/Arch/openSUSE repos at all on many releases) -- that's fine,
+    # controller-profile-switcher.sh already falls back to a bundled/extracted
+    # AppImage if the `antimicrox` binary isn't on PATH, so a failure to
+    # install just that one package here is not fatal the way the others are.
+    case "$PKG_MANAGER" in
+        apt)
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq \
+                python3 python3-venv python3-pip python3-dev \
+                libgirepository1.0-dev libcairo2-dev python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+                xdotool xclip curl antimicrox pulseaudio-utils mpv wget git libportaudio2 libnotify-bin rofi || {
+                echo "ERROR: failed to install system packages" >&2
+                exit 1
+            }
+            ;;
+        dnf)
+            sudo dnf install -y \
+                python3 python3-pip python3-devel \
+                gobject-introspection-devel cairo-devel python3-gobject python3-gobject-base gtk3 \
+                xdotool xclip curl pulseaudio-utils mpv wget git portaudio libnotify rofi || {
+                echo "ERROR: failed to install system packages" >&2
+                exit 1
+            }
+            sudo dnf install -y antimicrox || echo "  (antimicrox not in repos -- falling back to bundled AppImage)"
+            ;;
+        pacman)
+            sudo pacman -Sy --noconfirm \
+                python python-pip \
+                gobject-introspection cairo python-gobject gtk3 \
+                xdotool xclip curl pulseaudio wget git portaudio libnotify rofi || {
+                echo "ERROR: failed to install system packages" >&2
+                exit 1
+            }
+            sudo pacman -S --noconfirm antimicrox || echo "  (antimicrox not in core/extra -- try the AUR, or falling back to bundled AppImage)"
+            ;;
+        zypper)
+            sudo zypper --non-interactive install \
+                python3 python3-pip python3-devel \
+                gobject-introspection-devel cairo-devel python3-gobject python3-gobject-cairo gtk3 \
+                xdotool xclip curl pulseaudio-utils mpv wget git portaudio libnotify-tools rofi || {
+                echo "ERROR: failed to install system packages" >&2
+                exit 1
+            }
+            sudo zypper --non-interactive install antimicrox || echo "  (antimicrox not in repos -- falling back to bundled AppImage)"
+            ;;
+    esac
 fi
 
 # ── 3. COPY REPO TO INSTALL LOCATION ─────────────────────────────────────────
@@ -164,14 +225,24 @@ sed -i "s|__AI_CONTROLLER_DIR__|${INSTALL_DIR}|g" "${ANTIMICROX_PROFILE_DIR}/don
 # ── 8. XONE DRIVER ENFORCEMENT + UDEV RULES ───────────────────────────────────
 # The in-kernel xpad driver steals Xbox Series X/S controllers from xone and
 # breaks both headset audio and input events. We hard-block xpad and install a
-# boot-time guard. This modifies /etc/modprobe.d and runs update-initramfs,
+# boot-time guard. This modifies /etc/modprobe.d and rebuilds the initramfs,
 # so we ask for consent first.
+#
+# The initramfs rebuild command is distro-specific -- update-initramfs only
+# exists on Debian/Ubuntu family. dracut (Fedora/openSUSE) and mkinitcpio
+# (Arch) are the equivalents everywhere else.
+case "$PKG_MANAGER" in
+    apt)              INITRAMFS_CMD="update-initramfs -u -k all" ;;
+    dnf|zypper)       INITRAMFS_CMD="dracut -f" ;;
+    pacman)           INITRAMFS_CMD="mkinitcpio -P" ;;
+    *)                INITRAMFS_CMD="update-initramfs -u -k all" ;;
+esac
 
 echo ""
 echo "── Driver Enforcement ──"
 echo "The in-kernel xpad driver conflicts with xone (needed for Xbox Series X/S"
 echo "headset audio). The installer can blacklist xpad and install a boot-time"
-echo "guard. This will run update-initramfs and modify system config."
+echo "guard. This will run '${INITRAMFS_CMD}' and modify system config."
 echo ""
 read -rp "Install xpad blacklist + xone driver guard? [y/N] " xone_consent
 
@@ -179,7 +250,7 @@ if [[ "$xone_consent" =~ ^[Yy]$ ]]; then
     echo "→ Enforcing xone-only Xbox controller driver (graphical password prompt)..."
     DISPLAY="${DISPLAY:-:0}" pkexec bash -c "
         cp '${REPO_DIR}/config/xone-blacklist.conf' /etc/modprobe.d/xone-blacklist.conf &&
-        update-initramfs -u -k all &&
+        ${INITRAMFS_CMD} &&
         install -m 755 '${INSTALL_DIR}/scripts/xone-driver-guard.sh' /usr/local/bin/xone-driver-guard.sh &&
         cp '${REPO_DIR}/systemd/xone-driver-guard.service' /etc/systemd/system/xone-driver-guard.service &&
         systemctl daemon-reload &&
@@ -188,7 +259,7 @@ if [[ "$xone_consent" =~ ^[Yy]$ ]]; then
 else
     echo "→ Skipped xone driver enforcement. You can install it later with:"
     echo "  sudo cp '${REPO_DIR}/config/xone-blacklist.conf' /etc/modprobe.d/xone-blacklist.conf"
-    echo "  sudo update-initramfs -u -k all"
+    echo "  sudo ${INITRAMFS_CMD}"
 fi
 
 # ── 8b. UDEV RULE + DEVICE ACCESS ─────────────────────────────────────────────

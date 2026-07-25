@@ -454,9 +454,12 @@ _SHORT_HALLUCINATIONS = {
 # 200-1000, real speech RMS 1500-3200 -- a clean gap between them.
 # _is_silence()'s threshold of 100 only catches a physically muted mic, so
 # idle noise in that 200-1000 band was still reaching Whisper and getting
-# hallucinated into "ghost" text. 1200 sits in the measured gap with margin
-# on both sides.
-_AMBIENT_NOISE_RMS = 1200
+# hallucinated into "ghost" text.
+# 2026-07-24: 1200 was clipping real (quieter) speech -- 4 of 20 PTT presses
+# that day got silently dropped as "ambient noise" including one at RMS 1130,
+# well above the measured noise ceiling. Lowered to sit exactly on that
+# ceiling instead of past it.
+_AMBIENT_NOISE_RMS = 1000
 
 
 def _active_window():
@@ -492,31 +495,73 @@ def _mute_tts():
     aplay (Linux fallback). All of those are killed here so RT -> F13 always
     barges in on agent speech.
     """
+    t0 = time.time()
+    # pkill exit 0 = matched & signaled at least one process, 1 = no match.
+    hit = False
     # Controller voice stack: tagged mpv.
-    subprocess.run(['pkill', '-f', 'AI_TTS_BARGE'],
+    r = subprocess.run(['pkill', '-f', 'AI_TTS_BARGE'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    hit = hit or r.returncode == 0
     # Piper voice pack /tmp/ai_controller_tts.wav playback.
-    subprocess.run(['pkill', '-f', 'ai_controller_tts'],
+    r = subprocess.run(['pkill', '-f', 'ai_controller_tts'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    hit = hit or r.returncode == 0
     # Hermes built-in TTS: ffplay / aplay playing /tmp/hermes_voice/*.mp3.
     # The leading bracket pattern prevents pkill from matching its own argv.
-    subprocess.run(['pkill', '-f', '[f]fplay.*hermes_voice'],
+    r = subprocess.run(['pkill', '-f', '[f]fplay.*hermes_voice'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(['pkill', '-f', '[a]play.*hermes_voice'],
+    hit = hit or r.returncode == 0
+    r = subprocess.run(['pkill', '-f', '[a]play.*hermes_voice'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    hit = hit or r.returncode == 0
+    # Hermes Agent (~/.hermes/hermes-agent, a separate process from the
+    # controller voice stack above) plays TTS in-process via Python's
+    # sounddevice library -- there's no external mpv/ffplay/aplay process to
+    # pkill. It has its own barge-in for its own TUI keypresses, but no way
+    # to hear an external PTT device. SIGUSR1 to its tui_gateway.entry
+    # backend runs the exact same interrupt sequence externally.
+    r = subprocess.run(['pkill', '-SIGUSR1', '-f', 'tui_gateway.entry'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    hit = hit or r.returncode == 0
+    log.info("_mute_tts: %s in %.0fms",
+              "killed a live TTS process" if hit else "nothing was playing",
+              (time.time() - t0) * 1000)
+
+
+def _mic_source_state():
+    """Return the PulseAudio state (RUNNING/IDLE/SUSPENDED) of _AUDIO_INPUT,
+    or None if it can't be determined."""
+    try:
+        out = subprocess.run(['pactl', 'list', 'sources', 'short'],
+                              capture_output=True, text=True, timeout=0.3).stdout
+        for line in out.splitlines():
+            if _AUDIO_INPUT in line:
+                return line.split()[-1]
+    except Exception:
+        pass
+    return None
 
 
 def _warmup_mic():
-    """Send a short dummy capture stream to PulseAudio so an auto-suspended
-    Xbox headset source resumes before the real recording starts."""
+    """If PulseAudio has suspended the Xbox headset source (idle timeout),
+    wake it and wait for the transition before the real recording starts, so
+    the opening of the utterance isn't lost to USB power-up. A warm press
+    (the common case) costs one fast state check and nothing else -- it
+    should never add latency when the mic is already awake."""
     if not _AUDIO_INPUT:
         return
+    if _mic_source_state() != 'SUSPENDED':
+        return
     try:
-        subprocess.run(
+        proc = subprocess.Popen(
             ['parec', '--device', _AUDIO_INPUT,
              '--rate', str(SAMPLE_RATE), '--channels', str(CHANNELS),
              '--format', 's16le', '--raw'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.3)
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.time() + 0.4
+        while time.time() < deadline and _mic_source_state() == 'SUSPENDED':
+            time.sleep(0.02)
+        proc.terminate()
     except Exception:
         pass
 
@@ -733,9 +778,26 @@ def stop_and_send():
             os.unlink(wavfile)
 
 
+# Two independent sources call on_press/on_release for the SAME physical
+# F13: pynput's own X11 Listener (line ~886) and the evdev fallback thread's
+# own local dedup. The evdev-side "held" guard only protects its own path --
+# it doesn't stop X11 from separately delivering autorepeat KeyPress events
+# for this device once a hold outlasts X11's repeat-delay (observed: a
+# ~850ms hold produced 21 duplicate PRESSED events despite the evdev fix).
+# Guarding here instead, shared by both callers, closes that gap regardless
+# of which path is actually flooding.
+_f13_held_lock = threading.Lock()
+_f13_held = False
+
+
 def on_press(key):
     log.debug("Key pressed: %s (vk=%s)", key, getattr(key, 'vk', None))
     if key == keyboard.Key.f13:
+        global _f13_held
+        with _f13_held_lock:
+            if _f13_held:
+                return
+            _f13_held = True
         log.info("F13 PRESSED — starting recording")
         threading.Thread(target=start_recording, daemon=True).start()
 
@@ -743,6 +805,9 @@ def on_press(key):
 def on_release(key):
     log.debug("Key released: %s (vk=%s)", key, getattr(key, 'vk', None))
     if key == keyboard.Key.f13:
+        global _f13_held
+        with _f13_held_lock:
+            _f13_held = False
         log.info("F13 RELEASED — stopping and sending")
         threading.Thread(target=stop_and_send, daemon=True).start()
 
@@ -792,6 +857,14 @@ def _run_evdev_listener():
     import struct as _struct
     f13 = _make_fake_key()
     backoff = 1.0
+    # antimicrox re-sends EV_KEY value=1 for F13 repeatedly (~every 40ms) for
+    # as long as the analog trigger stays past its actuation threshold, rather
+    # than sending one press + holding. Left unfiltered, a single real hold
+    # was spawning 30+ start_recording() threads that all fought over the
+    # same lock -- pure overhead, and enough contention to delay the one
+    # thread that actually needs to fire _mute_tts() instantly. Track held
+    # state here so only a true press-after-release reaches on_press().
+    held = False
     while True:
         target = _find_antimicrox_keyboard()
         if target is None:
@@ -828,13 +901,19 @@ def _run_evdev_listener():
                 # Only handle F13 — let all other keys pass through to X11
                 if ev_type == 1 and ev_code == 0xb7:
                     if ev_value == 1:
-                        on_press(f13)
+                        if not held:
+                            held = True
+                            on_press(f13)
+                        # else: repeat event while already held — ignore, no
+                        # thread spawned, nothing for _mute_tts to compete with.
                     elif ev_value == 0:
+                        held = False
                         on_release(f13)
         except OSError as e:
             # ENODEV or similar — antimicrox restarted and the uinput node
             # went away. Close the dead handle, loop back, re-enumerate.
             log.warning("Evdev listener lost device %s: %s — will re-enumerate", path, e)
+            held = False
         finally:
             try:
                 os.close(fd)
