@@ -523,6 +523,14 @@ def _mute_tts():
     r = subprocess.run(['pkill', '-SIGUSR1', '-f', 'tui_gateway.entry'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     hit = hit or r.returncode == 0
+    # Also kill ffplay/aplay playing Hermes TTS files from /tmp/hermes_voice/
+    # or any temp MP3s. Match the actual player processes.
+    r = subprocess.run(['pkill', '-9', '-f', 'ffplay.*/tmp/'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    hit = hit or r.returncode == 0
+    r = subprocess.run(['pkill', '-9', '-f', 'aplay.*/tmp/'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    hit = hit or r.returncode == 0
     log.info("_mute_tts: %s in %.0fms",
               "killed a live TTS process" if hit else "nothing was playing",
               (time.time() - t0) * 1000)
