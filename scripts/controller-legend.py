@@ -320,7 +320,11 @@ class Legend(Gtk.Window):
             return True
         if not self.get_visible():
             self.show_all()
-            self._make_clickthrough(self)  # re-apply after show
+        # Re-assert every tick, not just on show: GTK/X11 can silently drop
+        # the input shape (resize, compositor remap, theme change) with no
+        # event that would otherwise trigger a re-apply, leaving the overlay
+        # eating clicks meant for the window underneath until next restart.
+        self._make_clickthrough(self)
 
         # Don't fight the typing banner placement while Unicode modes emit.
         if self._typing_active:

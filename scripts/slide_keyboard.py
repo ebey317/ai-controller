@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 # GTK3 deprecation noise is not useful in production.
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+import cairo
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
@@ -311,6 +312,16 @@ class SlideKeyboard(Gtk.Window):
         self._anim_id = None
         self._focus_target_win = None  # snapshotted when the keyboard opens
 
+        # This window sits mapped and centered on-screen at all times, even
+        # in its "hidden" (opacity 0) resting state -- an invisible window is
+        # still solid to the mouse unless its input shape says otherwise, so
+        # every click/hover under its footprint (whatever app that happens to
+        # be) silently never reached the real target. Same bug class as the
+        # controller-legend HUD, just never fixed here in the first place.
+        self.connect("realize", lambda *_: self._apply_input_passthrough(not self.visible_state))
+        self.connect("map-event", lambda *_: self._apply_input_passthrough(not self.visible_state))
+        self._apply_input_passthrough(True)
+
         # Poll typing state from ptt_pynput.py so the keyboard can transform
         # into a typing indicator while Unicode modes emit.
         self._typing_poll_id = GLib.timeout_add(100, self._check_typing_state)
@@ -522,6 +533,7 @@ class SlideKeyboard(Gtk.Window):
         target_op = 1.0 if opening else 0.0
         self._animate_to(target_y, target_op)
         self.visible_state = opening
+        self._apply_input_passthrough(not opening)
         return False
 
     def _animate_to(self, target_y, target_opacity):
@@ -619,7 +631,22 @@ class SlideKeyboard(Gtk.Window):
             self._show_typing_indicator(mode)
         elif state == "idle" and currently_typing:
             self._show_keyboard_content()
+        # Re-assert every tick, not just on realize/toggle: same self-healing
+        # need as controller-legend.py -- nothing guarantees the input shape
+        # survives every GTK/X11 event that could reset it over a long
+        # session, and the cost of checking is negligible.
+        self._apply_input_passthrough(not self.visible_state)
         return True  # keep polling
+
+    def _apply_input_passthrough(self, passthrough):
+        gdkwin = self.get_window()
+        if not gdkwin:
+            return
+        if passthrough:
+            self.input_shape_combine_region(cairo.Region())
+        else:
+            self.input_shape_combine_region(None)
+        gdkwin.set_pass_through(passthrough)
 
 
 PIDFILE = "/tmp/slide_keyboard.pid"

@@ -485,6 +485,31 @@ def _build_wav(raw_path: str, wav_path: str):
         wf.writeframes(data)
 
 
+def _compress_for_upload(wav_path: str) -> str:
+    """Encode wav_path down to a smaller file before the network hop to
+    Groq — recording stays uncompressed WAV throughout (silence/RMS/duration
+    checks above all assume raw PCM), this only shrinks the copy that
+    actually goes over the wire. Falls back to the original WAV on any
+    failure — a compression bug should never block sending the transcript.
+    """
+    compressed_path = wav_path[:-4] + "_up.ogg"
+    try:
+        # TODO(human): run ffmpeg (already confirmed on this box — hermes
+        # TTS uses it) to read wav_path and write compressed_path. Pick the
+        # codec/bitrate/sample-rate: this is a straight trade-off between
+        # upload speed and whether Groq mishears words in real dictated
+        # ideas — Whisper only needs 16kHz mono internally, so downsampling
+        # is close to free, but going too low-bitrate on the codec is where
+        # accuracy actually degrades.
+        subprocess.run(
+            [],
+            timeout=10, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return compressed_path
+    except Exception:
+        return wav_path
+
+
 def _mute_tts():
     """Kill any playing TTS audio so the mic doesn't capture it.
 
@@ -612,25 +637,40 @@ def start_recording():
 
 
 def _wav_stats(path):
-    """Return (duration_seconds, rms) for a WAV file."""
+    """Return (duration_seconds, avg_rms, peak_rms) for a WAV file.
+
+    peak_rms is the max RMS over ~0.3s windows rather than the whole-file
+    average. A long hold has natural pauses between words/sentences that
+    drag the average toward the noise floor even when the words themselves
+    are plenty loud — that's what was silently eating real dictations
+    (see _AMBIENT_NOISE_RMS below). Gate decisions should use peak_rms;
+    avg_rms is kept only for the informational "Sending..." log line.
+    """
     try:
         with wave.open(path, 'rb') as wf:
             raw = wf.readframes(wf.getnframes())
             rate = wf.getframerate()
         if len(raw) < 2 or rate == 0:
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0
         samples = struct.unpack(f'<{len(raw)//2}h', raw[:len(raw) & ~1])
-        rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
-        return len(samples) / rate, rms
+        avg_rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
+        window = max(1, int(rate * 0.3))
+        peak_rms = 0.0
+        for i in range(0, len(samples), window):
+            chunk = samples[i:i + window]
+            r = (sum(s * s for s in chunk) / len(chunk)) ** 0.5
+            if r > peak_rms:
+                peak_rms = r
+        return len(samples) / rate, avg_rms, peak_rms
     except Exception:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0
 
 
 def _is_silence(path, rms_threshold=100):
     """Return True if the wav contains only silence (mic was physically off)."""
-    _, rms = _wav_stats(path)
-    if rms < rms_threshold:
-        log.info(f"Silence check RMS={rms:.1f} (threshold {rms_threshold})")
+    _, _, peak_rms = _wav_stats(path)
+    if peak_rms < rms_threshold:
+        log.info(f"Silence check peak_RMS={peak_rms:.1f} (threshold {rms_threshold})")
         return True
     return False
 
@@ -674,19 +714,24 @@ def stop_and_send():
         wavfile = None
         return
 
-    duration, rms = _wav_stats(wavfile)
+    duration, avg_rms, peak_rms = _wav_stats(wavfile)
 
     # Ambient-noise gate: below real speech's measured floor, above idle
     # noise's measured ceiling (see _AMBIENT_NOISE_RMS above). Skips the
     # Whisper round-trip entirely instead of typing a hallucinated "ghost".
-    if rms < _AMBIENT_NOISE_RMS:
-        log.info(f"Ambient noise, not speech (RMS={rms:.1f} < {_AMBIENT_NOISE_RMS}) — skipped.")
+    # Gates on peak_rms, not the whole-file average — long holds have
+    # natural pauses between words that pull avg_rms down toward the noise
+    # floor even when the words themselves were plenty loud, which was
+    # silently dropping real dictation (2026-07-26: a 9s hold at avg
+    # RMS 811.7 got skipped this way).
+    if peak_rms < _AMBIENT_NOISE_RMS:
+        log.info(f"Ambient noise, not speech (peak_RMS={peak_rms:.1f} < {_AMBIENT_NOISE_RMS}) — skipped.")
         if wavfile and os.path.exists(wavfile):
             os.unlink(wavfile)
         wavfile = None
         return
 
-    log.info(f"Sending... ({duration:.2f}s RMS={rms:.1f})")
+    log.info(f"Sending... ({duration:.2f}s avg_RMS={avg_rms:.1f} peak_RMS={peak_rms:.1f})")
 
     # For Unicode modes, show the typing indicator immediately on trigger
     # release so the operator gets feedback while STT runs.
@@ -696,12 +741,18 @@ def stop_and_send():
         _set_typing_state("typing", mode)
 
     transcript = ""
+    # Longer holds need longer to transcribe — a flat 30s cap was killing
+    # any recording over ~30-40s of speech with total silence (no notify,
+    # wav deleted). Scale with actual duration instead.
+    request_timeout = max(30, int(duration * 2) + 15)
+    timed_out = False
+    upload_path = _compress_for_upload(wavfile)
     try:
         r = subprocess.run(
             ['curl', '-s', '-X', 'POST', endpoint,
-             '-F', f'audio=@{wavfile}', '-F', 'mode=transcribe_only',
+             '-F', f'audio=@{upload_path}', '-F', 'mode=transcribe_only',
              '-H', 'Accept: application/json'],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, timeout=request_timeout)
         data = json.loads(r.stdout)
         # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
         transcript = data.get('text', data.get('transcript', ''))
@@ -765,14 +816,26 @@ def stop_and_send():
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             log.info("(nothing heard)")
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        log.error(f"Transcription timed out after {request_timeout}s ({duration:.1f}s recording) — audio saved, not lost.")
+        subprocess.run(
+            ['notify-send', '--replace-id=7004', '-t', '5000', '-u', 'critical',
+             'AI Controller', f'Transcription timed out ({duration:.0f}s recording) — audio saved to recover.'],
+            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as ex:
         log.error(f"Error: {ex}")
     finally:
         if show_indicator:
             _set_typing_state("idle")
+        if upload_path != wavfile and os.path.exists(upload_path):
+            os.unlink(upload_path)
 
-    # Save a debug copy for later inspection (only if PTT_DEBUG=1).
-    if PTT_DEBUG:
+    # Save a debug copy for later inspection (only if PTT_DEBUG=1), or
+    # always on a timeout — that's the one failure mode where the operator
+    # has no other record of what they said and needs the audio back.
+    if PTT_DEBUG or timed_out:
         try:
             ts = time.strftime("%Y%m%d_%H%M%S")
             safe_text = "".join(c if c.isalnum() else "_" for c in transcript)[:40] or "no_transcript"
