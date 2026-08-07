@@ -1,0 +1,16 @@
+[Unit]
+Description=Voice Bridge — PTT → Groq Whisper → TTS
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/voice_bridge.py
+WorkingDirectory=%h/ai-controller
+Restart=on-failure
+RestartSec=3
+# See ptt-pynput.service: mixed lets an in-flight TTS/STT subprocess finish
+# on stop instead of the default control-group kill severing it immediately.
+KillMode=mixed
+
+[Install]
+WantedBy=default.target
