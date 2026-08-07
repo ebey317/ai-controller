@@ -1,0 +1,59 @@
+# ai-controller voice pipeline snapshot
+taken:    2026-08-06_203513
+host:     Madam-Mary
+kernel:   5.15.0-186-generic
+
+## git
+branch:   master
+commit:   59003b0c209bb9a7fb99b763049d91394d7b7104
+dirty:    16 file(s) uncommitted
+
+## file checksums (the working code)
+9d6372ba6a241b233b1b2a99da3d046b1a7e77903b590e5c57c862b9f8cf5d7d  scripts/ptt_pynput.py
+b7536a08bb12bb64751411937fcb8a608ce02b7433e123012a7267d8887bc0e6  scripts/voice_bridge.py
+1dfa62e1fa63443eb9b00ec1aa656094da18af692eea7cb0ea2136243aa332b0  scripts/hermes_tts_play.sh
+3b9ed8a54e4cc0da5d8485bcaa4ba76c0ad606bd8ab7b873f65da9038692dc78  scripts/reset-controller-audio.sh
+da9803bdfcf6a3772defcdb07aba07329dedca7dfa40c9a2f6743d6eb2421d97  scripts/gip-audio-watchdog.sh
+
+## services
+ptt-pynput             enabled=enabled    active=active
+voice-bridge           enabled=enabled    active=active
+gip-audio-watchdog     enabled=enabled    active=active
+linger:   Linger=yes
+
+## audio topology (mic and ears are DIFFERENT devices)
+AUDIO_INPUT (mic):  alsa_input.usb-Microsoft_Controller_3039373130383038333134313433-00.mono-fallback
+AUDIO_OUTPUT(ears): alsa_output.pci-0000_00_1f.3.hdmi-stereo
+
+### pactl cards
+0	alsa_card.pci-0000_00_1f.3	module-alsa-card.c
+18	alsa_card.usb-Microsoft_Controller_3039373130383038333134313433-00	module-alsa-card.c
+### pactl sources
+1	alsa_input.pci-0000_00_1f.3.analog-stereo	module-alsa-card.c	s16le 2ch 44100Hz	IDLE
+2	remote_audio.monitor	module-null-sink.c	s16le 2ch 44100Hz	IDLE
+296	alsa_output.pci-0000_00_1f.3.hdmi-stereo.monitor	module-alsa-card.c	s16le 2ch 44100Hz	IDLE
+371	alsa_output.usb-Microsoft_Controller_3039373130383038333134313433-00.stereo-fallback.monitor	module-alsa-card.c	s16le 2ch 48000Hz	IDLE
+372	alsa_input.usb-Microsoft_Controller_3039373130383038333134313433-00.mono-fallback	module-alsa-card.c	s16le 1ch 24000Hz	IDLE
+### pactl sinks
+1	remote_audio	module-null-sink.c	s16le 2ch 44100Hz	IDLE
+196	alsa_output.pci-0000_00_1f.3.hdmi-stereo	module-alsa-card.c	s16le 2ch 44100Hz	RUNNING
+234	alsa_output.usb-Microsoft_Controller_3039373130383038333134313433-00.stereo-fallback	module-alsa-card.c	s16le 2ch 48000Hz	IDLE
+
+## python env
+interpreter: /home/elijah/ai-controller/.venv/bin/python3
+version:  Python 3.10.12
+frozen:   292 packages -> requirements.freeze.txt
+  edge-tts==7.2.8
+  evdev==1.9.3
+  fastapi==0.136.3
+  fastapi-sso==0.21.0
+  httpx==0.28.1
+  httpx-sse==0.4.3
+  pynput==1.8.2
+  python-multipart==0.0.29
+  uvicorn==0.47.0
+
+## known-good measurements (see verify-voice-config.sh)
+mic 3s capture:   >16000 bytes (healthy ~143000), RMS > 0
+POST /speak:      < 0.100s   (blocking bug made this 1.279s)
+POST /voice:      returns transcript even while TTS is speaking

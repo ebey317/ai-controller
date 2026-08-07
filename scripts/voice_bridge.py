@@ -41,64 +41,96 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from ai_controller_paths import ai_controller_dir, load_env
-import voice_toggle
 
 
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
 
+_env = load_env()
+CLAF_URL = (os.environ.get("CLAF_URL") or _env.get("CLAF_URL") or "http://localhost:8000").rstrip("/")
 VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
 
 
 def _load_groq_key() -> str:
-    """Load the live Groq key from env / ai-controller config.env."""
+    """Load the live Groq key from env / ai-controller config / master keychain."""
     key = os.environ.get("GROQ_API_KEY", "").strip()
     if key and not key.startswith("***") and len(key) > 20:
         return key
     key = load_env().get("GROQ_API_KEY", "").strip()
     if key and not key.startswith("***") and len(key) > 20:
         return key
+    # Fallback to the master keychain env file (plain KEY=VALUE format).
+    keychain = Path.home() / "Desktop" / "Projects" / "keychain" / "master_ai_keys"
+    if keychain.exists():
+        try:
+            for line in keychain.read_text().splitlines():
+                if line.strip().startswith("GROQ_API_KEY="):
+                    key = line.split("=", 1)[1].strip().strip('"\'')
+                    if key and not key.startswith("***") and len(key) > 20:
+                        return key
+        except Exception:
+            pass
     return ""
 
 
+GROQ_KEY = _load_groq_key()
+
 GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_TIMEOUT = float(os.environ.get("VOICE_BRIDGE_GROQ_TIMEOUT", "30"))
+CLAF_TIMEOUT = float(os.environ.get("VOICE_BRIDGE_CLAF_TIMEOUT", "120"))
 MAX_TRANSCRIPT_CHARS = int(os.environ.get("VOICE_BRIDGE_MAX_TRANSCRIPT_CHARS", "2000"))
 
 app = FastAPI(title="voice-bridge", version="1.1")
 
 AI_DIR = ai_controller_dir()
+PIPER_MODEL = os.path.join(AI_DIR, "voices", "en_US-joe-medium.onnx")
 HERMES_TTS_PLAY = os.path.join(AI_DIR, "scripts", "hermes_tts_play.sh")
+EDGE_VOICE = "en-US-AriaNeural"
+EDGE_PITCH = "-22Hz"
+EDGE_RATE = "+18%"
+
+
+# Strong refs to in-flight background TTS tasks. asyncio only holds weak refs to
+# tasks, so without this a speak task can be garbage-collected mid-generation.
+_tts_tasks: set = set()
+
+
+def _speak_bg(text: str) -> None:
+    """Fire-and-forget _speak on a worker thread.
+
+    _speak() blocks: it shells out to edge_tts, which is a NETWORK call to
+    Microsoft with timeout=30. Calling it directly from an `async def` handler
+    blocks the whole asyncio event loop, so the bridge can serve nothing else
+    for the duration — that is what produced the historical "transcribe timed
+    out after 30 seconds" failures. The STT request was never slow; it was
+    queued behind a TTS generation holding the only thread.
+    """
+    if not text:
+        return
+    task = asyncio.create_task(asyncio.to_thread(_speak, text))
+    _tts_tasks.add(task)
+    task.add_done_callback(_tts_tasks.discard)
 
 
 def _speak(text: str) -> None:
-    """Speak text using the active AI Controller voice pack (Edge TTS)."""
+    """Speak text using Edge TTS (AriaNeural) with tuned voice settings.
+
+    BLOCKING — never call directly from an async handler. Use _speak_bg().
+    """
     if not text:
         return
     spoken = text[:500].split("\n")[0]
-
-    # Load the active voice pack for voice/rate/pitch settings.
-    voice_id = voice_toggle.load_voice()
-    voice = voice_toggle.get_voice(voice_id)
-    if voice and voice.get("engine") == "edge-tts":
-        edge_voice = voice.get("voice", "en-US-AriaNeural")
-        edge_pitch = voice.get("pitch", "+0Hz")
-        edge_rate = voice.get("rate", "+0%")
-    else:
-        # Fallback to Aria defaults if voice pack is Piper or missing.
-        edge_voice = "en-US-AriaNeural"
-        edge_pitch = "-22Hz"
-        edge_rate = "+18%"
-
     try:
+        # Use Edge TTS for high-fidelity AriaNeural voice
         mp3_fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
         os.close(mp3_fd)
-
+        
+        # Generate TTS with tuned settings
         subprocess.run(
-            [sys.executable, "-m", "edge_tts", "--voice", edge_voice,
-             "--pitch=" + edge_pitch,
-             "--rate=" + edge_rate,
+            [sys.executable, "-m", "edge_tts", "--voice", EDGE_VOICE,
+             "--pitch=" + EDGE_PITCH,
+             "--rate=" + EDGE_RATE,
              "--text", spoken,
              "--write-media", mp3_path],
             stdout=subprocess.DEVNULL,
@@ -107,7 +139,10 @@ def _speak(text: str) -> None:
             timeout=30
         )
         
-        # Play through tuned mpv pipeline (lowpass filter, correct sink)
+        # Play through hermes_tts_play.sh, which resamples once with soxr into
+        # the sink's native format. Do NOT add a lowpass filter here: it does
+        # not tune the device, it masks resampler aliasing by throwing away
+        # everything above 3 kHz. See hermes_tts_play.sh for the full trace.
         if os.path.exists(HERMES_TTS_PLAY):
             subprocess.Popen(
                 [HERMES_TTS_PLAY, mp3_path],
@@ -115,16 +150,23 @@ def _speak(text: str) -> None:
                 stderr=subprocess.DEVNULL,
             )
         else:
-            # Fallback: direct mpv playback
+            # Fallback: direct mpv. Every TTS player MUST carry
+            # --force-media-title=AI_TTS_BARGE or barge-in cannot find it and
+            # the speech becomes unstoppable. Matching the sink's 48k/stereo
+            # here also keeps PulseAudio from falling back to speex-float-1.
             subprocess.Popen(
-                ["mpv", "--no-video", "--af=lowpass=f=3000", mp3_path],
+                ["mpv", "--no-video", "--force-media-title=AI_TTS_BARGE",
+                 "--audio-samplerate=48000", "--audio-channels=stereo",
+                 "--audio-format=s16", mp3_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
     except Exception:
-        # Ultimate fallback to spd-say
+        # Ultimate fallback: speech-dispatcher. No -w — that blocks until the
+        # sentence finishes, which is the one thing a barge-in must never do.
+        # spd-say is cancelled with `spd-say -C`, which tts_stop.sh issues.
         subprocess.Popen(
-            ["spd-say", "-w", spoken],
+            ["spd-say", spoken],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -162,6 +204,14 @@ async def _secure(request: Request) -> None:
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
+
+
+def _extract_claf_text(payload: dict) -> str:
+    """Pull assistant text out of CLAF's Anthropic-format response."""
+    for block in payload.get("content", []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            return block.get("text", "").strip()
+    return ""
 
 
 def _extract_groq_text(payload: dict) -> str:
@@ -202,17 +252,17 @@ async def voice(
                     try:
                         r = await client.post(
                             GROQ_STT_URL,
-                            headers={"Authorization": f"Bearer {_load_groq_key()}"},
+                            headers={"Authorization": f"Bearer {GROQ_KEY}"},
                             files={"file": ("audio.wav", fp, "audio/wav")},
                             data={
                                 "model": "whisper-large-v3-turbo",
                                 "prompt": (
-                                    "Common terms: AntiMicroX, Xbox, Microsoft, "
-                                    "AI controller, controller, headset, dictation, "
-                                    "keyboard, mouse, Discord, Telegram."
+                                    "Common terms: AntiMicroX, CLAF, Madam Mary, Hermes, Kimi, "
+                                    "Groq, Whisper, STT, TTS, PTT, Xbox, Microsoft, AI controller, "
+                                    "AI Desktop, Fair Chance, Command Center, Monday.com, Railway, "
+                                    "Meta, Facebook, Indeed, ZipRecruiter, Discord, Telegram, Sensei."
                                 ),
                             },
-                            timeout=GROQ_TIMEOUT,
                         )
                         r.raise_for_status()
                     except httpx.HTTPStatusError as exc:
@@ -240,7 +290,7 @@ async def voice(
         return JSONResponse({"text": transcript})
 
     # ── LLM — route voice commands through Groq free tier ───────────────────
-    # Direct Groq call for speed.
+    # Direct Groq call instead of CLAF local Ollama for speed.
     # Free models: llama-3.3-70b-versatile, llama-3.1-8b-instant, qwen3-32b
     GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
     GROQ_LLM_MODEL = os.environ.get("VOICE_BRIDGE_LLM_MODEL", "llama-3.3-70b-versatile")
@@ -257,7 +307,7 @@ async def voice(
                 GROQ_CHAT_URL,
                 headers={
                     "Content-Type": "application/json",
-                    "Authorization": f"Bearer {_load_groq_key()}",
+                    "Authorization": f"Bearer {GROQ_KEY}",
                 },
                 json=payload,
             )
@@ -278,23 +328,10 @@ async def voice(
             )
 
     # ── TTS — speak response ──────────────────────────────────────────────────
-    # Offloaded to a thread: _speak() runs a blocking subprocess.run() for
-    # edge-tts generation, which would otherwise freeze uvicorn's single
-    # event loop for the whole call — stalling every other in-flight request
-    # (including the next dictation trigger press) until it returns.
     logger.info("Speaking response via TTS")
-    asyncio.create_task(asyncio.to_thread(_speak, response_text))
+    _speak_bg(response_text)
 
     return JSONResponse({"transcript": transcript, "response": response_text})
-
-
-@app.get("/health")
-async def health_endpoint():
-    """Readiness check used by start-all.sh."""
-    key = _load_groq_key()
-    if not key:
-        return JSONResponse({"status": "not_configured", "groq_key": False}, status_code=503)
-    return JSONResponse({"status": "ok", "groq_key": True})
 
 
 @app.post("/speak")
@@ -302,7 +339,7 @@ async def speak_endpoint(request: Request, text: str = Form(...)):
     """Hermes-compatible TTS endpoint: POST text and speak it immediately."""
     if not text:
         return JSONResponse({"error": "empty text"}, status_code=400)
-    asyncio.create_task(asyncio.to_thread(_speak, text[:500]))
+    _speak_bg(text[:500])
     return JSONResponse({"spoken": True})
 
 

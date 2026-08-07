@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, subprocess, os, tempfile, json, threading, wave, struct, time, re, random, fcntl
+import sys, subprocess, os, tempfile, json, threading, wave, struct, time, re, random, fcntl, signal
 from datetime import datetime
 import urllib.request
 import urllib.error
@@ -30,13 +30,14 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from ai_controller_paths import config_dir, ensure_config_dir, load_env
-from focus_guard import ensure_focus
+
+endpoint = "http://localhost:8002/voice"
 
 # Audio input source is configurable so the installer works on any machine.
 _AUDIO_INPUT = load_env().get("AUDIO_INPUT", "")
 _PAREC_DEVICE_ARGS = ["--device", _AUDIO_INPUT] if _AUDIO_INPUT else []
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8002")
-endpoint = f"{BRIDGE_URL.rstrip('/')}/voice"
+SENSEI_SESSION = os.environ.get("SENSEI_SESSION", "focus-engine")
 
 # ---------------------------------------------------------------------------
 # Transcription style toggle (controlled by slide_keyboard.py mode button)
@@ -375,6 +376,12 @@ def _active_window_class():
         return ""
 
 
+def _is_browser_window():
+    cls = _active_window_class()
+    return cls in ("google-chrome", "chrome", "firefox", "librewolf", "brave-browser", "chromium")
+
+
+
 DISCORD_QUEUE = os.path.expanduser("~/.cache/ptt_discord_queue.txt")
 
 
@@ -416,6 +423,40 @@ def _queue_discord_text(text):
     log.info(f"Queued for Discord: {text}")
 
 
+def _send_browser_text(text):
+    """Send transcript to Sensei focus engine in the active browser tab."""
+    url = f"{BRIDGE_URL}/extension/queue"
+    escaped = json.dumps(text)
+    code = f"window.__senseiFocus('set-text', {{text: {escaped}}})"
+    body = {
+        "session_id": SENSEI_SESSION,
+        "actions": [
+            {
+                "kind": "BROWSER_JS",
+                "target": code,
+                "extras": {"source": "ptt_pynput", "command": "focus-set-text"},
+            }
+        ],
+    }
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            err = exc.read().decode("utf-8")
+        except Exception:
+            err = "unknown HTTP error"
+        return {"ok": False, "error": err}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
 # Controller headset mic is 24000 Hz mono s16le. Capture at native rate
 # through PulseAudio (parec) to avoid ALSA resampling artifacts.
 SAMPLE_RATE = 24000
@@ -423,11 +464,8 @@ CHANNELS = 1
 SAMPLE_WIDTH = 2  # s16le
 
 # Debug: keep every recording so we can inspect failures later.
-# Set PTT_DEBUG=1 in config.env to enable.
 DEBUG_DIR = os.path.expanduser("/tmp/ptt-debug")
-PTT_DEBUG = os.environ.get("PTT_DEBUG", load_env().get("PTT_DEBUG", "0")) == "1"
-if PTT_DEBUG:
-    os.makedirs(DEBUG_DIR, exist_ok=True)
+os.makedirs(DEBUG_DIR, exist_ok=True)
 
 recording = False
 rec_proc = None
@@ -435,6 +473,12 @@ rawfile = None
 wavfile = None
 lock = threading.Lock()
 _focus_window = None  # saved at recording start so we can restore focus before typing
+
+# xone-gip card reset, deferred out of the capture window. The reset cycles the
+# PulseAudio card profile off -> 0.7s -> on; running it while parec is attached
+# (or about to attach) destroys the take. See _mute_tts / _fire_deferred_audio_reset.
+_pending_audio_reset = False
+_audio_reset_proc = None
 
 # Debounce F13 chatter from the controller trigger.
 _last_f13_time = 0.0
@@ -448,18 +492,6 @@ _SHORT_HALLUCINATIONS = {
     "thank you", "thanks", "thank", "check", "yellow", "yep", "yup",
     "mm", "hmm", "um", "uh", "mhm", "okay", "ok",
 }
-# A quick tap-and-release (used deliberately as a "just give me a space"
-# shortcut, since start_recording() already injects one) sends 0.5-1.5s of
-# room/mic idle noise to Whisper. Measured live 2026-07-21: idle noise RMS
-# 200-1000, real speech RMS 1500-3200 -- a clean gap between them.
-# _is_silence()'s threshold of 100 only catches a physically muted mic, so
-# idle noise in that 200-1000 band was still reaching Whisper and getting
-# hallucinated into "ghost" text.
-# 2026-07-24: 1200 was clipping real (quieter) speech -- 4 of 20 PTT presses
-# that day got silently dropped as "ambient noise" including one at RMS 1130,
-# well above the measured noise ceiling. Lowered to sit exactly on that
-# ceiling instead of past it.
-_AMBIENT_NOISE_RMS = 1000
 
 
 def _active_window():
@@ -485,116 +517,131 @@ def _build_wav(raw_path: str, wav_path: str):
         wf.writeframes(data)
 
 
-def _compress_for_upload(wav_path: str) -> str:
-    """Encode wav_path down to a smaller file before the network hop to
-    Groq — recording stays uncompressed WAV throughout (silence/RMS/duration
-    checks above all assume raw PCM), this only shrinks the copy that
-    actually goes over the wire. Falls back to the original WAV on any
-    failure — a compression bug should never block sending the transcript.
-    """
-    compressed_path = wav_path[:-4] + "_up.ogg"
-    try:
-        # TODO(human): run ffmpeg (already confirmed on this box — hermes
-        # TTS uses it) to read wav_path and write compressed_path. Pick the
-        # codec/bitrate/sample-rate: this is a straight trade-off between
-        # upload speed and whether Groq mishears words in real dictated
-        # ideas — Whisper only needs 16kHz mono internally, so downsampling
-        # is close to free, but going too low-bitrate on the codec is where
-        # accuracy actually degrades.
-        subprocess.run(
-            [],
-            timeout=10, check=True,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return compressed_path
-    except Exception:
-        return wav_path
-
-
 def _mute_tts():
     """Kill any playing TTS audio so the mic doesn't capture it.
 
     Controller voice stack (voice_bridge / hermes_tts_play.sh) tags its mpv
-    player with --force-media-title=AI_TTS_BARGE. Piper voice packs play
-    /tmp/ai_controller_tts.wav. Hermes' built-in TTS writes
+    player with --force-media-title=AI_TTS_BARGE. Legacy Piper dictation plays
+    /tmp/ai_controller_tts.wav. Hermes' built-in TTS (provider: piper) writes
     MP3s under /tmp/hermes_voice/ and plays them through ffplay (preferred) or
     aplay (Linux fallback). All of those are killed here so RT -> F13 always
     barges in on agent speech.
     """
-    t0 = time.time()
-    # pkill exit 0 = matched & signaled at least one process, 1 = no match.
-    hit = False
+    # Signal Hermes TTS pipeline to stop producing before we kill the player
+    subprocess.run(['pkill', '-SIGUSR2', '-f', 'tui_gateway.entry'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Controller voice stack: tagged mpv.
-    r = subprocess.run(['pkill', '-f', 'AI_TTS_BARGE'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    hit = hit or r.returncode == 0
-    # Piper voice pack /tmp/ai_controller_tts.wav playback.
-    r = subprocess.run(['pkill', '-f', 'ai_controller_tts'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    hit = hit or r.returncode == 0
+    #
+    # NOT `pkill -f AI_TTS_BARGE`. That matches any process whose command line
+    # merely mentions the tag — a shell running a script that greps for it, an
+    # editor with the file open — and kills it. Observed killing live terminals
+    # twice on 2026-07-30. Instead: only consider processes that ARE players
+    # (by exact binary name), then check the tag in their cmdline. A shell is
+    # never named `mpv`, so it can never be caught. Same contract as
+    # tts_stop.sh; keep the two in sync.
+    for _pid in os.listdir('/proc'):
+        if not _pid.isdigit():
+            continue
+        try:
+            with open(f'/proc/{_pid}/comm', 'r') as _f:
+                if _f.read().strip() not in ('mpv', 'ffplay', 'aplay', 'paplay'):
+                    continue
+            with open(f'/proc/{_pid}/cmdline', 'rb') as _f:
+                if b'AI_TTS_BARGE' not in _f.read():
+                    continue
+            os.kill(int(_pid), signal.SIGTERM)
+        except (OSError, ValueError):
+            continue
+    # Legacy Piper /tmp/ai_controller_tts.wav playback.
+    r1 = subprocess.run(['pkill', '-f', 'ai_controller_tts'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Hermes built-in TTS: ffplay / aplay playing /tmp/hermes_voice/*.mp3.
     # The leading bracket pattern prevents pkill from matching its own argv.
-    r = subprocess.run(['pkill', '-f', '[f]fplay.*hermes_voice'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    hit = hit or r.returncode == 0
-    r = subprocess.run(['pkill', '-f', '[a]play.*hermes_voice'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    hit = hit or r.returncode == 0
-    # Hermes Agent (~/.hermes/hermes-agent, a separate process from the
-    # controller voice stack above) plays TTS in-process via Python's
-    # sounddevice library -- there's no external mpv/ffplay/aplay process to
-    # pkill. It has its own barge-in for its own TUI keypresses, but no way
-    # to hear an external PTT device. SIGUSR1 to its tui_gateway.entry
-    # backend runs the exact same interrupt sequence externally.
-    r = subprocess.run(['pkill', '-SIGUSR1', '-f', 'tui_gateway.entry'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    hit = hit or r.returncode == 0
-    # Also kill ffplay/aplay playing Hermes TTS files from /tmp/hermes_voice/
-    # or any temp MP3s. Match the actual player processes.
-    r = subprocess.run(['pkill', '-9', '-f', 'ffplay.*/tmp/'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    hit = hit or r.returncode == 0
-    r = subprocess.run(['pkill', '-9', '-f', 'aplay.*/tmp/'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    hit = hit or r.returncode == 0
-    log.info("_mute_tts: %s in %.0fms",
-              "killed a live TTS process" if hit else "nothing was playing",
-              (time.time() - t0) * 1000)
+    r2 = subprocess.run(['pkill', '-f', '[f]fplay.*hermes_voice'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r3 = subprocess.run(['pkill', '-f', '[a]play.*hermes_voice'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # voice_bridge's last-resort path uses speech-dispatcher. Do NOT pkill -f
+    # 'spd-say' here: that pattern matches any command line merely mentioning
+    # the string (a shell running a script that contains it, for instance) and
+    # will kill unrelated processes. speech-dispatcher is a daemon that holds
+    # the queued audio anyway, so cancelling the queue is both safer and the
+    # only thing that actually stops the sound.
+    r4 = subprocess.run(['spd-say', '-C'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # If we killed a live TTS player, reset the xone-gip audio to clear any wedge.
+    #
+    # r4 (`spd-say -C`) is DELIBERATELY excluded. It is a queue-cancel, not a
+    # kill, and exits 0 whether or not anything was speaking — including on a
+    # completely silent system. Including it made `killed` unconditionally True,
+    # so every single F13 press launched reset-controller-audio.sh, which cycles
+    # the PulseAudio card profile off -> (0.7s) -> on. Recording opened parec
+    # ~0.34s later, i.e. while the card was still `off`, so parec attached to a
+    # source that did not exist and captured zero bytes. Every take then failed
+    # the <16000-byte check as "Too short — skipped", including 9-second holds.
+    # STT was dead for every press. Found 2026-08-06.
+    #
+    # Only the pkill results (r1-r3) are honest here: pkill exits 0 only when it
+    # actually matched a process.
+    killed = any(r.returncode == 0 for r in [r1, r2, r3])
+    if killed:
+        # DEFERRED, never fired here. The reset cycles the card profile
+        # off -> 0.7s -> on, and start_recording() spawns parec ~0.3s after this
+        # returns — i.e. while the capture source does not exist. Firing it in
+        # the press path silently emptied the take on exactly the presses where
+        # you barged in on the agent to say something.
+        #
+        # Instead: flag it, run it in _fire_deferred_audio_reset() once the mic
+        # is closed, and have the next press block in _await_audio_reset() if
+        # the cycle is still in flight.
+        global _pending_audio_reset
+        _pending_audio_reset = True
+        log.info("killed a live TTS process; xone-gip reset deferred until mic closes")
 
 
-def _mic_source_state():
-    """Return the PulseAudio state (RUNNING/IDLE/SUSPENDED) of _AUDIO_INPUT,
-    or None if it can't be determined."""
-    try:
-        out = subprocess.run(['pactl', 'list', 'sources', 'short'],
-                              capture_output=True, text=True, timeout=0.3).stdout
-        for line in out.splitlines():
-            if _AUDIO_INPUT in line:
-                return line.split()[-1]
-    except Exception:
-        pass
-    return None
+def _fire_deferred_audio_reset():
+    """Run a pending xone-gip card reset. Safe only once the mic is closed."""
+    global _pending_audio_reset, _audio_reset_proc
+    if not _pending_audio_reset:
+        return
+    _pending_audio_reset = False
+    log.info("running deferred xone-gip audio reset")
+    _audio_reset_proc = subprocess.Popen(
+        ['bash', os.path.expanduser('~/ai-controller/scripts/reset-controller-audio.sh')],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _await_audio_reset(timeout=6.0):
+    """Block until any in-flight card-profile cycle has finished.
+
+    Without this the deferred reset just moves the race later: a fast second
+    press would open parec while the previous take's reset was still cycling.
+    """
+    global _audio_reset_proc
+    p = _audio_reset_proc
+    if p is None:
+        return
+    if p.poll() is None:
+        log.info("waiting for in-flight audio reset before opening mic")
+        try:
+            p.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            log.warning("audio reset still running after %.1fs — opening mic anyway", timeout)
+    _audio_reset_proc = None
 
 
 def _warmup_mic():
-    """If PulseAudio has suspended the Xbox headset source (idle timeout),
-    wake it and wait for the transition before the real recording starts, so
-    the opening of the utterance isn't lost to USB power-up. A warm press
-    (the common case) costs one fast state check and nothing else -- it
-    should never add latency when the mic is already awake."""
+    """Send a short dummy capture stream to PulseAudio so an auto-suspended
+    Xbox headset source resumes before the real recording starts."""
     if not _AUDIO_INPUT:
         return
-    if _mic_source_state() != 'SUSPENDED':
-        return
     try:
-        proc = subprocess.Popen(
+        subprocess.run(
             ['parec', '--device', _AUDIO_INPUT,
              '--rate', str(SAMPLE_RATE), '--channels', str(CHANNELS),
              '--format', 's16le', '--raw'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        deadline = time.time() + 0.4
-        while time.time() < deadline and _mic_source_state() == 'SUSPENDED':
-            time.sleep(0.02)
-        proc.terminate()
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.3)
     except Exception:
         pass
 
@@ -610,6 +657,9 @@ def start_recording():
         _last_f13_time = now
         # Mute any agent TTS before we open the mic.
         _mute_tts()
+        # If a previous take's card reset is still cycling, the capture source
+        # is missing right now. Wait it out rather than record silence.
+        _await_audio_reset()
         # PulseAudio may have auto-suspended the Xbox headset source; wake it
         # with a short dummy stream so the real capture gets actual audio.
         _warmup_mic()
@@ -637,42 +687,97 @@ def start_recording():
 
 
 def _wav_stats(path):
-    """Return (duration_seconds, avg_rms, peak_rms) for a WAV file.
-
-    peak_rms is the max RMS over ~0.3s windows rather than the whole-file
-    average. A long hold has natural pauses between words/sentences that
-    drag the average toward the noise floor even when the words themselves
-    are plenty loud — that's what was silently eating real dictations
-    (see _AMBIENT_NOISE_RMS below). Gate decisions should use peak_rms;
-    avg_rms is kept only for the informational "Sending..." log line.
-    """
+    """Return (duration_seconds, rms) for a WAV file."""
     try:
         with wave.open(path, 'rb') as wf:
             raw = wf.readframes(wf.getnframes())
             rate = wf.getframerate()
         if len(raw) < 2 or rate == 0:
-            return 0.0, 0.0, 0.0
+            return 0.0, 0.0
         samples = struct.unpack(f'<{len(raw)//2}h', raw[:len(raw) & ~1])
-        avg_rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
-        window = max(1, int(rate * 0.3))
-        peak_rms = 0.0
-        for i in range(0, len(samples), window):
-            chunk = samples[i:i + window]
-            r = (sum(s * s for s in chunk) / len(chunk)) ** 0.5
-            if r > peak_rms:
-                peak_rms = r
-        return len(samples) / rate, avg_rms, peak_rms
+        rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
+        return len(samples) / rate, rms
     except Exception:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0
 
 
 def _is_silence(path, rms_threshold=100):
     """Return True if the wav contains only silence (mic was physically off)."""
-    _, _, peak_rms = _wav_stats(path)
-    if peak_rms < rms_threshold:
-        log.info(f"Silence check peak_RMS={peak_rms:.1f} (threshold {rms_threshold})")
+    _, rms = _wav_stats(path)
+    if rms < rms_threshold:
+        log.info(f"Silence check RMS={rms:.1f} (threshold {rms_threshold})")
         return True
     return False
+
+
+def _kill_recorder():
+    """Stop the parec recorder and reap it. Must never leave a live capture.
+
+    terminate() alone is not enough: if parec is blocked writing to its output
+    file it can ignore SIGTERM long enough to outlive us, and an abandoned
+    capture holds the controller mic open indefinitely. So: TERM, bounded
+    wait, then KILL.
+    """
+    global rec_proc
+    if rec_proc is None:
+        return
+    try:
+        rec_proc.terminate()
+        try:
+            rec_proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            log.warning("parec ignored SIGTERM — killing it")
+            rec_proc.kill()
+            rec_proc.wait(timeout=2)
+    except Exception as e:
+        log.warning("recorder teardown failed: %s", e)
+    finally:
+        try:
+            if rec_proc.stdout:
+                rec_proc.stdout.close()
+        except Exception:
+            pass
+        rec_proc = None
+
+
+def _cleanup_temp_files():
+    """Drop the raw/wav scratch files for a take we are discarding."""
+    global rawfile, wavfile
+    for attr in ('rawfile', 'wavfile'):
+        path = globals().get(attr)
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            globals()[attr] = None
+
+
+def _reap_orphan_recorders():
+    """Kill any parec left holding our capture device by an earlier crash.
+
+    Runs at startup: a leaked recorder from a previous instance survives a
+    service restart and will keep clicking the headset until reaped.
+    """
+    try:
+        me = os.getpid()
+        for pid in os.listdir('/proc'):
+            if not pid.isdigit() or int(pid) == me:
+                continue
+            try:
+                with open(f'/proc/{pid}/comm', 'r') as f:
+                    if f.read().strip() != 'parec':
+                        continue
+                with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                    cmd = f.read()
+                if _AUDIO_INPUT and _AUDIO_INPUT.encode() not in cmd:
+                    continue
+                os.kill(int(pid), signal.SIGKILL)
+                log.warning("reaped orphaned parec pid=%s", pid)
+            except (OSError, ValueError):
+                continue
+    except Exception:
+        pass
 
 
 def stop_and_send():
@@ -682,13 +787,29 @@ def stop_and_send():
             return
         now = time.time()
         if (now - _last_f13_time) * 1000 < _DEBOUNCE_MS:
+            # Debounced chatter: discard this take. But NEVER return without
+            # stopping the recorder first.
+            #
+            # This used to `return` here with parec still running. The process
+            # then held the controller mic open forever — one was found alive
+            # after 81 minutes on 2026-07-30. Because xone-gip shares a single
+            # channel between mic and headset, a permanent 24 kHz capture
+            # starves the playback buffers, which the kernel logs as
+            # "gip_send_audio_samples: get buffer failed: -28" and which is
+            # audible as random clicking/popping during TTS.
+            #
+            # Every fast trigger tap leaked another one, so it compounded.
+            _kill_recorder()
+            recording = False
+            _fire_deferred_audio_reset()
+            _cleanup_temp_files()
             return
         _last_f13_time = now
-        rec_proc.terminate()
-        rec_proc.wait()
-        if rec_proc.stdout:
-            rec_proc.stdout.close()
+        _kill_recorder()
         recording = False
+        # Mic is closed — safe to cycle the card now. Async: the STT round-trip
+        # below runs in parallel, and the next press gates on _await_audio_reset.
+        _fire_deferred_audio_reset()
 
     # Build WAV from raw PCM
     _build_wav(rawfile, wavfile)
@@ -714,24 +835,8 @@ def stop_and_send():
         wavfile = None
         return
 
-    duration, avg_rms, peak_rms = _wav_stats(wavfile)
-
-    # Ambient-noise gate: below real speech's measured floor, above idle
-    # noise's measured ceiling (see _AMBIENT_NOISE_RMS above). Skips the
-    # Whisper round-trip entirely instead of typing a hallucinated "ghost".
-    # Gates on peak_rms, not the whole-file average — long holds have
-    # natural pauses between words that pull avg_rms down toward the noise
-    # floor even when the words themselves were plenty loud, which was
-    # silently dropping real dictation (2026-07-26: a 9s hold at avg
-    # RMS 811.7 got skipped this way).
-    if peak_rms < _AMBIENT_NOISE_RMS:
-        log.info(f"Ambient noise, not speech (peak_RMS={peak_rms:.1f} < {_AMBIENT_NOISE_RMS}) — skipped.")
-        if wavfile and os.path.exists(wavfile):
-            os.unlink(wavfile)
-        wavfile = None
-        return
-
-    log.info(f"Sending... ({duration:.2f}s avg_RMS={avg_rms:.1f} peak_RMS={peak_rms:.1f})")
+    duration, rms = _wav_stats(wavfile)
+    log.info(f"Sending... ({duration:.2f}s RMS={rms:.1f})")
 
     # For Unicode modes, show the typing indicator immediately on trigger
     # release so the operator gets feedback while STT runs.
@@ -741,18 +846,12 @@ def stop_and_send():
         _set_typing_state("typing", mode)
 
     transcript = ""
-    # Longer holds need longer to transcribe — a flat 30s cap was killing
-    # any recording over ~30-40s of speech with total silence (no notify,
-    # wav deleted). Scale with actual duration instead.
-    request_timeout = max(30, int(duration * 2) + 15)
-    timed_out = False
-    upload_path = _compress_for_upload(wavfile)
     try:
         r = subprocess.run(
             ['curl', '-s', '-X', 'POST', endpoint,
-             '-F', f'audio=@{upload_path}', '-F', 'mode=transcribe_only',
+             '-F', f'audio=@{wavfile}', '-F', 'mode=transcribe_only',
              '-H', 'Accept: application/json'],
-            capture_output=True, text=True, timeout=request_timeout)
+            capture_output=True, text=True, timeout=30)
         data = json.loads(r.stdout)
         # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
         transcript = data.get('text', data.get('transcript', ''))
@@ -787,88 +886,46 @@ def stop_and_send():
 
             if use_clipboard:
                 _set_clipboard_text(transcript)
+            elif _is_browser_window():
+                result = _send_browser_text(transcript)
+                if not result.get("ok"):
+                    log.warning(f"Browser inject failed: {result.get('error')}")
             else:
                 # Restore focus to the window that was active when recording
                 # started — AntiMicroX or other apps may have stolen it.
-                # ensure_focus() (focus_guard.py) retries and confirms instead
-                # of firing a single blind windowactivate: a plain one-shot
-                # call here previously had no way to detect a failed restore,
-                # so a mistimed press (target window not fully focused yet)
-                # would silently type the transcript into whatever WAS
-                # focused instead — e.g. straight into a terminal.
                 global _focus_window
-                focus_ok = True
                 if _focus_window:
-                    focus_ok = ensure_focus(_focus_window)
-                if focus_ok:
-                    # Leading space was already injected before capture started.
-                    _type_text_fast(transcript, mode)
-                else:
-                    log.warning(
-                        f"Could not confirm focus on {_focus_window} before "
-                        f"typing — copied to clipboard instead of risking a "
-                        f"mistyped window: {transcript!r}")
-                    _set_clipboard_text(transcript)
-                    subprocess.run(
-                        ['notify-send', '--replace-id=7003', '-t', '3000', '-u', 'normal',
-                         'AI Controller', 'Could not confirm target window — copied to clipboard instead.'],
-                        env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    try:
+                        subprocess.run(['xdotool', 'windowactivate', _focus_window],
+                                       env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+                        time.sleep(0.05)
+                    except Exception:
+                        pass
+                # Leading space was already injected before capture started.
+                _type_text_fast(transcript, mode)
         else:
             log.info("(nothing heard)")
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        log.error(f"Transcription timed out after {request_timeout}s ({duration:.1f}s recording) — audio saved, not lost.")
-        subprocess.run(
-            ['notify-send', '--replace-id=7004', '-t', '5000', '-u', 'critical',
-             'AI Controller', f'Transcription timed out ({duration:.0f}s recording) — audio saved to recover.'],
-            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as ex:
         log.error(f"Error: {ex}")
     finally:
         if show_indicator:
             _set_typing_state("idle")
-        if upload_path != wavfile and os.path.exists(upload_path):
-            os.unlink(upload_path)
 
-    # Save a debug copy for later inspection (only if PTT_DEBUG=1), or
-    # always on a timeout — that's the one failure mode where the operator
-    # has no other record of what they said and needs the audio back.
-    if PTT_DEBUG or timed_out:
-        try:
-            ts = time.strftime("%Y%m%d_%H%M%S")
-            safe_text = "".join(c if c.isalnum() else "_" for c in transcript)[:40] or "no_transcript"
-            debug_path = os.path.join(DEBUG_DIR, f"ptt_{ts}_{duration:.1f}s_rms{int(rms)}_{safe_text}.wav")
-            os.replace(wavfile, debug_path)
-        except Exception:
-            if wavfile and os.path.exists(wavfile):
-                os.unlink(wavfile)
-    else:
+    # Save a debug copy for later inspection.
+    try:
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        safe_text = "".join(c if c.isalnum() else "_" for c in transcript)[:40] or "no_transcript"
+        debug_path = os.path.join(DEBUG_DIR, f"ptt_{ts}_{duration:.1f}s_rms{int(rms)}_{safe_text}.wav")
+        os.replace(wavfile, debug_path)
+    except Exception:
         if wavfile and os.path.exists(wavfile):
             os.unlink(wavfile)
-
-
-# Two independent sources call on_press/on_release for the SAME physical
-# F13: pynput's own X11 Listener (line ~886) and the evdev fallback thread's
-# own local dedup. The evdev-side "held" guard only protects its own path --
-# it doesn't stop X11 from separately delivering autorepeat KeyPress events
-# for this device once a hold outlasts X11's repeat-delay (observed: a
-# ~850ms hold produced 21 duplicate PRESSED events despite the evdev fix).
-# Guarding here instead, shared by both callers, closes that gap regardless
-# of which path is actually flooding.
-_f13_held_lock = threading.Lock()
-_f13_held = False
 
 
 def on_press(key):
     log.debug("Key pressed: %s (vk=%s)", key, getattr(key, 'vk', None))
     if key == keyboard.Key.f13:
-        global _f13_held
-        with _f13_held_lock:
-            if _f13_held:
-                return
-            _f13_held = True
         log.info("F13 PRESSED — starting recording")
         threading.Thread(target=start_recording, daemon=True).start()
 
@@ -876,9 +933,6 @@ def on_press(key):
 def on_release(key):
     log.debug("Key released: %s (vk=%s)", key, getattr(key, 'vk', None))
     if key == keyboard.Key.f13:
-        global _f13_held
-        with _f13_held_lock:
-            _f13_held = False
         log.info("F13 RELEASED — stopping and sending")
         threading.Thread(target=stop_and_send, daemon=True).start()
 
@@ -928,14 +982,6 @@ def _run_evdev_listener():
     import struct as _struct
     f13 = _make_fake_key()
     backoff = 1.0
-    # antimicrox re-sends EV_KEY value=1 for F13 repeatedly (~every 40ms) for
-    # as long as the analog trigger stays past its actuation threshold, rather
-    # than sending one press + holding. Left unfiltered, a single real hold
-    # was spawning 30+ start_recording() threads that all fought over the
-    # same lock -- pure overhead, and enough contention to delay the one
-    # thread that actually needs to fire _mute_tts() instantly. Track held
-    # state here so only a true press-after-release reaches on_press().
-    held = False
     while True:
         target = _find_antimicrox_keyboard()
         if target is None:
@@ -972,25 +1018,24 @@ def _run_evdev_listener():
                 # Only handle F13 — let all other keys pass through to X11
                 if ev_type == 1 and ev_code == 0xb7:
                     if ev_value == 1:
-                        if not held:
-                            held = True
-                            on_press(f13)
-                        # else: repeat event while already held — ignore, no
-                        # thread spawned, nothing for _mute_tts to compete with.
+                        on_press(f13)
                     elif ev_value == 0:
-                        held = False
                         on_release(f13)
         except OSError as e:
             # ENODEV or similar — antimicrox restarted and the uinput node
             # went away. Close the dead handle, loop back, re-enumerate.
             log.warning("Evdev listener lost device %s: %s — will re-enumerate", path, e)
-            held = False
         finally:
             try:
                 os.close(fd)
             except OSError:
                 pass
             time.sleep(0.3)
+
+# A leaked recorder from a previous instance survives a service restart and
+# keeps the controller mic open, clicking the headset. Clear them before we
+# start listening.
+_reap_orphan_recorders()
 
 # Start evdev listener thread (does the actual F13 capture)
 import threading as _thr

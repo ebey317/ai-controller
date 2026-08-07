@@ -10,3 +10,9 @@ logs/*.log
 *.tar
 *.bak.*
 *.bak
+
+# Secrets — real config lives in ~/.config/ai-controller/ and its backups/.
+# Never track it; snapshots/ carries a redacted template instead.
+config.env
+*.env
+!*.env.template
