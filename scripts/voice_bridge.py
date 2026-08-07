@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -120,12 +121,18 @@ def _speak(text: str) -> None:
     """
     if not text:
         return
+    # Barge-in tombstone: edge_tts generation takes ~4s, so a trigger press
+    # during that window has no player to SIGTERM — the speech would start
+    # AFTER the user asked for silence. Record when this request began; if the
+    # barge file (touched by ptt_pynput._mute_tts on every press) is newer by
+    # the time generation finishes, the user has spoken since — stay silent.
+    t0 = time.time()
     spoken = text[:500].split("\n")[0]
     try:
         # Use Edge TTS for high-fidelity AriaNeural voice
         mp3_fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
         os.close(mp3_fd)
-        
+
         # Generate TTS with tuned settings
         subprocess.run(
             [sys.executable, "-m", "edge_tts", "--voice", EDGE_VOICE,
@@ -138,7 +145,15 @@ def _speak(text: str) -> None:
             check=True,
             timeout=30
         )
-        
+
+        try:
+            if os.path.getmtime('/tmp/ai_tts_barge') >= t0:
+                logger.info("TTS suppressed: barge-in during generation window")
+                os.unlink(mp3_path)
+                return
+        except OSError:
+            pass  # no barge file yet — nothing to suppress
+
         # Play through hermes_tts_play.sh, which resamples once with soxr into
         # the sink's native format. Do NOT add a lowpass filter here: it does
         # not tune the device, it masks resampler aliasing by throwing away
@@ -285,9 +300,18 @@ async def voice(
         logger.warning("Empty transcript received")
         return JSONResponse({"error": "empty transcript"}, status_code=400)
 
-    if mode == "transcribe_only":
+    # FAIL CLOSED on mode. Only an explicit mode=="execute" may reach the
+    # LLM + TTS path below. This used to be `if mode == "transcribe_only"`,
+    # which meant any OTHER string — a typo, a test curl sending
+    # mode=transcribe — fell through to execute: the bridge transcribed 3s of
+    # room audio, asked the LLM about it, and SPOKE the answer unprompted.
+    # Observed 2026-08-06 as "ghost conversations": the verifier's test
+    # captures were being answered aloud by llama-3.3-70b.
+    if mode != "execute":
+        if mode != "transcribe_only":
+            logger.warning("Unknown mode %r — failing closed to transcribe-only", mode)
         logger.debug("Transcribe-only mode, returning transcript")
-        return JSONResponse({"text": transcript})
+        return JSONResponse({"text": transcript, "transcript": transcript})
 
     # ── LLM — route voice commands through Groq free tier ───────────────────
     # Direct Groq call instead of CLAF local Ollama for speed.

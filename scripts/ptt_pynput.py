@@ -527,6 +527,16 @@ def _mute_tts():
     aplay (Linux fallback). All of those are killed here so RT -> F13 always
     barges in on agent speech.
     """
+    # Tombstone for playback that does not exist yet. edge_tts generation is a
+    # ~4s network round-trip; a press during that window finds no player to
+    # kill, and speech starts AFTER the press — "I pressed RT and it kept
+    # talking". voice_bridge._speak() compares this file's mtime against the
+    # time its TTS request started and skips playback if the press came later.
+    try:
+        with open('/tmp/ai_tts_barge', 'w') as _f:
+            _f.write(str(time.time()))
+    except OSError:
+        pass
     # Signal Hermes TTS pipeline to stop producing before we kill the player
     subprocess.run(['pkill', '-SIGUSR2', '-f', 'tui_gateway.entry'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

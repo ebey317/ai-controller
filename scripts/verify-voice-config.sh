@@ -85,8 +85,12 @@ d=open('$TMP/mic.raw','rb').read()
 w=wave.open('$TMP/mic.wav','wb');w.setnchannels(1);w.setsampwidth(2)
 w.setframerate(24000);w.writeframes(d);w.close()
 " 2>/dev/null
+    # mode MUST be transcribe_only. "transcribe" is not a real mode; before the
+    # bridge failed closed, unknown modes fell through to execute — the LLM
+    # answered the room audio ALOUD on every verification run (the 2026-08-06
+    # "ghost conversations").
     R=$(curl -s -m 45 -X POST "$BRIDGE/voice" -F "audio=@$TMP/mic.wav" \
-        -F "mode=transcribe" 2>&1)
+        -F "mode=transcribe_only" 2>&1)
     if echo "$R" | grep -q '"transcript"'; then
         pass "STT round-trip OK — $(echo "$R" | python3 -c "import json,sys;print(repr(json.load(sys.stdin).get('transcript','')))" 2>/dev/null)"
     else
