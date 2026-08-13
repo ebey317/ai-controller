@@ -28,12 +28,12 @@ Desktop computing assumes you have a keyboard and mouse within reach. When you'r
 - ⌨️ **Floating on-screen keyboard** — toggle with the View button, type with the stick; a real GTK keyboard that sends keystrokes to the focused window without stealing focus
 - 🕹️ **Controller legend HUD** — floating overlay showing your current button mappings so you never have to look down
 - 🔄 **Auto profile switching** — `controller-profile-switcher.sh` watches the focused window and swaps AntiMicroX layouts (desktop, browser, YouTube TV) automatically
-- 🔊 **Voice response (TTS)** — `voice_bridge.py` reads answers aloud through your headphones via Piper/edge-tts
+- 🔊 **Voice response (TTS)** — `voice_bridge.py` reads answers aloud through your headphones via edge-tts
 - 🎮 **Xbox controller support (wired)** — built around the Xbox Series X/S wired controller (045e:0b12)
 - 🔌 **Power-loss safe** — systemd user services with crash recovery; xone-only driver guard enabled on Linux
 - ☑️ **Opt-in autostart** — services do NOT run on boot by default. Use the launcher's "Start on boot" checkbox to enable
 - 📋 **Dictation modes** — PRO, BUBBLY, CASUAL, BOLD, BIG text personality transforms
-- 🔧 **Udev rules + driver guard** — Xbox headset wake, USB autosuspend fixes, and hard-block of the in-kernel `xpad` driver that breaks xone audio
+- 🔧 **Udev rules + driver guard** — USB autosuspend fixes and hard-block of the in-kernel `xpad` driver that breaks xone audio
 
 ## Tech Stack
 
@@ -45,16 +45,16 @@ Desktop computing assumes you have a keyboard and mouse within reach. When you'r
 | On-screen keyboard | Python + GTK3 (PyGObject) | Floating keyboard, xdotool keystroke injection |
 | HUD legend | Python + GTK3 | Floating controller button-map overlay |
 | Profile switching | Bash + xdotool | Window-focus watcher, AntiMicroX profile swap |
-| TTS voices | [Piper](https://github.com/rhasspy/piper), edge-tts | On-device and cloud text-to-speech |
+| TTS voices | [edge-tts](https://github.com/rhasspy/rhasspy-edge-tts) | Cloud text-to-speech (requires internet) |
 | Service management | systemd user units | Start/stop via launcher app, crash recovery, optional autostart |
-| Device rules | udev | Xbox headset wake, USB autosuspend control |
+| Device rules | udev | USB autosuspend control, antimicrox device ACLs |
 
 ## Quick Start
 
 ```bash
 git clone https://github.com/ebey317/ai-controller.git
 cd ai-controller
-bash scripts/install.sh
+bash install.sh
 ```
 
 **Prerequisites:**
@@ -63,18 +63,25 @@ bash scripts/install.sh
 # AntiMicroX
 sudo apt install antimicrox
 
-# Python dependencies
-pip install -r requirements.txt
+# Python dependencies (creates venv automatically during install)
+# See requirements.txt for the full list:
+#   httpx fastapi uvicorn pynput numpy scipy edge-tts
 
-# Piper TTS (optional, for on-device voice)
+# Edge TTS (cloud-based, requires internet)
 sudo apt install mpv
 pip install edge-tts
 
 # GTK3 (on-screen keyboard + HUD)
 sudo apt install python3-gi gir1.2-gtk-3.0
+
+# Groq API key (free tier available — required for voice dictation)
+# Get one at https://console.groq.com/keys
+# The installer will prompt you to paste it.
 ```
 
-**Supported platforms:** Ubuntu / Mint / Debian (apt) with wired Xbox Series X/S controller. macOS and Windows are not currently verified; contributions welcome.
+**Supported platforms:** Ubuntu / Mint / Debian (apt) with wired Xbox Series X/S controller. Linux only — macOS and Windows are not supported.
+
+**Distribution note:** This product is designed for Linux desktop (X11). It requires a wired Xbox Series X/S controller, a Groq API key (free tier available), and an internet connection for voice dictation. All software dependencies are free and open-source.
 
 ## Usage
 
@@ -145,8 +152,8 @@ curl -X POST http://localhost:8002/voice?mode=transcribe_only \
                             │
                      mode?  ▼
                  ┌──────────────────┐
-                 │  TTS (Piper /     │
-                 │  edge-tts) → mpv  │
+                 │  TTS (edge-tts)   │
+                 │  → mpv            │
                  └──────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
@@ -158,9 +165,17 @@ curl -X POST http://localhost:8002/voice?mode=transcribe_only \
 ┌──────────────────────────────────────────────────────────────────┐
 │                    systemd user services                          │
 │  ptt-pynput │ voice-bridge │ ai-slide-keyboard │ controller-legend │
-│  antimicrox-autoload │ xbox-headset-wake                        │
+│  antimicrox-autoload │ f13-xmodmap-heal                          │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+## Troubleshooting
+
+Common issues:
+
+- **Right trigger doesn't trigger dictation** — Run `bash scripts/fix-f13-keymap.sh` to re-apply the xmodmap F13 overlay (gets wiped on X server reloads or controller hotplugs)
+- **PTT service can't see antimicrox devices** — Run `sudo udevadm trigger --action=add --subsystem-match=input` then `systemctl --user restart ptt-pynput.service` (ACLs need re-applying after antimicrox restart)
+- **Duplicate antimicrox processes** — Run `systemctl --user restart antimicrox-autoload.service` (dedup logic is built into controller-profile-switcher.sh)
 
 ## Contributing
 

@@ -25,10 +25,10 @@ if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
 fi
 
 echo "→ Stopping services..."
-systemctl --user stop ai-slide-keyboard.service controller-legend.service ptt-pynput.service voice-bridge.service antimicrox-autoload.service 2>/dev/null || true
+systemctl --user stop ai-slide-keyboard.service controller-legend.service ptt-pynput.service voice-bridge.service antimicrox-autoload.service f13-xmodmap-heal.service 2>/dev/null || true
 
 echo "→ Disabling services..."
-systemctl --user disable ai-slide-keyboard.service controller-legend.service ptt-pynput.service voice-bridge.service antimicrox-autoload.service 2>/dev/null || true
+systemctl --user disable ai-slide-keyboard.service controller-legend.service ptt-pynput.service voice-bridge.service antimicrox-autoload.service f13-xmodmap-heal.service 2>/dev/null || true
 
 echo "→ Removing service files..."
 rm -f "$SERVICE_DIR"/ai-slide-keyboard.service
@@ -36,6 +36,7 @@ rm -f "$SERVICE_DIR"/controller-legend.service
 rm -f "$SERVICE_DIR"/ptt-pynput.service
 rm -f "$SERVICE_DIR"/voice-bridge.service
 rm -f "$SERVICE_DIR"/antimicrox-autoload.service
+rm -f "$SERVICE_DIR"/f13-xmodmap-heal.service
 
 systemctl --user daemon-reload
 
@@ -64,8 +65,11 @@ echo ""
 echo "AI Controller has been removed from your system."
 echo ""
 echo "Optional cleanup (manual):"
+echo "  - Remove xpad blacklist: sudo rm /etc/modprobe.d/xone-blacklist.conf && rebuild your initramfs"
+echo "    (update-initramfs -u -k all on Debian/Ubuntu, dracut -f on Fedora/openSUSE, mkinitcpio -P on Arch)"
+echo "  - Remove xone driver guard: sudo systemctl disable --now xone-driver-guard.service && sudo rm /etc/systemd/system/xone-driver-guard.service /usr/local/bin/xone-driver-guard.sh"
+echo "  - Remove udev rule: sudo rm /etc/udev/rules.d/90-antimicrox.rules && sudo udevadm control --reload-rules"
 echo "  - Remove GitHub repo: https://github.com/ebey317/ai-controller"
-echo "  - Remove keychain entry from ~/Desktop/Projects/keychain/master_ai_keys"
 echo ""
 echo "You may need to log out and back in for all changes to take effect."
 echo ""

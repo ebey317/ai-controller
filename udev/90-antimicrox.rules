@@ -1,0 +1,15 @@
+# Grant user access to antimicrox virtual input devices.
+#
+# AntiMicroX creates uinput devices (Keyboard/Mouse/Abs Mouse Emulation)
+# at /dev/input/eventXX when it starts. systemd user services (like
+# ptt-pynput) need read+write access to these devices, but they're
+# created with root:input 0660 and the desktop user may not be in the
+# `input` group.
+#
+# This rule does two things:
+#   1. TAG+="uaccess" — logind grants an ACL for the active user
+#   2. GROUP="input" + MODE="0660" — ensures the input group has access
+#
+# The install script also adds the desktop user to the `input` group
+# as a belt-and-suspenders guarantee.
+SUBSYSTEM=="input", ATTRS{name}=="antimicrox*", TAG+="uaccess", GROUP="input", MODE="0660"

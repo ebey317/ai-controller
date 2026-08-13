@@ -19,10 +19,13 @@
     <sets>
         <set index="1">
             <stick index="1">
-                <deadZone>6500</deadZone>
+                <deadZone>3000</deadZone>
                 <maxZone>28000</maxZone>
                 <diagonalRange>65</diagonalRange>
                 <stickbutton index="7">
+                    <mousespeedx>25</mousespeedx>
+                    <mousespeedy>25</mousespeedy>
+                    <mouseacceleration>quadratic</mouseacceleration>
                     <slots>
                         <slot>
                             <code>3</code>
@@ -31,6 +34,9 @@
                     </slots>
                 </stickbutton>
                 <stickbutton index="5">
+                    <mousespeedx>25</mousespeedx>
+                    <mousespeedy>25</mousespeedy>
+                    <mouseacceleration>quadratic</mouseacceleration>
                     <slots>
                         <slot>
                             <code>2</code>
@@ -47,6 +53,9 @@
                     </slots>
                 </stickbutton>
                 <stickbutton index="3">
+                    <mousespeedx>25</mousespeedx>
+                    <mousespeedy>25</mousespeedy>
+                    <mouseacceleration>quadratic</mouseacceleration>
                     <slots>
                         <slot>
                             <code>4</code>
@@ -55,6 +64,9 @@
                     </slots>
                 </stickbutton>
                 <stickbutton index="1">
+                    <mousespeedx>25</mousespeedx>
+                    <mousespeedy>25</mousespeedy>
+                    <mouseacceleration>quadratic</mouseacceleration>
                     <slots>
                         <slot>
                             <code>1</code>
@@ -126,7 +138,7 @@
                 </dpadbutton>
             </dpad>
             <trigger index="5">
-                <deadZone>2000</deadZone>
+                <deadZone>6000</deadZone>
                 <throttle>positivehalf</throttle>
                 <triggerbutton index="2">
                     <slots>
@@ -138,7 +150,7 @@
                 </triggerbutton>
             </trigger>
             <trigger index="6">
-                <deadZone>2000</deadZone>
+                <deadZone>5000</deadZone>
                 <throttle>positivehalf</throttle>
                 <triggerbutton index="2">
                     <slots>
@@ -160,13 +172,21 @@
             <button index="4">
                 <slots>
                     <slot>
-                        <code>0x1000022</code>
-                        <mode>keyboard</mode>
+                        <path>/home/elijah/ai-controller/scripts/ai-rofi-launcher.sh</path>
+                        <mode>execute</mode>
                     </slot>
                 </slots>
             </button>
             <button index="1">
                 <slots>
+                    <slot>
+                        <path>/home/elijah/ai-controller/scripts/settle_wiggle.sh</path>
+                        <mode>execute</mode>
+                    </slot>
+                    <slot>
+                        <code>250</code>
+                        <mode>pause</mode>
+                    </slot>
                     <slot>
                         <code>1</code>
                         <mode>mousebutton</mode>
@@ -200,7 +220,7 @@
             <button index="5">
                 <slots>
                     <slot>
-                        <path>/home/elijah/scripts/toggle-slide-keyboard.sh</path>
+                        <path>/home/elijah/ai-controller/scripts/toggle-slide-keyboard.sh</path>
                         <mode>execute</mode>
                     </slot>
                 </slots>

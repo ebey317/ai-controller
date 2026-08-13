@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # AI Controller — Consumer installer
 # Run: bash install.sh
-# Sets up a standalone, reboot-safe AI Controller on Linux, macOS, and Windows (WSL).
+# Sets up a standalone, reboot-safe AI Controller on Linux (Ubuntu/Mint/Debian).
+# Requires: wired Xbox Series X/S controller, Groq API key, and internet access.
 
 set -euo pipefail
 
@@ -13,75 +14,113 @@ ANTIMICROX_PROFILE_DIR="${HOME}/.config/antimicrox"
 
 SERVICES=(
     antimicrox-autoload.service
+    f13-xmodmap-heal.service
     controller-legend.service
     ptt-pynput.service
     voice-bridge.service
     ai-slide-keyboard.service
 )
 
-PIPER_VOICE_URL="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/joe/medium/en_US-joe-medium.onnx"
-PIPER_CONFIG_URL="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/joe/medium/en_US-joe-medium.onnx.json"
-
 echo "======================================"
 echo "  AI Controller Installer"
 echo "======================================"
 echo ""
+echo "⚠️  PREREQUISITES: You need a Groq API key (free at https://console.groq.com/keys)"
+echo "   and an active internet connection for voice dictation to work."
+echo ""
 
 # ── 1. OS CHECK ──────────────────────────────────────────────────────────────
-# Detect platform and set appropriate package manager
-PLATFORM="unknown"
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    PLATFORM="linux"
-    echo "→ Platform: Linux (Ubuntu/Mint/Debian)"
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-    PLATFORM="macos"
-    echo "→ Platform: macOS"
-elif [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]]; then
-    PLATFORM="windows"
-    echo "→ Platform: Windows (WSL/MSYS)"
+if [[ "$OSTYPE" != "linux-gnu"* ]]; then
+    echo "ERROR: This installer supports Linux only (macOS/Windows have their own" >&2
+    echo "       native AI Controller apps -- this one is X11/systemd-based)." >&2
+    echo "       $OSTYPE is not supported." >&2
+    exit 1
+fi
+
+# ── 1a. PACKAGE MANAGER DETECTION ────────────────────────────────────────────
+# Everything below this used to assume apt (Debian/Ubuntu/Mint) unconditionally.
+# Detect the real package manager so the same installer works across the
+# major Linux families, not just one. Package names verified against
+# Debian/Ubuntu repos directly on this machine; the dnf/pacman/zypper lists
+# are the standard equivalents for each distro's own repos but have NOT been
+# run on an actual Fedora/Arch/openSUSE box -- flag any mismatch you hit.
+if command -v apt-get &>/dev/null; then
+    PKG_MANAGER="apt"
+elif command -v dnf &>/dev/null; then
+    PKG_MANAGER="dnf"
+elif command -v pacman &>/dev/null; then
+    PKG_MANAGER="pacman"
+elif command -v zypper &>/dev/null; then
+    PKG_MANAGER="zypper"
 else
-    echo "⚠️  Unknown platform: $OSTYPE"
-    echo "   Continuing with best-effort installation..."
-    PLATFORM="unknown"
+    echo "ERROR: no supported package manager found (apt/dnf/pacman/zypper)." >&2
+    echo "       Install dependencies manually, then re-run with AI_CONTROLLER_SKIP_DEPS=1." >&2
+    exit 1
+fi
+
+echo "→ Platform: Linux (package manager: ${PKG_MANAGER})"
+
+# ── 1b. WAYLAND CHECK ────────────────────────────────────────────────────────
+if [[ "$XDG_SESSION_TYPE" == "wayland" ]]; then
+    echo "⚠️  WARNING: Wayland session detected."
+    echo "   AI Controller uses xdotool and xclip, which require X11."
+    echo "   On Wayland, text injection and clipboard may not work."
+    echo "   For best results, log in with an Xorg/X11 session."
+    echo ""
 fi
 
 # ── 2. INSTALL SYSTEM DEPENDENCIES ───────────────────────────────────────────
 if [[ "${AI_CONTROLLER_SKIP_DEPS:-}" == "1" ]]; then
     echo "→ Skipping system dependencies (AI_CONTROLLER_SKIP_DEPS=1)"
-elif [[ "$PLATFORM" == "linux" ]]; then
-    echo "→ Installing system packages (you may be asked for sudo password)..."
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq \
-        python3 python3-venv python3-pip python3-dev \
-        libgirepository1.0-dev libcairo2-dev python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-        xdotool xclip curl antimicrox pulseaudio-utils mpv wget git libportaudio2 libnotify-bin || {
-        echo "ERROR: failed to install system packages" >&2
-        exit 1
-    }
-elif [[ "$PLATFORM" == "macos" ]]; then
-    echo "→ Installing system packages via Homebrew..."
-    if ! command -v brew &>/dev/null; then
-        echo "ERROR: Homebrew not found. Install from https://brew.sh first." >&2
-        exit 1
-    fi
-    brew install python3 gtk+3 cairo gobject-introspection pygobject3 \
-        xdotool xclip curl antimicrox mpv wget git portaudio || {
-        echo "ERROR: failed to install system packages via brew" >&2
-        exit 1
-    }
-elif [[ "$PLATFORM" == "windows" ]]; then
-    echo "→ Windows/WSL detected. Installing WSL-specific packages..."
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq \
-        python3 python3-venv python3-pip python3-dev \
-        libgirepository1.0-dev libcairo2-dev python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-        xdotool xclip curl antimicrox pulseaudio-utils mpv wget git libportaudio2 libnotify-bin || {
-        echo "ERROR: failed to install WSL system packages" >&2
-        exit 1
-    }
 else
-    echo "→ Platform: unknown — attempting generic Python install..."
-    echo "   You may need to install GTK3, Cairo, and PyGObject manually."
+    echo "→ Installing system packages via ${PKG_MANAGER} (you may be asked for sudo password)..."
+    # antimicrox is often missing or outdated in non-Debian repos (e.g. not in
+    # core Fedora/Arch/openSUSE repos at all on many releases) -- that's fine,
+    # controller-profile-switcher.sh already falls back to a bundled/extracted
+    # AppImage if the `antimicrox` binary isn't on PATH, so a failure to
+    # install just that one package here is not fatal the way the others are.
+    case "$PKG_MANAGER" in
+        apt)
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq \
+                python3 python3-venv python3-pip python3-dev \
+                libgirepository1.0-dev libcairo2-dev python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+                xdotool xclip curl antimicrox pulseaudio-utils mpv wget git libportaudio2 libnotify-bin rofi || {
+                echo "ERROR: failed to install system packages" >&2
+                exit 1
+            }
+            ;;
+        dnf)
+            sudo dnf install -y \
+                python3 python3-pip python3-devel \
+                gobject-introspection-devel cairo-devel python3-gobject python3-gobject-base gtk3 \
+                xdotool xclip curl pulseaudio-utils mpv wget git portaudio libnotify rofi || {
+                echo "ERROR: failed to install system packages" >&2
+                exit 1
+            }
+            sudo dnf install -y antimicrox || echo "  (antimicrox not in repos -- falling back to bundled AppImage)"
+            ;;
+        pacman)
+            sudo pacman -Sy --noconfirm \
+                python python-pip \
+                gobject-introspection cairo python-gobject gtk3 \
+                xdotool xclip curl pulseaudio wget git portaudio libnotify rofi || {
+                echo "ERROR: failed to install system packages" >&2
+                exit 1
+            }
+            sudo pacman -S --noconfirm antimicrox || echo "  (antimicrox not in core/extra -- try the AUR, or falling back to bundled AppImage)"
+            ;;
+        zypper)
+            sudo zypper --non-interactive install \
+                python3 python3-pip python3-devel \
+                gobject-introspection-devel cairo-devel python3-gobject python3-gobject-cairo gtk3 \
+                xdotool xclip curl pulseaudio-utils mpv wget git portaudio libnotify-tools rofi || {
+                echo "ERROR: failed to install system packages" >&2
+                exit 1
+            }
+            sudo zypper --non-interactive install antimicrox || echo "  (antimicrox not in repos -- falling back to bundled AppImage)"
+            ;;
+    esac
 fi
 
 # ── 3. COPY REPO TO INSTALL LOCATION ─────────────────────────────────────────
@@ -114,7 +153,7 @@ echo "→ Creating Python virtual environment..."
 python3 -m venv --system-site-packages "${INSTALL_DIR}/.venv"
 "${INSTALL_DIR}/.venv/bin/pip" install --quiet --upgrade pip
 "${INSTALL_DIR}/.venv/bin/pip" install --quiet \
-    httpx fastapi uvicorn pynput numpy scipy piper-tts edge-tts
+    httpx fastapi uvicorn pynput numpy scipy edge-tts
 
 # ── 5. PROMPT FOR GROQ API KEY ───────────────────────────────────────────────
 echo ""
@@ -139,7 +178,26 @@ if [[ -z "${GROQ_KEY}" ]]; then
 fi
 
 if [[ -z "${GROQ_KEY}" ]]; then
-    echo "WARNING: No Groq API key provided. STT will not work until you add one to ${CONFIG_FILE}" >&2
+    echo ""
+    echo "======================================"
+    echo "  ⚠️  CRITICAL: NO GROQ API KEY PROVIDED"
+    echo "======================================"
+    echo "Voice dictation will NOT work without a Groq API key."
+    echo "Get a free key at: https://console.groq.com/keys"
+    echo "Then add it to ${CONFIG_FILE}:"
+    echo "  GROQ_API_KEY=your_key_here"
+    echo ""
+    echo "Would you like to enter it now? [Y/n]"
+    read -rp "> " retry_key
+    if [[ ! "$retry_key" =~ ^[Nn]$ ]]; then
+        read -rp "Enter your Groq API key: " GROQ_KEY
+    fi
+fi
+
+if [[ -z "${GROQ_KEY}" ]]; then
+    echo "ERROR: No Groq API key provided. STT will not work." >&2
+    echo "       Get a free key at https://console.groq.com/keys" >&2
+    echo "       Then re-run install or add GROQ_API_KEY=... to ${CONFIG_FILE}" >&2
 fi
 
 # ── 6. WRITE CONFIG ──────────────────────────────────────────────────────────
@@ -151,43 +209,70 @@ GROQ_API_KEY=${GROQ_KEY}
 # AUDIO_INPUT=alsa_input.usb-Microsoft_Controller_....mono-fallback
 # AUDIO_OUTPUT=alsa_output.usb-Microsoft_Controller_....stereo-fallback
 EOF
+chmod 600 "${CONFIG_FILE}"
 
 # ── 7. INSTALL ANTIDOTE PROFILES ─────────────────────────────────────────────
+# NOTE: the layout consolidated to a single general-purpose profile — every
+# mode (desktop/browser/IPTV/YouTube TV) points at the same .amgp file, per
+# controller-profile-switcher.sh. The old per-mode ai-*.amgp filenames this
+# installer used to expect no longer exist in the repo.
 echo "→ Installing AntiMicroX profiles..."
 mkdir -p "${ANTIMICROX_PROFILE_DIR}"
-cp "${INSTALL_DIR}/profiles/ai-desktop.amgp" "${ANTIMICROX_PROFILE_DIR}/"
-cp "${INSTALL_DIR}/profiles/ai-browser.amgp" "${ANTIMICROX_PROFILE_DIR}/" 2>/dev/null || true
-cp "${INSTALL_DIR}/profiles/ai-iptv.amgp" "${ANTIMICROX_PROFILE_DIR}/" 2>/dev/null || true
-cp "${INSTALL_DIR}/profiles/ai-youtube-tv.amgp" "${ANTIMICROX_PROFILE_DIR}/" 2>/dev/null || true
+cp "${INSTALL_DIR}/profiles/dont delete .gamecontroller.amgp" "${ANTIMICROX_PROFILE_DIR}/"
+# Replace __AI_CONTROLLER_DIR__ placeholder with the actual install path.
+sed -i "s|__AI_CONTROLLER_DIR__|${INSTALL_DIR}|g" "${ANTIMICROX_PROFILE_DIR}/dont delete .gamecontroller.amgp"
 
-# Substitute placeholder paths with the real install directory.
-sed -i "s|__AI_CONTROLLER_DIR__|${INSTALL_DIR}|g" "${ANTIMICROX_PROFILE_DIR}/ai-desktop.amgp"
-
-# ── 8. DOWNLOAD DEFAULT PIPER VOICE ──────────────────────────────────────────
-echo "→ Downloading default Piper voice (Joe)..."
-mkdir -p "${INSTALL_DIR}/voices/joe"
-wget -q --show-progress -O "${INSTALL_DIR}/voices/joe/en_US-joe-medium.onnx" "${PIPER_VOICE_URL}" || true
-wget -q --show-progress -O "${INSTALL_DIR}/voices/joe/en_US-joe-medium.onnx.json" "${PIPER_CONFIG_URL}" || true
-# The repo already ships voices/joe/config.json; ensure it exists in the install.
-if [[ ! -f "${INSTALL_DIR}/voices/joe/config.json" ]]; then
-    cp "${REPO_DIR}/voices/joe/config.json" "${INSTALL_DIR}/voices/joe/config.json"
-fi
-
-# ── 9. ENFORCE XONE-ONLY XBOX CONTROLLER DRIVER (Linux) ──────────────────────
+# ── 8. XONE DRIVER ENFORCEMENT + UDEV RULES ───────────────────────────────────
 # The in-kernel xpad driver steals Xbox Series X/S controllers from xone and
 # breaks both headset audio and input events. We hard-block xpad and install a
-# boot-time guard that corrects the driver state before the user services start.
-if [[ "$PLATFORM" == "linux" ]] || [[ "$PLATFORM" == "windows" ]]; then
-    echo "→ Enforcing xone-only Xbox controller driver..."
-    sudo cp "${REPO_DIR}/config/xone-blacklist.conf" /etc/modprobe.d/xone-blacklist.conf
-    # Rebuild initramfs so the blacklist applies from early boot.
-    sudo update-initramfs -u -k all || true
-    # Deploy root-level guard script and service.
-    sudo install -m 755 "${INSTALL_DIR}/scripts/xone-driver-guard.sh" /usr/local/bin/xone-driver-guard.sh
-    sudo cp "${REPO_DIR}/systemd/xone-driver-guard.service" /etc/systemd/system/xone-driver-guard.service
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now xone-driver-guard.service || true
+# boot-time guard. This modifies /etc/modprobe.d and rebuilds the initramfs,
+# so we ask for consent first.
+#
+# The initramfs rebuild command is distro-specific -- update-initramfs only
+# exists on Debian/Ubuntu family. dracut (Fedora/openSUSE) and mkinitcpio
+# (Arch) are the equivalents everywhere else.
+case "$PKG_MANAGER" in
+    apt)              INITRAMFS_CMD="update-initramfs -u -k all" ;;
+    dnf|zypper)       INITRAMFS_CMD="dracut -f" ;;
+    pacman)           INITRAMFS_CMD="mkinitcpio -P" ;;
+    *)                INITRAMFS_CMD="update-initramfs -u -k all" ;;
+esac
+
+echo ""
+echo "── Driver Enforcement ──"
+echo "The in-kernel xpad driver conflicts with xone (needed for Xbox Series X/S"
+echo "headset audio). The installer can blacklist xpad and install a boot-time"
+echo "guard. This will run '${INITRAMFS_CMD}' and modify system config."
+echo ""
+read -rp "Install xpad blacklist + xone driver guard? [y/N] " xone_consent
+
+if [[ "$xone_consent" =~ ^[Yy]$ ]]; then
+    echo "→ Enforcing xone-only Xbox controller driver (graphical password prompt)..."
+    DISPLAY="${DISPLAY:-:0}" pkexec bash -c "
+        cp '${REPO_DIR}/config/xone-blacklist.conf' /etc/modprobe.d/xone-blacklist.conf &&
+        ${INITRAMFS_CMD} &&
+        install -m 755 '${INSTALL_DIR}/scripts/xone-driver-guard.sh' /usr/local/bin/xone-driver-guard.sh &&
+        cp '${REPO_DIR}/systemd/xone-driver-guard.service' /etc/systemd/system/xone-driver-guard.service &&
+        systemctl daemon-reload &&
+        systemctl enable --now xone-driver-guard.service
+    " || echo "WARNING: xone driver enforcement step failed — controller/headset may still use xpad" >&2
+else
+    echo "→ Skipped xone driver enforcement. You can install it later with:"
+    echo "  sudo cp '${REPO_DIR}/config/xone-blacklist.conf' /etc/modprobe.d/xone-blacklist.conf"
+    echo "  sudo ${INITRAMFS_CMD}"
 fi
+
+# ── 8b. UDEV RULE + DEVICE ACCESS ─────────────────────────────────────────────
+# AntiMicroX creates uinput devices that need per-user ACLs so systemd user
+# services (ptt-pynput) can read/write them. Without the uaccess tag + input
+# group membership, evdev.list_devices() silently drops them and PTT breaks.
+echo "→ Installing udev rule + device access for antimicrox virtual devices..."
+DISPLAY="${DISPLAY:-:0}" pkexec bash -c "
+    cp '${REPO_DIR}/udev/90-antimicrox.rules' /etc/udev/rules.d/90-antimicrox.rules &&
+    usermod -aG input '$(whoami)' &&
+    udevadm control --reload-rules &&
+    udevadm trigger --action=add --subsystem-match=input
+" || echo "WARNING: udev rule install failed — PTT may not see antimicrox devices" >&2
 
 # ── 10. INSTALL SYSTEMD SERVICES ──────────────────────────────────────────────
 echo "→ Installing systemd user services..."
@@ -197,10 +282,10 @@ for svc in "${SERVICES[@]}"; do
 done
 
 systemctl --user daemon-reload
-# Services are NOT enabled — the AI Controller launcher app starts/stops them.
-# Enabling would auto-start on boot, which defeats the purpose of the launcher.
+# Services are enabled (not launcher-controlled) so a reboot/logout doesn't
+# silently kill the rig with no auto-recovery — see the 2026-07-12 fix note.
 for svc in "${SERVICES[@]}"; do
-    systemctl --user disable "${svc}" 2>/dev/null || true
+    systemctl --user enable --now "${svc}" 2>/dev/null || true
 done
 
 # ── 11. INSTALL DESKTOP LAUNCHER (no autostart — launcher app controls services) ──

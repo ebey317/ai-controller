@@ -474,6 +474,12 @@ wavfile = None
 lock = threading.Lock()
 _focus_window = None  # saved at recording start so we can restore focus before typing
 
+# xone-gip card reset, deferred out of the capture window. The reset cycles the
+# PulseAudio card profile off -> 0.7s -> on; running it while parec is attached
+# (or about to attach) destroys the take. See _mute_tts / _fire_deferred_audio_reset.
+_pending_audio_reset = False
+_audio_reset_proc = None
+
 # Debounce F13 chatter from the controller trigger.
 _last_f13_time = 0.0
 _DEBOUNCE_MS = 200
@@ -521,6 +527,19 @@ def _mute_tts():
     aplay (Linux fallback). All of those are killed here so RT -> F13 always
     barges in on agent speech.
     """
+    # Tombstone for playback that does not exist yet. edge_tts generation is a
+    # ~4s network round-trip; a press during that window finds no player to
+    # kill, and speech starts AFTER the press — "I pressed RT and it kept
+    # talking". voice_bridge._speak() compares this file's mtime against the
+    # time its TTS request started and skips playback if the press came later.
+    try:
+        with open('/tmp/ai_tts_barge', 'w') as _f:
+            _f.write(str(time.time()))
+    except OSError:
+        pass
+    # Signal Hermes TTS pipeline to stop producing before we kill the player
+    subprocess.run(['pkill', '-SIGUSR2', '-f', 'tui_gateway.entry'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Controller voice stack: tagged mpv.
     #
     # NOT `pkill -f AI_TTS_BARGE`. That matches any process whose command line
@@ -544,22 +563,82 @@ def _mute_tts():
         except (OSError, ValueError):
             continue
     # Legacy Piper /tmp/ai_controller_tts.wav playback.
-    subprocess.run(['pkill', '-f', 'ai_controller_tts'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r1 = subprocess.run(['pkill', '-f', 'ai_controller_tts'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Hermes built-in TTS: ffplay / aplay playing /tmp/hermes_voice/*.mp3.
     # The leading bracket pattern prevents pkill from matching its own argv.
-    subprocess.run(['pkill', '-f', '[f]fplay.*hermes_voice'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(['pkill', '-f', '[a]play.*hermes_voice'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r2 = subprocess.run(['pkill', '-f', '[f]fplay.*hermes_voice'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r3 = subprocess.run(['pkill', '-f', '[a]play.*hermes_voice'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # voice_bridge's last-resort path uses speech-dispatcher. Do NOT pkill -f
     # 'spd-say' here: that pattern matches any command line merely mentioning
     # the string (a shell running a script that contains it, for instance) and
     # will kill unrelated processes. speech-dispatcher is a daemon that holds
     # the queued audio anyway, so cancelling the queue is both safer and the
     # only thing that actually stops the sound.
-    subprocess.run(['spd-say', '-C'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r4 = subprocess.run(['spd-say', '-C'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # If we killed a live TTS player, reset the xone-gip audio to clear any wedge.
+    #
+    # r4 (`spd-say -C`) is DELIBERATELY excluded. It is a queue-cancel, not a
+    # kill, and exits 0 whether or not anything was speaking — including on a
+    # completely silent system. Including it made `killed` unconditionally True,
+    # so every single F13 press launched reset-controller-audio.sh, which cycles
+    # the PulseAudio card profile off -> (0.7s) -> on. Recording opened parec
+    # ~0.34s later, i.e. while the card was still `off`, so parec attached to a
+    # source that did not exist and captured zero bytes. Every take then failed
+    # the <16000-byte check as "Too short — skipped", including 9-second holds.
+    # STT was dead for every press. Found 2026-08-06.
+    #
+    # Only the pkill results (r1-r3) are honest here: pkill exits 0 only when it
+    # actually matched a process.
+    killed = any(r.returncode == 0 for r in [r1, r2, r3])
+    if killed:
+        # DEFERRED, never fired here. The reset cycles the card profile
+        # off -> 0.7s -> on, and start_recording() spawns parec ~0.3s after this
+        # returns — i.e. while the capture source does not exist. Firing it in
+        # the press path silently emptied the take on exactly the presses where
+        # you barged in on the agent to say something.
+        #
+        # Instead: flag it, run it in _fire_deferred_audio_reset() once the mic
+        # is closed, and have the next press block in _await_audio_reset() if
+        # the cycle is still in flight.
+        global _pending_audio_reset
+        _pending_audio_reset = True
+        log.info("killed a live TTS process; xone-gip reset deferred until mic closes")
+
+
+def _fire_deferred_audio_reset():
+    """Run a pending xone-gip card reset. Safe only once the mic is closed."""
+    global _pending_audio_reset, _audio_reset_proc
+    if not _pending_audio_reset:
+        return
+    _pending_audio_reset = False
+    log.info("running deferred xone-gip audio reset")
+    _audio_reset_proc = subprocess.Popen(
+        ['bash', os.path.expanduser('~/ai-controller/scripts/reset-controller-audio.sh')],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _await_audio_reset(timeout=6.0):
+    """Block until any in-flight card-profile cycle has finished.
+
+    Without this the deferred reset just moves the race later: a fast second
+    press would open parec while the previous take's reset was still cycling.
+    """
+    global _audio_reset_proc
+    p = _audio_reset_proc
+    if p is None:
+        return
+    if p.poll() is None:
+        log.info("waiting for in-flight audio reset before opening mic")
+        try:
+            p.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            log.warning("audio reset still running after %.1fs — opening mic anyway", timeout)
+    _audio_reset_proc = None
 
 
 def _warmup_mic():
@@ -588,6 +667,9 @@ def start_recording():
         _last_f13_time = now
         # Mute any agent TTS before we open the mic.
         _mute_tts()
+        # If a previous take's card reset is still cycling, the capture source
+        # is missing right now. Wait it out rather than record silence.
+        _await_audio_reset()
         # PulseAudio may have auto-suspended the Xbox headset source; wake it
         # with a short dummy stream so the real capture gets actual audio.
         _warmup_mic()
@@ -729,11 +811,15 @@ def stop_and_send():
             # Every fast trigger tap leaked another one, so it compounded.
             _kill_recorder()
             recording = False
+            _fire_deferred_audio_reset()
             _cleanup_temp_files()
             return
         _last_f13_time = now
         _kill_recorder()
         recording = False
+        # Mic is closed — safe to cycle the card now. Async: the STT round-trip
+        # below runs in parallel, and the next press gates on _await_audio_reset.
+        _fire_deferred_audio_reset()
 
     # Build WAV from raw PCM
     _build_wav(rawfile, wavfile)

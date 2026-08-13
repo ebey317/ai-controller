@@ -60,9 +60,9 @@ def test_transcribe_only_with_text():
     assert r.json()["text"] == "hello world"
 
 
-def test_execute_mode_calls_claf():
+def test_execute_mode_calls_groq():
     _set_mock_response(_FakeResponse(200, {
-        "content": [{"type": "text", "text": "Hi there."}]
+        "choices": [{"message": {"content": "Hi there."}}]
     }))
     r = client.post("/voice", data={"text": "say hi", "mode": "execute"})
     assert r.status_code == 200
@@ -71,11 +71,11 @@ def test_execute_mode_calls_claf():
     assert body["response"] == "Hi there."
 
 
-def test_execute_mode_claf_error():
+def test_execute_mode_groq_error():
     _set_mock_response(_FakeResponse(500, {}))
     r = client.post("/voice", data={"text": "say hi", "mode": "execute"})
     assert r.status_code == 502
-    assert "CLAF HTTP 500" in r.json()["error"]
+    assert "Groq LLM HTTP 500" in r.json()["error"]
 
 
 def test_stt_mode_with_audio():
@@ -111,8 +111,8 @@ def test_empty_transcript_returns_400():
 
 if __name__ == "__main__":
     test_transcribe_only_with_text()
-    test_execute_mode_calls_claf()
-    test_execute_mode_claf_error()
+    test_execute_mode_calls_groq()
+    test_execute_mode_groq_error()
     test_stt_mode_with_audio()
     test_stt_groq_error()
     test_empty_transcript_returns_400()

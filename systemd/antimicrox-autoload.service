@@ -7,6 +7,9 @@ Wants=graphical-session.target
 Type=simple
 ExecStart=/bin/bash %h/ai-controller/scripts/controller-profile-switcher.sh
 ExecStopPost=/bin/sh -c '/usr/bin/pkill -x antimicrox || true'
+# Re-apply F13 xmodmap overlay every time the service (re)starts.
+# X11 wipes the overlay when antimicrox creates new uinput devices.
+ExecStartPost=/bin/sh -c 'sleep 2; DISPLAY=:0 xmodmap -e "keycode 191 = F13" -e "keycode 202 = F13" -e "keycode 197 = F14" -e "keycode 217 = F15" -e "keycode 219 = F16" -e "keycode 222 = F17" -e "keycode 230 = F18" 2>/dev/null || true'
 Restart=always
 RestartSec=2
 Environment=DISPLAY=:0

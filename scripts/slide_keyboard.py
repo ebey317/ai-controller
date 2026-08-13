@@ -16,15 +16,20 @@ styled to match the controller-legend HUD (same dark/orange theme, rounded
 panel) so it reads as part of the same floating-overlay family instead of
 a separate full-width dock. Press F14 again to pop it back down.
 """
+import logging
 import os
 import signal
 import subprocess
 import sys
 import warnings
 
+logging.basicConfig(level=logging.WARNING)
+log = logging.getLogger(__name__)
+
 # GTK3 deprecation noise is not useful in production.
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+import cairo
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
@@ -32,6 +37,8 @@ from gi.repository import Gtk, Gdk, GLib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ai_controller_paths import config_dir, ensure_config_dir
+import voice_toggle
+import focus_guard
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()
@@ -121,19 +128,31 @@ button.mode-active { background-color: #FF6A00; color: #0d0d12; border-color: #F
 """
 
 
-def send(key, ctrl=False, alt=False):
+def send(key, ctrl=False, alt=False, target_win=None):
+    """Send `key` to `target_win`, verified focused first.
+
+    The keyboard window never takes focus (see class docstring), so every
+    keystroke used to fire at whatever xdotool considered "active" with no
+    check at all. If anything nudged focus elsewhere between opening the
+    keyboard and this click -- confirmed live: a typed sequence once landed
+    in an unrelated terminal instead of the intended dialog -- it went
+    wherever focus actually was, silently. Now it either lands where the
+    user is looking at, or it's skipped and logged -- never a silent
+    mistype into the wrong window.
+    """
     if key == "shift":
         return
-    if ctrl or alt:
-        prefix = ("ctrl+" if ctrl else "") + ("alt+" if alt else "")
-        if key in SPECIAL:
-            subprocess.run(["xdotool", "key", prefix + SPECIAL[key]], check=False)
+    try:
+        if ctrl or alt:
+            prefix = ("ctrl+" if ctrl else "") + ("alt+" if alt else "")
+            key_spec = prefix + (SPECIAL[key] if key in SPECIAL else key.lower())
+            focus_guard.guarded_key(target_win, key_spec)
+        elif key in SPECIAL:
+            focus_guard.guarded_key(target_win, SPECIAL[key])
         else:
-            subprocess.run(["xdotool", "key", prefix + key.lower()], check=False)
-    elif key in SPECIAL:
-        subprocess.run(["xdotool", "key", "--clearmodifiers", SPECIAL[key]], check=False)
-    else:
-        subprocess.run(["xdotool", "type", "--clearmodifiers", key], check=False)
+            focus_guard.guarded_type(target_win, key)
+    except focus_guard.FocusLostError as exc:
+        log.warning(f"{exc} — key '{key}' not sent")
 
 
 class SlideKeyboard(Gtk.Window):
@@ -235,6 +254,12 @@ class SlideKeyboard(Gtk.Window):
             self.mode_bar.pack_start(btn, False, False, 0)
             self._mode_buttons.append((mode, btn))
 
+        # Voice toggle: cycles between unlocked voice packs (aria ↔ joe).
+        self.voice_btn = Gtk.Button(label=self._voice_label())
+        self.voice_btn.get_style_context().add_class("mode")
+        self.voice_btn.connect("clicked", self._on_voice_toggle)
+        self.mode_bar.pack_end(self.voice_btn, False, False, 0)
+
         # Input target toggle: type directly vs copy to clipboard only.
         self.target_btn = Gtk.Button(label=self._target_label())
         self.target_btn.get_style_context().add_class("mode")
@@ -285,6 +310,17 @@ class SlideKeyboard(Gtk.Window):
         self.set_opacity(0.0)
         self.visible_state = False
         self._anim_id = None
+        self._focus_target_win = None  # snapshotted when the keyboard opens
+
+        # This window sits mapped and centered on-screen at all times, even
+        # in its "hidden" (opacity 0) resting state -- an invisible window is
+        # still solid to the mouse unless its input shape says otherwise, so
+        # every click/hover under its footprint (whatever app that happens to
+        # be) silently never reached the real target. Same bug class as the
+        # controller-legend HUD, just never fixed here in the first place.
+        self.connect("realize", lambda *_: self._apply_input_passthrough(not self.visible_state))
+        self.connect("map-event", lambda *_: self._apply_input_passthrough(not self.visible_state))
+        self._apply_input_passthrough(True)
 
         # Poll typing state from ptt_pynput.py so the keyboard can transform
         # into a typing indicator while Unicode modes emit.
@@ -336,8 +372,9 @@ class SlideKeyboard(Gtk.Window):
 
     def _on_handle_drag_begin(self, _widget, event):
         if event.button == 1:
-            self._drag_offset_x = int(event.x_root - self.get_position().x)
-            self._drag_offset_y = int(event.y_root - self.get_position().y)
+            pos_x, pos_y = self.get_position()
+            self._drag_offset_x = int(event.x_root - pos_x)
+            self._drag_offset_y = int(event.y_root - pos_y)
             self._drag_active = True
             # Don't propagate — we want the drag to start here, not fall
             # through to the window-level handler.
@@ -434,6 +471,28 @@ class SlideKeyboard(Gtk.Window):
         self._save_input_target(new_target)
         self.target_btn.set_label(self._target_label())
 
+    def _voice_label(self) -> str:
+        """Show the active voice name with a speaker icon."""
+        try:
+            active = voice_toggle.load_voice()
+            v = voice_toggle.get_voice(active)
+            name = v["name"] if v else active.title()
+        except Exception:
+            name = "?"
+        return f"🔊 {name}"
+
+    def _on_voice_toggle(self, _widget):
+        """Cycle to the next unlocked voice and speak a confirmation."""
+        try:
+            new_voice = voice_toggle.toggle()
+            if new_voice:
+                self.voice_btn.set_label(self._voice_label())
+                voice_toggle.speak(
+                    f"Switched to {new_voice}.", voice_id=new_voice
+                )
+        except Exception:
+            pass
+
     def _build_keys(self):
         for child in self.grid.get_children():
             self.grid.remove(child)
@@ -455,7 +514,7 @@ class SlideKeyboard(Gtk.Window):
             self._build_keys()
             return
         ctrl, alt = _modifier_state()
-        send(key, ctrl=ctrl, alt=alt)
+        send(key, ctrl=ctrl, alt=alt, target_win=self._focus_target_win)
         if self.shift_on:
             self.shift_on = False
             self._build_keys()
@@ -465,10 +524,16 @@ class SlideKeyboard(Gtk.Window):
 
     def _toggle_main_thread(self):
         opening = not self.visible_state
+        if opening:
+            # Snapshot whatever's focused right now -- this is where every
+            # keystroke should land for as long as the keyboard stays open,
+            # since the keyboard itself never takes focus (set_accept_focus).
+            self._focus_target_win = focus_guard.active_window()
         target_y = self.center_y if opening else self.hidden_y
         target_op = 1.0 if opening else 0.0
         self._animate_to(target_y, target_op)
         self.visible_state = opening
+        self._apply_input_passthrough(not opening)
         return False
 
     def _animate_to(self, target_y, target_opacity):
@@ -566,7 +631,22 @@ class SlideKeyboard(Gtk.Window):
             self._show_typing_indicator(mode)
         elif state == "idle" and currently_typing:
             self._show_keyboard_content()
+        # Re-assert every tick, not just on realize/toggle: same self-healing
+        # need as controller-legend.py -- nothing guarantees the input shape
+        # survives every GTK/X11 event that could reset it over a long
+        # session, and the cost of checking is negligible.
+        self._apply_input_passthrough(not self.visible_state)
         return True  # keep polling
+
+    def _apply_input_passthrough(self, passthrough):
+        gdkwin = self.get_window()
+        if not gdkwin:
+            return
+        if passthrough:
+            self.input_shape_combine_region(cairo.Region())
+        else:
+            self.input_shape_combine_region(None)
+        gdkwin.set_pass_through(passthrough)
 
 
 PIDFILE = "/tmp/slide_keyboard.pid"

@@ -1,0 +1,10 @@
+[Unit]
+Description=Auto-recover xone-gip controller audio buffer wedge (radio static / STT corruption)
+
+[Service]
+ExecStart=%h/ai-controller/scripts/gip-audio-watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Re-apply F13 xmodmap overlay after antimicrox restarts
+After=antimicrox-autoload.service
+BindsTo=antimicrox-autoload.service
+
+[Service]
+Type=oneshot
+# Wait for antimicrox to create its uinput devices, then re-apply the
+# F13-F18 keymap overlay that X11 wipes on every input device add/remove.
+# The controller-profile-switcher does this too, but only on controller
+# state changes — not when antimicrox itself restarts. This guarantees
+# the overlay survives every antimicrox restart cycle.
+ExecStartPre=/bin/sleep 2
+ExecStart=/bin/sh -c 'DISPLAY=:0 xmodmap -e "keycode 191 = F13" -e "keycode 202 = F13" -e "keycode 197 = F14" -e "keycode 217 = F15" -e "keycode 219 = F16" -e "keycode 222 = F17" -e "keycode 230 = F18" 2>/dev/null || true'
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=XAUTHORITY=%h/.Xauthority
+
+[Install]
+WantedBy=default.target

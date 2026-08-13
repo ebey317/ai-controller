@@ -1,8 +1,10 @@
 {
   "name": "Aria",
   "label": "Aria",
-  "engine": "piper",
-  "model": "en_US-kristin-medium.onnx",
-  "description": "Female local neural voice via Piper",
+  "engine": "edge-tts",
+  "voice": "en-US-AriaNeural",
+  "pitch": "-22Hz",
+  "rate": "+18%",
+  "description": "Female neural voice — confident and clear",
   "locked": false
 }

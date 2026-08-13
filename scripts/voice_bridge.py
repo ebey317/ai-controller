@@ -5,11 +5,13 @@ Runs on :8002. push-to-talk.sh POSTs audio to /voice?mode=transcribe_only.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -90,16 +92,47 @@ EDGE_PITCH = "-22Hz"
 EDGE_RATE = "+18%"
 
 
-def _speak(text: str) -> None:
-    """Speak text using Edge TTS (AriaNeural) with tuned voice settings."""
+# Strong refs to in-flight background TTS tasks. asyncio only holds weak refs to
+# tasks, so without this a speak task can be garbage-collected mid-generation.
+_tts_tasks: set = set()
+
+
+def _speak_bg(text: str) -> None:
+    """Fire-and-forget _speak on a worker thread.
+
+    _speak() blocks: it shells out to edge_tts, which is a NETWORK call to
+    Microsoft with timeout=30. Calling it directly from an `async def` handler
+    blocks the whole asyncio event loop, so the bridge can serve nothing else
+    for the duration — that is what produced the historical "transcribe timed
+    out after 30 seconds" failures. The STT request was never slow; it was
+    queued behind a TTS generation holding the only thread.
+    """
     if not text:
         return
+    task = asyncio.create_task(asyncio.to_thread(_speak, text))
+    _tts_tasks.add(task)
+    task.add_done_callback(_tts_tasks.discard)
+
+
+def _speak(text: str) -> None:
+    """Speak text using Edge TTS (AriaNeural) with tuned voice settings.
+
+    BLOCKING — never call directly from an async handler. Use _speak_bg().
+    """
+    if not text:
+        return
+    # Barge-in tombstone: edge_tts generation takes ~4s, so a trigger press
+    # during that window has no player to SIGTERM — the speech would start
+    # AFTER the user asked for silence. Record when this request began; if the
+    # barge file (touched by ptt_pynput._mute_tts on every press) is newer by
+    # the time generation finishes, the user has spoken since — stay silent.
+    t0 = time.time()
     spoken = text[:500].split("\n")[0]
     try:
         # Use Edge TTS for high-fidelity AriaNeural voice
         mp3_fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
         os.close(mp3_fd)
-        
+
         # Generate TTS with tuned settings
         subprocess.run(
             [sys.executable, "-m", "edge_tts", "--voice", EDGE_VOICE,
@@ -112,7 +145,15 @@ def _speak(text: str) -> None:
             check=True,
             timeout=30
         )
-        
+
+        try:
+            if os.path.getmtime('/tmp/ai_tts_barge') >= t0:
+                logger.info("TTS suppressed: barge-in during generation window")
+                os.unlink(mp3_path)
+                return
+        except OSError:
+            pass  # no barge file yet — nothing to suppress
+
         # Play through hermes_tts_play.sh, which resamples once with soxr into
         # the sink's native format. Do NOT add a lowpass filter here: it does
         # not tune the device, it masks resampler aliasing by throwing away
@@ -259,9 +300,18 @@ async def voice(
         logger.warning("Empty transcript received")
         return JSONResponse({"error": "empty transcript"}, status_code=400)
 
-    if mode == "transcribe_only":
+    # FAIL CLOSED on mode. Only an explicit mode=="execute" may reach the
+    # LLM + TTS path below. This used to be `if mode == "transcribe_only"`,
+    # which meant any OTHER string — a typo, a test curl sending
+    # mode=transcribe — fell through to execute: the bridge transcribed 3s of
+    # room audio, asked the LLM about it, and SPOKE the answer unprompted.
+    # Observed 2026-08-06 as "ghost conversations": the verifier's test
+    # captures were being answered aloud by llama-3.3-70b.
+    if mode != "execute":
+        if mode != "transcribe_only":
+            logger.warning("Unknown mode %r — failing closed to transcribe-only", mode)
         logger.debug("Transcribe-only mode, returning transcript")
-        return JSONResponse({"text": transcript})
+        return JSONResponse({"text": transcript, "transcript": transcript})
 
     # ── LLM — route voice commands through Groq free tier ───────────────────
     # Direct Groq call instead of CLAF local Ollama for speed.
@@ -303,7 +353,7 @@ async def voice(
 
     # ── TTS — speak response ──────────────────────────────────────────────────
     logger.info("Speaking response via TTS")
-    _speak(response_text)
+    _speak_bg(response_text)
 
     return JSONResponse({"transcript": transcript, "response": response_text})
 
@@ -313,7 +363,7 @@ async def speak_endpoint(request: Request, text: str = Form(...)):
     """Hermes-compatible TTS endpoint: POST text and speak it immediately."""
     if not text:
         return JSONResponse({"error": "empty text"}, status_code=400)
-    _speak(text[:500])
+    _speak_bg(text[:500])
     return JSONResponse({"spoken": True})
 
 

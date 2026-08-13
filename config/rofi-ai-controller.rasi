@@ -1,0 +1,77 @@
+/*
+ * AI Controller app launcher theme -- matches the dark/orange HUD family
+ * used by controller-legend.py and slide_keyboard.py (same #FF6A00 accent,
+ * same rgba(13,13,18,0.94) panel background) so this reads as part of the
+ * same floating-overlay system instead of a visually unrelated tool.
+ */
+configuration {
+    show-icons: true;
+    font: "monospace 14";
+}
+
+* {
+    bg:      rgba(13, 13, 18, 0.96);
+    bg-alt:  rgba(26, 26, 32, 0.9);
+    fg:      #e8e8e8;
+    accent:  #FF6A00;
+    border:  #FF6A00;
+}
+
+window {
+    background-color: @bg;
+    border: 2px;
+    border-color: @border;
+    border-radius: 16px;
+    width: 720px;
+    padding: 16px;
+}
+
+mainbox {
+    children: [ inputbar, listview ];
+    spacing: 12px;
+}
+
+inputbar {
+    background-color: @bg-alt;
+    border: 1px;
+    border-color: #3a3a44;
+    border-radius: 8px;
+    padding: 10px 14px;
+    children: [ prompt, entry ];
+}
+
+prompt {
+    text-color: @accent;
+    font: "monospace 14 bold";
+}
+
+entry {
+    text-color: @fg;
+    placeholder: "Type an app name…";
+    placeholder-color: #8a8a92;
+}
+
+listview {
+    lines: 8;
+    scrollbar: false;
+    spacing: 4px;
+}
+
+element {
+    padding: 8px 10px;
+    border-radius: 6px;
+}
+
+element selected {
+    background-color: @accent;
+    text-color: #0d0d12;
+}
+
+element-text {
+    text-color: inherit;
+    font: "monospace 13";
+}
+
+element-icon {
+    size: 28px;
+}
