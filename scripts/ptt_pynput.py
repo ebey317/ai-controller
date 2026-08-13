@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, subprocess, os, tempfile, json, threading, wave, struct, time, re, random, fcntl
+import sys, subprocess, os, tempfile, json, threading, wave, struct, time, re, random, fcntl, signal
 from datetime import datetime
 import urllib.request
 import urllib.error
@@ -522,8 +522,27 @@ def _mute_tts():
     barges in on agent speech.
     """
     # Controller voice stack: tagged mpv.
-    subprocess.run(['pkill', '-f', 'AI_TTS_BARGE'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    #
+    # NOT `pkill -f AI_TTS_BARGE`. That matches any process whose command line
+    # merely mentions the tag — a shell running a script that greps for it, an
+    # editor with the file open — and kills it. Observed killing live terminals
+    # twice on 2026-07-30. Instead: only consider processes that ARE players
+    # (by exact binary name), then check the tag in their cmdline. A shell is
+    # never named `mpv`, so it can never be caught. Same contract as
+    # tts_stop.sh; keep the two in sync.
+    for _pid in os.listdir('/proc'):
+        if not _pid.isdigit():
+            continue
+        try:
+            with open(f'/proc/{_pid}/comm', 'r') as _f:
+                if _f.read().strip() not in ('mpv', 'ffplay', 'aplay', 'paplay'):
+                    continue
+            with open(f'/proc/{_pid}/cmdline', 'rb') as _f:
+                if b'AI_TTS_BARGE' not in _f.read():
+                    continue
+            os.kill(int(_pid), signal.SIGTERM)
+        except (OSError, ValueError):
+            continue
     # Legacy Piper /tmp/ai_controller_tts.wav playback.
     subprocess.run(['pkill', '-f', 'ai_controller_tts'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -532,6 +551,14 @@ def _mute_tts():
     subprocess.run(['pkill', '-f', '[f]fplay.*hermes_voice'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(['pkill', '-f', '[a]play.*hermes_voice'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # voice_bridge's last-resort path uses speech-dispatcher. Do NOT pkill -f
+    # 'spd-say' here: that pattern matches any command line merely mentioning
+    # the string (a shell running a script that contains it, for instance) and
+    # will kill unrelated processes. speech-dispatcher is a daemon that holds
+    # the queued audio anyway, so cancelling the queue is both safer and the
+    # only thing that actually stops the sound.
+    subprocess.run(['spd-say', '-C'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -611,6 +638,76 @@ def _is_silence(path, rms_threshold=100):
     return False
 
 
+def _kill_recorder():
+    """Stop the parec recorder and reap it. Must never leave a live capture.
+
+    terminate() alone is not enough: if parec is blocked writing to its output
+    file it can ignore SIGTERM long enough to outlive us, and an abandoned
+    capture holds the controller mic open indefinitely. So: TERM, bounded
+    wait, then KILL.
+    """
+    global rec_proc
+    if rec_proc is None:
+        return
+    try:
+        rec_proc.terminate()
+        try:
+            rec_proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            log.warning("parec ignored SIGTERM — killing it")
+            rec_proc.kill()
+            rec_proc.wait(timeout=2)
+    except Exception as e:
+        log.warning("recorder teardown failed: %s", e)
+    finally:
+        try:
+            if rec_proc.stdout:
+                rec_proc.stdout.close()
+        except Exception:
+            pass
+        rec_proc = None
+
+
+def _cleanup_temp_files():
+    """Drop the raw/wav scratch files for a take we are discarding."""
+    global rawfile, wavfile
+    for attr in ('rawfile', 'wavfile'):
+        path = globals().get(attr)
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            globals()[attr] = None
+
+
+def _reap_orphan_recorders():
+    """Kill any parec left holding our capture device by an earlier crash.
+
+    Runs at startup: a leaked recorder from a previous instance survives a
+    service restart and will keep clicking the headset until reaped.
+    """
+    try:
+        me = os.getpid()
+        for pid in os.listdir('/proc'):
+            if not pid.isdigit() or int(pid) == me:
+                continue
+            try:
+                with open(f'/proc/{pid}/comm', 'r') as f:
+                    if f.read().strip() != 'parec':
+                        continue
+                with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                    cmd = f.read()
+                if _AUDIO_INPUT and _AUDIO_INPUT.encode() not in cmd:
+                    continue
+                os.kill(int(pid), signal.SIGKILL)
+                log.warning("reaped orphaned parec pid=%s", pid)
+            except (OSError, ValueError):
+                continue
+    except Exception:
+        pass
+
+
 def stop_and_send():
     global recording, rec_proc, rawfile, wavfile, _last_f13_time
     with lock:
@@ -618,12 +715,24 @@ def stop_and_send():
             return
         now = time.time()
         if (now - _last_f13_time) * 1000 < _DEBOUNCE_MS:
+            # Debounced chatter: discard this take. But NEVER return without
+            # stopping the recorder first.
+            #
+            # This used to `return` here with parec still running. The process
+            # then held the controller mic open forever — one was found alive
+            # after 81 minutes on 2026-07-30. Because xone-gip shares a single
+            # channel between mic and headset, a permanent 24 kHz capture
+            # starves the playback buffers, which the kernel logs as
+            # "gip_send_audio_samples: get buffer failed: -28" and which is
+            # audible as random clicking/popping during TTS.
+            #
+            # Every fast trigger tap leaked another one, so it compounded.
+            _kill_recorder()
+            recording = False
+            _cleanup_temp_files()
             return
         _last_f13_time = now
-        rec_proc.terminate()
-        rec_proc.wait()
-        if rec_proc.stdout:
-            rec_proc.stdout.close()
+        _kill_recorder()
         recording = False
 
     # Build WAV from raw PCM
@@ -846,6 +955,11 @@ def _run_evdev_listener():
             except OSError:
                 pass
             time.sleep(0.3)
+
+# A leaked recorder from a previous instance survives a service restart and
+# keeps the controller mic open, clicking the headset. Clear them before we
+# start listening.
+_reap_orphan_recorders()
 
 # Start evdev listener thread (does the actual F13 capture)
 import threading as _thr

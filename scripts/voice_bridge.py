@@ -113,7 +113,10 @@ def _speak(text: str) -> None:
             timeout=30
         )
         
-        # Play through tuned mpv pipeline (lowpass filter, correct sink)
+        # Play through hermes_tts_play.sh, which resamples once with soxr into
+        # the sink's native format. Do NOT add a lowpass filter here: it does
+        # not tune the device, it masks resampler aliasing by throwing away
+        # everything above 3 kHz. See hermes_tts_play.sh for the full trace.
         if os.path.exists(HERMES_TTS_PLAY):
             subprocess.Popen(
                 [HERMES_TTS_PLAY, mp3_path],
@@ -121,16 +124,23 @@ def _speak(text: str) -> None:
                 stderr=subprocess.DEVNULL,
             )
         else:
-            # Fallback: direct mpv playback
+            # Fallback: direct mpv. Every TTS player MUST carry
+            # --force-media-title=AI_TTS_BARGE or barge-in cannot find it and
+            # the speech becomes unstoppable. Matching the sink's 48k/stereo
+            # here also keeps PulseAudio from falling back to speex-float-1.
             subprocess.Popen(
-                ["mpv", "--no-video", "--af=lowpass=f=3000", mp3_path],
+                ["mpv", "--no-video", "--force-media-title=AI_TTS_BARGE",
+                 "--audio-samplerate=48000", "--audio-channels=stereo",
+                 "--audio-format=s16", mp3_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
     except Exception:
-        # Ultimate fallback to spd-say
+        # Ultimate fallback: speech-dispatcher. No -w — that blocks until the
+        # sentence finishes, which is the one thing a barge-in must never do.
+        # spd-say is cancelled with `spd-say -C`, which tts_stop.sh issues.
         subprocess.Popen(
-            ["spd-say", "-w", spoken],
+            ["spd-say", spoken],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
