@@ -537,9 +537,10 @@ def _mute_tts():
             _f.write(str(time.time()))
     except OSError:
         pass
-    # Signal Hermes TTS pipeline to stop producing before we kill the player
-    subprocess.run(['pkill', '-SIGUSR2', '-f', 'tui_gateway.entry'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # NOTE: The old `pkill -SIGUSR2 -f tui_gateway.entry` was removed because
+    # the Node.js TUI parent (signal-exit) treats SIGUSR2 as a termination
+    # signal — every RT press killed the TUI. Hermes handles TTS barge-in
+    # internally via the /tmp/ai_tts_barge tombstone + streaming abort events.
     # Controller voice stack: tagged mpv.
     #
     # NOT `pkill -f AI_TTS_BARGE`. That matches any process whose command line
