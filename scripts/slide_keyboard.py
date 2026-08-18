@@ -55,6 +55,8 @@ PIN_SLOTS = 7  # columns 7-13 of row 4; col 14 is reserved for the + button
 DEFAULT_PINS = [
     {"label": "hermes", "text": "hermes --tui"},
     {"label": "claude", "text": "claude"},
+    {"label": "desktop", "text": "hermes desktop"},
+    {"label": "qwen", "text": "qwen"},
 ]
 
 ROWS_LOWER = [
