@@ -16,6 +16,7 @@ styled to match the controller-legend HUD (same dark/orange theme, rounded
 panel) so it reads as part of the same floating-overlay family instead of
 a separate full-width dock. Press F14 again to pop it back down.
 """
+import json
 import logging
 import os
 import signal
@@ -45,6 +46,16 @@ ensure_config_dir()
 PTT_MODE_FILE = os.path.join(config_dir(), "ptt_mode")
 INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
+
+# Persistent snippet pins — separate from the OS clipboard (which a single
+# new copy silently overwrites). These live in the empty strip to the right
+# of the arrow/space row and survive until explicitly unpinned.
+PINS_FILE = os.path.join(config_dir(), "pinned_snippets.json")
+PIN_SLOTS = 7  # columns 7-13 of row 4; col 14 is reserved for the + button
+DEFAULT_PINS = [
+    {"label": "hermes", "text": "hermes --tui"},
+    {"label": "claude", "text": "claude"},
+]
 
 ROWS_LOWER = [
     ["`", "esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "bksp"],
@@ -125,6 +136,10 @@ button.special { background-color: #1a2226; color: #FF6A00; border-color: #4a331
 button.mode { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; padding: 2px 10px; }
 button.mode-active { background-color: #FF6A00; color: #0d0d12; border-color: #FF6A00; font-weight: bold; padding: 2px 10px; }
 .shelf-title { color: #FF6A00; font-weight: bold; font-size: 11px; margin-bottom: 4px; }
+button.pin { background-color: #0f2a24; color: #3ddc97; border-color: #1f5c4a; font-size: 11px; }
+button.pin:hover { background-color: #163a30; }
+button.pin-add { background-color: #23232b; color: #6a6a72; border-color: #3a3a44; }
+button.pin-add:hover { background-color: #2f2f3a; color: #3ddc97; }
 """
 
 
@@ -506,6 +521,7 @@ class SlideKeyboard(Gtk.Window):
                 width = 2 if key in ("space",) else 1
                 btn.connect("clicked", self._on_key, key)
                 self.grid.attach(btn, c, r, width, 1)
+        self._build_pins()
         self.grid.show_all()
 
     def _on_key(self, _widget, key):
@@ -518,6 +534,96 @@ class SlideKeyboard(Gtk.Window):
         if self.shift_on:
             self.shift_on = False
             self._build_keys()
+
+    # -- Pinned snippets: the empty strip to the right of arrows/space on
+    # row 4. Left-click types the pinned text out, right-click unpins it.
+    # These persist across shift toggles and restarts -- unlike the OS
+    # clipboard, pinning one doesn't get wiped out by the next Ctrl+C. --
+
+    def _load_pins(self):
+        try:
+            with open(PINS_FILE, "r", encoding="utf-8") as f:
+                pins = json.load(f)
+            if isinstance(pins, list):
+                return pins
+        except FileNotFoundError:
+            return list(DEFAULT_PINS)
+        except Exception:
+            log.warning("pinned_snippets.json unreadable, ignoring", exc_info=True)
+        return []
+
+    def _save_pins(self, pins):
+        os.makedirs(os.path.dirname(PINS_FILE), exist_ok=True)
+        with open(PINS_FILE, "w", encoding="utf-8") as f:
+            json.dump(pins, f, indent=2)
+
+    def _build_pins(self):
+        pins = self._load_pins()
+        row = len(ROWS_LOWER) - 1  # arrows/space row -- the empty strip
+        start_col = 7  # cols 0-6 are left/down/up/right/space(x2)/shift-tab
+        for i, pin in enumerate(pins[:PIN_SLOTS]):
+            btn = Gtk.Button(label=pin.get("label", pin.get("text", "?"))[:10])
+            btn.get_style_context().add_class("pin")
+            btn.set_tooltip_text(pin.get("text", ""))
+            btn.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            btn.connect("clicked", self._on_pin_clicked, pin.get("text", ""))
+            btn.connect("button-press-event", self._on_pin_right_click, i)
+            self.grid.attach(btn, start_col + i, row, 1, 1)
+        add_btn = Gtk.Button(label="+ pin")
+        add_btn.get_style_context().add_class("pin-add")
+        add_btn.set_tooltip_text("Pin current clipboard contents")
+        add_btn.connect("clicked", self._on_pin_add)
+        self.grid.attach(add_btn, start_col + PIN_SLOTS, row, 1, 1)
+
+    def _on_pin_clicked(self, _widget, text):
+        if not text:
+            return
+        focus_guard.guarded_type(self._focus_target_win, text)
+
+    def _on_pin_right_click(self, _widget, event, index):
+        if event.button != 3:  # only right-click unpins
+            return False
+        pins = self._load_pins()
+        if 0 <= index < len(pins):
+            removed = pins.pop(index)
+            self._save_pins(pins)
+            self._build_keys()
+            try:
+                voice_toggle.speak(f"Unpinned {removed.get('label', 'that')}.")
+            except Exception:
+                pass
+        return True
+
+    def _on_pin_add(self, _widget):
+        pins = self._load_pins()
+        if len(pins) >= PIN_SLOTS:
+            try:
+                voice_toggle.speak("Pin slots full. Unpin one first.")
+            except Exception:
+                pass
+            return
+        try:
+            proc = subprocess.run(
+                ["xclip", "-selection", "clipboard", "-o"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=3,
+            )
+            text = proc.stdout.decode("utf-8", errors="replace").strip()
+        except Exception:
+            text = ""
+        if not text:
+            try:
+                voice_toggle.speak("Clipboard is empty, nothing to pin.")
+            except Exception:
+                pass
+            return
+        label = text if len(text) <= 10 else text[:9] + "…"
+        pins.append({"label": label, "text": text})
+        self._save_pins(pins)
+        self._build_keys()
+        try:
+            voice_toggle.speak(f"Pinned {label}.")
+        except Exception:
+            pass
 
     def toggle(self):
         GLib.idle_add(self._toggle_main_thread)
