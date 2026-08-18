@@ -73,6 +73,43 @@ quality/routing will regress even though Stack A's code hasn't changed —
 check `pactl get-default-sink` and `/etc/pulse/daemon.conf` first before
 assuming a code regression.
 
+## Stack A voice selection — follows the controller, not a hardcoded voice
+
+`tts.provider` in `~/.hermes/config.yaml` is a **custom command provider**
+pointed at `scripts/hermes_tts_generate.py`:
+
+```yaml
+tts:
+  provider: ai-controller
+  providers:
+    ai-controller:
+      command: /home/elijah/ai-controller/scripts/hermes_tts_generate.py --text {text_path} --output {output_path}
+      output_format: wav
+      type: command
+```
+
+`hermes_tts_generate.py` is generate-only (writes audio to `{output_path}`,
+exits 0/nonzero, never plays anything — see the Incident 001 contract
+warning below). What makes it different from a bare synthesis call: on every
+invocation it re-reads `~/.config/ai-controller/ai_controller_voice` via
+`voice_toggle.load_voice()`/`get_voice()` — the exact same lookup the
+controller's voice-toggle button drives — and dispatches to `piper` or
+`edge-tts` per that voice's `engine`/`voice`/`pitch`/`rate` from
+`voices/<id>/config.json`. Piper writes WAV natively; edge-tts output is
+converted to WAV with ffmpeg so the format always matches
+`output_format: wav`.
+
+Net effect: **Hermes speaks in whatever voice is currently selected on the
+controller.** Toggling voices (controller button, or writing directly to
+`~/.config/ai-controller/ai_controller_voice`) changes Hermes's voice on the
+very next thing it says — no config.yaml edit, no restart.
+
+This replaced an interim same-day fix that set `tts.provider: piper` with a
+static path to `voices/joe/en_US-joe-medium.onnx` — that got Stack A talking
+again but hardcoded it to Joe regardless of the controller's selection. Do
+not revert to that static form; the dynamic command provider above is the
+intended setup.
+
 ## Incident 001 — Stack A crashed for ~1 month (found/fixed 2026-08-18)
 
 **Symptom:** Hermes desktop showed `tts chunk one failed` / `TTS generation
@@ -118,3 +155,6 @@ there leaves no diff to catch it. Before changing `tts.provider` or
 `TTS provider '<name>' exited with code N` error, check `tts.provider` +
 the matching `command:` template first, and confirm the command is
 generate-only (writes to `{output_path}`, does not itself call mpv/ffplay).
+`hermes_tts_generate.py` in this repo is the correct generate-only script —
+if `tts.providers.ai-controller.command` ever points anywhere else
+(especially back at `hermes_tts_play.sh`), that's the bug.
