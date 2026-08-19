@@ -259,21 +259,41 @@ def _find_hermes_tui_window() -> str | None:
 def _type_text_fast(text: str, mode: str = "pro", target_window: str | None = None) -> None:
     """Type text into the focused or target window.
 
-    xdotool type is the only method that works reliably across terminals,
-    browsers, Discord, games, etc. Unicode modes are injected character-by-
-    character, so they are slower than ASCII; clipboard paste was tried but
-    is not reliable in the operator's target windows.
+    Plain ASCII (PRO mode) is injected with xdotool type for speed.
+    Any non-ASCII output — styled Unicode or emoji — is copied to the
+    X11 clipboard and pasted with Ctrl+Shift+V. xdotool type sends multi-byte
+    characters one at a time and the Hermes TUI's terminal input buffer drops
+    or merges bytes, so clipboard paste is the reliable path for Unicode.
     """
     env = {**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')}
-    # ASCII (PRO/CASUAL) can be fired as fast as possible.
-    delay = _XDOTOOL_TYPE_DELAY_MS
-    if any(ord(ch) >= 128 for ch in text):
-        # Cursive (Mathematical Script) needs more time than bold/fullwidth.
-        delay = 55 if mode == "bubbly" else 35
-    cmd = ['xdotool']
+
+    # Ensure the target window has focus before we type or paste.
     if target_window:
-        cmd += ['windowactivate', target_window]
-    cmd += ['type', '--clearmodifiers', f'--delay={delay}', '--', text]
+        subprocess.run(
+            ['xdotool', 'windowactivate', target_window],
+            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        time.sleep(0.03)
+
+    if any(ord(ch) >= 128 for ch in text):
+        # Unicode / emoji: clipboard paste. xdotool type per-character is
+        # unreliable for multi-byte UTF-8 in the TUI terminal input buffer.
+        if _set_clipboard_text(text):
+            subprocess.run(
+                ['xdotool', 'key', 'ctrl+shift+v'],
+                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        else:
+            # Clipboard failed — fall back to slow character typing.
+            delay = 55 if mode == "bubbly" else 35
+            subprocess.run(
+                ['xdotool', 'type', '--clearmodifiers', f'--delay={delay}', '--', text],
+                env=env,
+            )
+        return
+
+    # Plain ASCII: fast direct typing.
+    cmd = ['xdotool', 'type', '--clearmodifiers', f'--delay={_XDOTOOL_TYPE_DELAY_MS}', '--', text]
     subprocess.run(cmd, env=env)
 
 
@@ -591,8 +611,8 @@ _DEBOUNCE_MS = 200
 # Time for the user's finger to come off the controller before we inject keys.
 _TYPE_SETTLE_MS = 50
 # xdotool delay. 0 drops characters in the Hermes TUI's terminal input handling.
-# 20ms is the fastest reliable value on this box for clean dictation.
-_XDOTOOL_TYPE_DELAY_MS = 20
+# 12ms is the fastest reliable value on this box for clean dictation.
+_XDOTOOL_TYPE_DELAY_MS = 12
 # Short accidental trigger presses often hallucinate these words from fan/mic noise.
 _SHORT_HALLUCINATIONS = {
     "thank you", "thanks", "thank", "check", "yellow", "yep", "yup",
@@ -784,14 +804,25 @@ def start_recording():
         # AntiMicroX or other apps may steal focus during recording.
         _focus_window = _active_window()
         # Auto-space before dictation so consecutive utterances don't run together.
-        # Skip for Hermes TUI: xdotool can't read its window class (returns None),
-        # and each utterance is a separate message so the space becomes junk.
-        if _focus_window is not None:
+        # Skip for Hermes TUI: each utterance is a separate message; a leading
+        # space becomes junk in the input buffer.
+        focus_title = ""
+        if _focus_window:
+            try:
+                focus_title = subprocess.check_output(
+                    ['xdotool', 'getwindowname', _focus_window],
+                    env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                    text=True, timeout=2,
+                ).strip()
+            except Exception:
+                pass
+        is_tui = (' · ' in focus_title and 'kimi' in focus_title.lower())
+        if _focus_window is not None and not is_tui:
             subprocess.run(['xdotool', 'key', 'space'],
                            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
         else:
-            log.info("no X11 focus window; skipping auto-space")
+            log.info("skipping auto-space (TUI or no focus window)")
         fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
         os.close(fd)
         fd, wavfile = tempfile.mkstemp(suffix='.wav', dir='/tmp')
@@ -1036,15 +1067,7 @@ def stop_and_send():
                     if target_window:
                         log.info(f"Hermes TUI window found: {target_window}")
 
-                if target_window:
-                    try:
-                        subprocess.run(['xdotool', 'windowactivate', target_window],
-                                       env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-                        time.sleep(0.05)
-                    except Exception:
-                        pass
-                # Leading space was already injected before capture started.
+                # Leading space was already decided before capture started.
                 _type_text_fast(transcript, mode, target_window=target_window)
         else:
             log.info("(nothing heard)")
