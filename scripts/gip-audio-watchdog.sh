@@ -13,6 +13,7 @@
 
 CHECK_INTERVAL=60
 THRESHOLD=5
+DRIP_STREAK=3         # consecutive windows with >=1 failure = chronic low-rate wedge
 COOLDOWN=300
 ESCALATE_WINDOW=900   # shallow reset that recently "worked" + wedge back = go deep
 RESET_SCRIPT="$HOME/ai-controller/scripts/reset-controller-audio.sh"
@@ -22,10 +23,11 @@ LOG="$HOME/ai-controller/logs/gip-watchdog.log"
 mkdir -p "$(dirname "$LOG")"
 last_reset=0
 last_shallow=0
+drip_count=0
 
 log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
-log "watchdog started (threshold=$THRESHOLD/${CHECK_INTERVAL}s, cooldown=${COOLDOWN}s)"
+log "watchdog started (threshold=$THRESHOLD/${CHECK_INTERVAL}s, drip_streak=${DRIP_STREAK}, cooldown=${COOLDOWN}s)"
 
 while true; do
     sleep "$CHECK_INTERVAL"
@@ -33,7 +35,24 @@ while true; do
     count=$(journalctl -k --since "$CHECK_INTERVAL sec ago" 2>/dev/null \
         | grep -c "gip_send_audio_samples: get buffer failed")
 
-    if [ "$count" -gt "$THRESHOLD" ]; then
+    # A steady ~1/window drip never crosses THRESHOLD in any single window
+    # but is exactly as audible (one click per window, indefinitely) as a
+    # burst is -- confirmed 2026-08-19: hours of continuous single-digit
+    # failures per minute that the burst-only check left completely
+    # unhandled. Track a consecutive-window streak so sustained low-rate
+    # wedging escalates the same as a burst, without reacting to one
+    # isolated blip (streak resets to 0 the moment a window comes back clean).
+    if [ "$count" -ge 1 ]; then
+        drip_count=$((drip_count + 1))
+    else
+        drip_count=0
+    fi
+
+    if [ "$count" -gt "$THRESHOLD" ] || [ "$drip_count" -ge "$DRIP_STREAK" ]; then
+        if [ "$count" -le "$THRESHOLD" ]; then
+            log "chronic drip: $count failures/window for $drip_count consecutive windows — treating as wedge"
+        fi
+        drip_count=0
         now=$(date +%s)
         if [ $((now - last_reset)) -lt "$COOLDOWN" ]; then
             log "wedge active ($count failures) but in cooldown — skipping reset"
