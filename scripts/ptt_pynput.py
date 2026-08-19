@@ -602,6 +602,12 @@ rec_proc = None
 rawfile = None
 wavfile = None
 lock = threading.Lock()
+# Prevents ghost recordings: stop_and_send must fully complete before
+# start_recording can run again. Without this, a fast double-tap
+# starts a new recording while the previous take's STT round-trip
+# is still in flight — the mic opens and captures room audio that
+# gets sent as a ghost utterance.
+_processing_lock = threading.Lock()
 _focus_window = None  # saved at recording start so we can restore focus before typing
 
 # xone-gip card reset, deferred out of the capture window. The reset cycles the
@@ -612,7 +618,7 @@ _audio_reset_proc = None
 
 # Debounce F13 chatter from the controller trigger.
 _last_f13_time = 0.0
-_DEBOUNCE_MS = 200
+_DEBOUNCE_MS = 500
 # Time for the user's finger to come off the controller before we inject keys.
 _TYPE_SETTLE_MS = 50
 # xdotool delay. 0 drops characters in the Hermes TUI's terminal input handling.
@@ -790,7 +796,13 @@ def _warmup_mic():
 
 def start_recording():
     global recording, rec_proc, rawfile, wavfile, _last_f13_time, _focus_window
-    with lock:
+    # Block until any in-flight stop_and_send completes. This is the
+    # ghost-recording fix: without it, a rapid second press opens the
+    # mic while the previous take's STT round-trip is still running,
+    # and the captured room audio becomes a phantom utterance.
+    _processing_lock.acquire()
+    try:
+        with lock:
         if recording:
             return
         now = time.time()
@@ -842,6 +854,8 @@ def start_recording():
             stdout=open(rawfile, 'wb'), stderr=subprocess.DEVNULL)
         recording = True
         log.info("Recording...")
+    finally:
+        _processing_lock.release()
 
 
 def _wav_stats(path):
@@ -882,11 +896,11 @@ def _kill_recorder():
     try:
         rec_proc.terminate()
         try:
-            rec_proc.wait(timeout=2)
+            rec_proc.wait(timeout=1)
         except subprocess.TimeoutExpired:
             log.warning("parec ignored SIGTERM — killing it")
             rec_proc.kill()
-            rec_proc.wait(timeout=2)
+            rec_proc.wait(timeout=1)
     except Exception as e:
         log.warning("recorder teardown failed: %s", e)
     finally:
@@ -940,7 +954,9 @@ def _reap_orphan_recorders():
 
 def stop_and_send():
     global recording, rec_proc, rawfile, wavfile, _last_f13_time
-    with lock:
+    _processing_lock.acquire()
+    try:
+        with lock:
         if not recording:
             return
         now = time.time()
@@ -1081,6 +1097,8 @@ def stop_and_send():
     finally:
         if show_indicator:
             _set_typing_state("idle")
+    finally:
+        _processing_lock.release()
 
     # Save a debug copy for later inspection.
     try:
