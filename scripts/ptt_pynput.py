@@ -153,8 +153,111 @@ def _load_input_target() -> str:
     return "type"
 
 
-def _type_text_fast(text: str, mode: str = "pro") -> None:
-    """Type text into the focused window.
+def _is_hermes_tui_window(window_pid: int) -> bool:
+    """Return True if window_pid (or any descendant) hosts the Hermes TUI.
+
+    The Hermes TUI runs inside a GNOME Terminal: a parent terminal process whose
+    descendants include ``hermes --tui`` and ``tui_gateway.entry``. We need to
+    activate the right terminal window before typing, otherwise xdotool sends
+    dictation to whatever terminal last had focus.
+    """
+    try:
+        import psutil  # type: ignore
+    except ImportError:
+        psutil = None
+
+    def iter_cmdline_pids(patterns):
+        for pid_str in os.listdir('/proc'):
+            if not pid_str.isdigit():
+                continue
+            try:
+                with open(f'/proc/{pid_str}/cmdline', 'rb') as f:
+                    cmd = f.read().replace(b'\x00', b' ').decode('utf-8', 'replace')
+                if any(p in cmd for p in patterns):
+                    yield int(pid_str)
+            except (OSError, ValueError):
+                continue
+
+    tui_pids = set(iter_cmdline_pids(['tui_gateway.entry', 'hermes --tui']))
+    if not tui_pids:
+        return False
+
+    if psutil is not None:
+        for tui_pid in tui_pids:
+            try:
+                proc = psutil.Process(tui_pid)
+                for ancestor in proc.parents():
+                    if ancestor.pid == window_pid:
+                        return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return False
+
+    # /proc fallback without psutil
+    def parents(pid: int):
+        seen = set()
+        while pid > 1 and pid not in seen:
+            seen.add(pid)
+            try:
+                with open(f'/proc/{pid}/stat') as f:
+                    parts = f.read().split()
+                    # field 4 is ppid
+                    pid = int(parts[3])
+                    yield pid
+            except (OSError, ValueError, IndexError):
+                break
+
+    for tui_pid in tui_pids:
+        if window_pid in parents(tui_pid):
+            return True
+    return False
+
+
+def _find_hermes_tui_window() -> str | None:
+    """Find the GNOME Terminal window ID that hosts the Hermes TUI, or None.
+
+    Multiple GNOME Terminal windows share the same process PID, so we can't
+    distinguish them by PID. We match title patterns instead: the Hermes TUI
+    title contains the model/provider separator `` · `` (e.g.
+    ``Topic · kimi-k2.7-code · ~``). We avoid the "Recover closed session"
+    terminal.
+    """
+    env = {**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')}
+    try:
+        out = subprocess.check_output(
+            ['xdotool', 'search', '--onlyvisible', '--class', 'gnome-terminal'],
+            env=env, text=True, timeout=3,
+        ).strip()
+    except Exception:
+        return None
+    candidates = []
+    active = _active_window()
+    for wid in out.split('\n'):
+        wid = wid.strip()
+        if not wid:
+            continue
+        try:
+            name = subprocess.check_output(
+                ['xdotool', 'getwindowname', wid], env=env, text=True, timeout=2
+            ).strip()
+        except Exception:
+            continue
+        # Reject the non-TUI terminal
+        if 'recover closed session' in name.lower():
+            continue
+        # Hermes TUI titles contain the conversation/model separator.
+        if ' · ' in name and ' · kimi' in name:
+            return wid
+        # Save fallback candidates: any gnome-terminal that isn't the recover one
+        candidates.append(wid)
+        # Prefer the currently active window if it looks like a TUI terminal
+        if wid == active and ' · ' in name:
+            return wid
+    return candidates[0] if candidates else None
+
+
+def _type_text_fast(text: str, mode: str = "pro", target_window: str | None = None) -> None:
+    """Type text into the focused or target window.
 
     xdotool type is the only method that works reliably across terminals,
     browsers, Discord, games, etc. Unicode modes are injected character-by-
@@ -167,9 +270,11 @@ def _type_text_fast(text: str, mode: str = "pro") -> None:
     if any(ord(ch) >= 128 for ch in text):
         # Cursive (Mathematical Script) needs more time than bold/fullwidth.
         delay = 55 if mode == "bubbly" else 35
-    subprocess.run(['xdotool', 'type', '--clearmodifiers',
-                    f'--delay={delay}', '--', text],
-                   env=env)
+    cmd = ['xdotool']
+    if target_window:
+        cmd += ['windowactivate', target_window]
+    cmd += ['type', '--clearmodifiers', f'--delay={delay}', '--', text]
+    subprocess.run(cmd, env=env)
 
 
 def _typing_hud(mode: str, text: str):
@@ -485,8 +590,9 @@ _last_f13_time = 0.0
 _DEBOUNCE_MS = 200
 # Time for the user's finger to come off the controller before we inject keys.
 _TYPE_SETTLE_MS = 50
-# Type as fast as xdotool allows to minimize the window for controller interference.
-_XDOTOOL_TYPE_DELAY_MS = 0
+# xdotool delay. 0 drops characters in the Hermes TUI's terminal input handling.
+# 20ms is the fastest reliable value on this box for clean dictation.
+_XDOTOOL_TYPE_DELAY_MS = 20
 # Short accidental trigger presses often hallucinate these words from fan/mic noise.
 _SHORT_HALLUCINATIONS = {
     "thank you", "thanks", "thank", "check", "yellow", "yep", "yup",
@@ -678,9 +784,14 @@ def start_recording():
         # AntiMicroX or other apps may steal focus during recording.
         _focus_window = _active_window()
         # Auto-space before dictation so consecutive utterances don't run together.
-        subprocess.run(['xdotool', 'key', 'space'],
-                       env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        # Skip for Hermes TUI: xdotool can't read its window class (returns None),
+        # and each utterance is a separate message so the space becomes junk.
+        if _focus_window is not None:
+            subprocess.run(['xdotool', 'key', 'space'],
+                           env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        else:
+            log.info("no X11 focus window; skipping auto-space")
         fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
         os.close(fd)
         fd, wavfile = tempfile.mkstemp(suffix='.wav', dir='/tmp')
@@ -905,16 +1016,36 @@ def stop_and_send():
                 # Restore focus to the window that was active when recording
                 # started — AntiMicroX or other apps may have stolen it.
                 global _focus_window
+                target_window = None
                 if _focus_window:
                     try:
-                        subprocess.run(['xdotool', 'windowactivate', _focus_window],
+                        # If the saved focus window doesn't host the Hermes TUI,
+                        # the user may have clicked into another terminal; find
+                        # the actual TUI window instead.
+                        focus_pid = int(subprocess.check_output(
+                            ['xdotool', 'getwindowpid', _focus_window],
+                            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                            text=True, timeout=2).strip())
+                        if _is_hermes_tui_window(focus_pid):
+                            target_window = _focus_window
+                    except Exception:
+                        pass
+
+                if target_window is None:
+                    target_window = _find_hermes_tui_window()
+                    if target_window:
+                        log.info(f"Hermes TUI window found: {target_window}")
+
+                if target_window:
+                    try:
+                        subprocess.run(['xdotool', 'windowactivate', target_window],
                                        env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
                         time.sleep(0.05)
                     except Exception:
                         pass
                 # Leading space was already injected before capture started.
-                _type_text_fast(transcript, mode)
+                _type_text_fast(transcript, mode, target_window=target_window)
         else:
             log.info("(nothing heard)")
     except Exception as ex:
