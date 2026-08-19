@@ -22,7 +22,9 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from voice_toggle import load_voice, get_voice  # reuse the tested voice resolution
 
-PIPER_BIN = "/home/elijah/.local/bin/piper"
+PIPER_CANDIDATES = (
+    os.path.expanduser("~/.local/bin/piper"),
+)
 FFMPEG_BIN = "/usr/bin/ffmpeg"
 EDGE_TTS_CANDIDATES = (
     os.path.expanduser("~/.hermes/hermes-agent/venv/bin/edge-tts"),
@@ -41,11 +43,22 @@ def _resolve_edge_tts_bin():
     raise RuntimeError("edge-tts binary not found in any known location")
 
 
+def _resolve_piper_bin():
+    for cand in PIPER_CANDIDATES:
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    import shutil
+    found = shutil.which("piper")
+    if found:
+        return found
+    raise RuntimeError("piper binary not found in any known location")
+
+
 def _piper_generate(text, model_path, output_path):
     if not model_path or not os.path.isfile(model_path):
         raise RuntimeError(f"piper model not found: {model_path!r}")
     proc = subprocess.run(
-        [PIPER_BIN, "--model", model_path, "--output_file", output_path],
+        [_resolve_piper_bin(), "--model", model_path, "--output_file", output_path],
         input=text.encode("utf-8"),
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30,
     )
