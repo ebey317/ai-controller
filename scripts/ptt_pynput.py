@@ -803,57 +803,57 @@ def start_recording():
     _processing_lock.acquire()
     try:
         with lock:
-        if recording:
-            return
-        now = time.time()
-        if (now - _last_f13_time) * 1000 < _DEBOUNCE_MS:
-            return
-        _last_f13_time = now
-        # Mute any agent TTS before we open the mic.
-        _mute_tts()
-        # If a previous take's card reset is still cycling, the capture source
-        # is missing right now. Wait it out rather than record silence.
-        _await_audio_reset()
-        # PulseAudio may have auto-suspended the Xbox headset source; wake it
-        # with a short dummy stream so the real capture gets actual audio.
-        _warmup_mic()
-        # Save the currently focused window so we can restore focus before typing.
-        # AntiMicroX or other apps may steal focus during recording.
-        _focus_window = _active_window()
-        # Auto-space before dictation so consecutive utterances don't run together.
-        # Skip for Hermes TUI: each utterance is a separate message; a leading
-        # space becomes junk in the input buffer.
-        focus_title = ""
-        if _focus_window:
-            try:
-                focus_title = subprocess.check_output(
-                    ['xdotool', 'getwindowname', _focus_window],
-                    env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                    text=True, timeout=2,
-                ).strip()
-            except Exception:
-                pass
-        is_tui = (' · ' in focus_title and 'kimi' in focus_title.lower())
-        if _focus_window is not None and not is_tui:
-            subprocess.run(['xdotool', 'key', 'space'],
-                           env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-        else:
-            log.info("skipping auto-space (TUI or no focus window)")
-        fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
-        os.close(fd)
-        fd, wavfile = tempfile.mkstemp(suffix='.wav', dir='/tmp')
-        os.close(fd)
-        rec_cmd = [
-            'stdbuf', '-o0', 'parec',
-            '--rate', str(SAMPLE_RATE), '--channels', str(CHANNELS),
-            '--format', 's16le', '--raw',
-        ] + _PAREC_DEVICE_ARGS
-        rec_proc = subprocess.Popen(
-            rec_cmd,
-            stdout=open(rawfile, 'wb'), stderr=subprocess.DEVNULL)
-        recording = True
-        log.info("Recording...")
+            if recording:
+                return
+            now = time.time()
+            if (now - _last_f13_time) * 1000 < _DEBOUNCE_MS:
+                return
+            _last_f13_time = now
+            # Mute any agent TTS before we open the mic.
+            _mute_tts()
+            # If a previous take's card reset is still cycling, the capture source
+            # is missing right now. Wait it out rather than record silence.
+            _await_audio_reset()
+            # PulseAudio may have auto-suspended the Xbox headset source; wake it
+            # with a short dummy stream so the real capture gets actual audio.
+            _warmup_mic()
+            # Save the currently focused window so we can restore focus before typing.
+            # AntiMicroX or other apps may steal focus during recording.
+            _focus_window = _active_window()
+            # Auto-space before dictation so consecutive utterances don't run together.
+            # Skip for Hermes TUI: each utterance is a separate message; a leading
+            # space becomes junk in the input buffer.
+            focus_title = ""
+            if _focus_window:
+                try:
+                    focus_title = subprocess.check_output(
+                        ['xdotool', 'getwindowname', _focus_window],
+                        env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                        text=True, timeout=2,
+                    ).strip()
+                except Exception:
+                    pass
+            is_tui = (' · ' in focus_title and 'kimi' in focus_title.lower())
+            if _focus_window is not None and not is_tui:
+                subprocess.run(['xdotool', 'key', 'space'],
+                               env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+            else:
+                log.info("skipping auto-space (TUI or no focus window)")
+            fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
+            os.close(fd)
+            fd, wavfile = tempfile.mkstemp(suffix='.wav', dir='/tmp')
+            os.close(fd)
+            rec_cmd = [
+                'stdbuf', '-o0', 'parec',
+                '--rate', str(SAMPLE_RATE), '--channels', str(CHANNELS),
+                '--format', 's16le', '--raw',
+            ] + _PAREC_DEVICE_ARGS
+            rec_proc = subprocess.Popen(
+                rec_cmd,
+                stdout=open(rawfile, 'wb'), stderr=subprocess.DEVNULL)
+            recording = True
+            log.info("Recording...")
     finally:
         _processing_lock.release()
 
@@ -957,146 +957,146 @@ def stop_and_send():
     _processing_lock.acquire()
     try:
         with lock:
-        if not recording:
-            return
-        now = time.time()
-        if (now - _last_f13_time) * 1000 < _DEBOUNCE_MS:
-            # Debounced chatter: discard this take. But NEVER return without
-            # stopping the recorder first.
-            #
-            # This used to `return` here with parec still running. The process
-            # then held the controller mic open forever — one was found alive
-            # after 81 minutes on 2026-07-30. Because xone-gip shares a single
-            # channel between mic and headset, a permanent 24 kHz capture
-            # starves the playback buffers, which the kernel logs as
-            # "gip_send_audio_samples: get buffer failed: -28" and which is
-            # audible as random clicking/popping during TTS.
-            #
-            # Every fast trigger tap leaked another one, so it compounded.
+            if not recording:
+                return
+            now = time.time()
+            if (now - _last_f13_time) * 1000 < _DEBOUNCE_MS:
+                # Debounced chatter: discard this take. But NEVER return without
+                # stopping the recorder first.
+                #
+                # This used to `return` here with parec still running. The process
+                # then held the controller mic open forever — one was found alive
+                # after 81 minutes on 2026-07-30. Because xone-gip shares a single
+                # channel between mic and headset, a permanent 24 kHz capture
+                # starves the playback buffers, which the kernel logs as
+                # "gip_send_audio_samples: get buffer failed: -28" and which is
+                # audible as random clicking/popping during TTS.
+                #
+                # Every fast trigger tap leaked another one, so it compounded.
+                _kill_recorder()
+                recording = False
+                _fire_deferred_audio_reset()
+                _cleanup_temp_files()
+                return
+            _last_f13_time = now
             _kill_recorder()
             recording = False
+            # Mic is closed — safe to cycle the card now. Async: the STT round-trip
+            # below runs in parallel, and the next press gates on _await_audio_reset.
             _fire_deferred_audio_reset()
-            _cleanup_temp_files()
+
+        # Build WAV from raw PCM
+        _build_wav(rawfile, wavfile)
+        try:
+            os.unlink(rawfile)
+        except FileNotFoundError:
+            pass
+        rawfile = None
+
+        # Minimum ~0.5s of audio
+        if not wavfile or not os.path.exists(wavfile) or os.path.getsize(wavfile) < 16000:
+            log.info("Too short — skipped.")
+            if wavfile and os.path.exists(wavfile):
+                os.unlink(wavfile)
+            wavfile = None
             return
-        _last_f13_time = now
-        _kill_recorder()
-        recording = False
-        # Mic is closed — safe to cycle the card now. Async: the STT round-trip
-        # below runs in parallel, and the next press gates on _await_audio_reset.
-        _fire_deferred_audio_reset()
 
-    # Build WAV from raw PCM
-    _build_wav(rawfile, wavfile)
-    try:
-        os.unlink(rawfile)
-    except FileNotFoundError:
-        pass
-    rawfile = None
+        # Silence check: if mic was off (power button), the WAV is flat zeros
+        if _is_silence(wavfile):
+            log.info("Silence detected (mic off?) — skipped.")
+            if wavfile and os.path.exists(wavfile):
+                os.unlink(wavfile)
+            wavfile = None
+            return
 
-    # Minimum ~0.5s of audio
-    if not wavfile or not os.path.exists(wavfile) or os.path.getsize(wavfile) < 16000:
-        log.info("Too short — skipped.")
-        if wavfile and os.path.exists(wavfile):
-            os.unlink(wavfile)
-        wavfile = None
-        return
+        duration, rms = _wav_stats(wavfile)
+        log.info(f"Sending... ({duration:.2f}s RMS={rms:.1f})")
 
-    # Silence check: if mic was off (power button), the WAV is flat zeros
-    if _is_silence(wavfile):
-        log.info("Silence detected (mic off?) — skipped.")
-        if wavfile and os.path.exists(wavfile):
-            os.unlink(wavfile)
-        wavfile = None
-        return
-
-    duration, rms = _wav_stats(wavfile)
-    log.info(f"Sending... ({duration:.2f}s RMS={rms:.1f})")
-
-    # For Unicode modes, show the typing indicator immediately on trigger
-    # release so the operator gets feedback while STT runs.
-    mode = _load_ptt_mode()
-    show_indicator = mode in ("bubbly", "bold", "big")
-    if show_indicator:
-        _set_typing_state("typing", mode)
-
-    transcript = ""
-    try:
-        r = subprocess.run(
-            ['curl', '-s', '-X', 'POST', endpoint,
-             '-F', f'audio=@{wavfile}', '-F', 'mode=transcribe_only',
-             '-H', 'Accept: application/json'],
-            capture_output=True, text=True, timeout=30)
-        data = json.loads(r.stdout)
-        # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
-        transcript = data.get('text', data.get('transcript', ''))
-        response = data.get('response', data.get('error', '')).strip()
-
-        # Short accidental trigger presses often produce hallucinated single words
-        # from controller/mic noise. Skip them instead of typing garbage.
-        clean = transcript.lower().strip(".,!?;:\"'")
-        if duration < 1.5 and clean in _SHORT_HALLUCINATIONS:
-            log.info(f"Skipped short-noise hallucination: '{transcript}'")
-            transcript = ""
-
-        # Fast personal-vocabulary autocorrect (applies to PRO and BUBBLY)
-        transcript = _apply_vocabulary(transcript)
-
-        # Apply PRO / BUBBLY / CASUAL / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
-        if mode in ("bubbly", "casual", "bold", "big") and transcript:
-            transcript = _transform_text(transcript, mode)
-
-        if response:
-            log.info(f"Response: {response}")
-        elif transcript:
-            target = _load_input_target()
-
-            # Only explicit clipboard target skips typing. Everything else goes
-            # through xdotool type — clipboard auto-paste proved unreliable in
-            # the operator's target windows.
-            use_clipboard = (target == "clipboard")
-
-            log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
-            time.sleep(_TYPE_SETTLE_MS / 1000.0)
-
-            if use_clipboard:
-                _set_clipboard_text(transcript)
-            elif _is_browser_window():
-                result = _send_browser_text(transcript)
-                if not result.get("ok"):
-                    log.warning(f"Browser inject failed: {result.get('error')}")
-            else:
-                # Restore focus to the window that was active when recording
-                # started — AntiMicroX or other apps may have stolen it.
-                global _focus_window
-                target_window = None
-                if _focus_window:
-                    try:
-                        # If the saved focus window doesn't host the Hermes TUI,
-                        # the user may have clicked into another terminal; find
-                        # the actual TUI window instead.
-                        focus_pid = int(subprocess.check_output(
-                            ['xdotool', 'getwindowpid', _focus_window],
-                            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                            text=True, timeout=2).strip())
-                        if _is_hermes_tui_window(focus_pid):
-                            target_window = _focus_window
-                    except Exception:
-                        pass
-
-                if target_window is None:
-                    target_window = _find_hermes_tui_window()
-                    if target_window:
-                        log.info(f"Hermes TUI window found: {target_window}")
-
-                # Leading space was already decided before capture started.
-                _type_text_fast(transcript, mode, target_window=target_window)
-        else:
-            log.info("(nothing heard)")
-    except Exception as ex:
-        log.error(f"Error: {ex}")
-    finally:
+        # For Unicode modes, show the typing indicator immediately on trigger
+        # release so the operator gets feedback while STT runs.
+        mode = _load_ptt_mode()
+        show_indicator = mode in ("bubbly", "bold", "big")
         if show_indicator:
-            _set_typing_state("idle")
+            _set_typing_state("typing", mode)
+
+        transcript = ""
+        try:
+            r = subprocess.run(
+                ['curl', '-s', '-X', 'POST', endpoint,
+                 '-F', f'audio=@{wavfile}', '-F', 'mode=transcribe_only',
+                 '-H', 'Accept: application/json'],
+                capture_output=True, text=True, timeout=30)
+            data = json.loads(r.stdout)
+            # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
+            transcript = data.get('text', data.get('transcript', ''))
+            response = data.get('response', data.get('error', '')).strip()
+
+            # Short accidental trigger presses often produce hallucinated single words
+            # from controller/mic noise. Skip them instead of typing garbage.
+            clean = transcript.lower().strip(".,!?;:\"'")
+            if duration < 1.5 and clean in _SHORT_HALLUCINATIONS:
+                log.info(f"Skipped short-noise hallucination: '{transcript}'")
+                transcript = ""
+
+            # Fast personal-vocabulary autocorrect (applies to PRO and BUBBLY)
+            transcript = _apply_vocabulary(transcript)
+
+            # Apply PRO / BUBBLY / CASUAL / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
+            if mode in ("bubbly", "casual", "bold", "big") and transcript:
+                transcript = _transform_text(transcript, mode)
+
+            if response:
+                log.info(f"Response: {response}")
+            elif transcript:
+                target = _load_input_target()
+
+                # Only explicit clipboard target skips typing. Everything else goes
+                # through xdotool type — clipboard auto-paste proved unreliable in
+                # the operator's target windows.
+                use_clipboard = (target == "clipboard")
+
+                log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
+                time.sleep(_TYPE_SETTLE_MS / 1000.0)
+
+                if use_clipboard:
+                    _set_clipboard_text(transcript)
+                elif _is_browser_window():
+                    result = _send_browser_text(transcript)
+                    if not result.get("ok"):
+                        log.warning(f"Browser inject failed: {result.get('error')}")
+                else:
+                    # Restore focus to the window that was active when recording
+                    # started — AntiMicroX or other apps may have stolen it.
+                    global _focus_window
+                    target_window = None
+                    if _focus_window:
+                        try:
+                            # If the saved focus window doesn't host the Hermes TUI,
+                            # the user may have clicked into another terminal; find
+                            # the actual TUI window instead.
+                            focus_pid = int(subprocess.check_output(
+                                ['xdotool', 'getwindowpid', _focus_window],
+                                env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                                text=True, timeout=2).strip())
+                            if _is_hermes_tui_window(focus_pid):
+                                target_window = _focus_window
+                        except Exception:
+                            pass
+
+                    if target_window is None:
+                        target_window = _find_hermes_tui_window()
+                        if target_window:
+                            log.info(f"Hermes TUI window found: {target_window}")
+
+                    # Leading space was already decided before capture started.
+                    _type_text_fast(transcript, mode, target_window=target_window)
+            else:
+                log.info("(nothing heard)")
+        except Exception as ex:
+            log.error(f"Error: {ex}")
+        finally:
+            if show_indicator:
+                _set_typing_state("idle")
     finally:
         _processing_lock.release()
 
