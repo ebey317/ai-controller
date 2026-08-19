@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import logging.handlers
 import os
 import subprocess
 import sys
@@ -19,10 +20,16 @@ import httpx
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
+# Make ai_controller_paths importable when running from any cwd.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+from ai_controller_paths import ai_controller_dir, load_env
+
 # -----------------------------------------------------------------------------
 # Logging setup — vocal debug output
 # -----------------------------------------------------------------------------
-LOG_DIR = Path.home() / "ai-controller" / "logs"
+LOG_DIR = Path(ai_controller_dir()) / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "voice-bridge.log"
 
@@ -30,18 +37,17 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE),
+        # DEBUG-level HTTP tracing (full Groq request/response bodies) makes
+        # this grow fast with no bound -- 5.9MB and climbing before this fix,
+        # slow to grep/tail and never trimmed. Cap at 5MB x 3 backups.
+        logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3
+        ),
         logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
 logger.info("Voice Bridge starting up — logs at %s", LOG_FILE)
-
-# Make ai_controller_paths importable when running from any cwd.
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR)
-from ai_controller_paths import ai_controller_dir, load_env
 
 
 # -----------------------------------------------------------------------------

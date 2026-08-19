@@ -5,13 +5,18 @@ import urllib.request
 import urllib.error
 from pynput import keyboard
 import logging
+import logging.handlers
 
-# Persistent file log for dictation pipeline debugging
+# Persistent file log for dictation pipeline debugging. Rotated -- this
+# process runs for days at a time and an unbounded FileHandler here grows
+# without limit for the life of the uptime.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("/tmp/ptt-pynput.log"),
+        logging.handlers.RotatingFileHandler(
+            "/tmp/ptt-pynput.log", maxBytes=5 * 1024 * 1024, backupCount=2
+        ),
         logging.StreamHandler(sys.stdout),
     ],
 )
