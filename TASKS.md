@@ -1,34 +1,24 @@
-# AI Controller Task Queue
+# AI Controller — Task Queue
 
-## Current Priority Tasks
+## In Progress / Maintenance
 
-### P0 (Critical)
-- [ ] Implement voice command processing pipeline
-- [ ] Fix PTY pynput integration in scripts/ptt_pynput.py
-- [ ] Add systemd service templates for all controller components
-- [ ] Complete USB device hotplug handling
+- [ ] Keep `AGENTS.md` and `TASKS.md` accurate as the repo evolves.
+- [ ] Monitor ghost recordings after the recorder-readiness patch; collect evidence if they recur.
+- [ ] Rotate or cap `logs/voice-bridge.log` growth (currently gitignored; check disk usage periodically).
+- [ ] Add tests for `ptt_pynput.py` debounce/lock and `slide_keyboard.py` drag math.
+- [ ] Clean up committed `.bak.*` files from history when convenient.
 
-### P1 (High)
-- [ ] Create configuration validation schema
-- [ ] Implement agent health check endpoints
-- [ ] Add metrics collection for performance monitoring
-- [ ] Create automated backup/restore procedures
+## Done (Core Product Shipped)
 
-### P2 (Medium)
-- [ ] Develop web-based configuration interface
-- [ ] Add support for additional audio backends
-- [ ] Implement agent-to-agent communication protocol
-- [ ] Create comprehensive logging dashboard
-
-### P3 (Low)
-- [ ] Create mobile companion app specifications
-- [ ] Add multi-language support for voice commands
-- [ ] Implement predictive resource scaling
-- [ ] Add machine learning model optimization pipelines
-
-## Completed Tasks
-- [x] Initial agent framework setup
-- [x] Basic voice command recognition
-- [x] System tray integration
-- [x] Configuration file management
-- [x] Logging infrastructure setup
+- [x] Push-to-talk voice dictation pipeline (`ptt_pynput.py` + `voice_bridge.py` + Groq Whisper)
+- [x] Floating on-screen keyboard (`slide_keyboard.py`)
+- [x] Controller legend HUD (`controller-legend.py`)
+- [x] Auto profile switching (`controller-profile-switcher.sh` + `systemd/`)
+- [x] TTS responses via edge-tts + mpv
+- [x] Xbox wired controller support with xone driver
+- [x] USB autosuspend / udev fixes and xpad driver guard
+- [x] Dictation modes: PRO, BUBBLY, CASUAL, BOLD, BIG
+- [x] TTS barge-in on Right Trigger press
+- [x] Ghost-recording prevention (debounce + processing lock + recorder-readiness gate)
+- [x] Public-repo portability pass (no hardcoded `/home/elijah` paths)
+- [x] MIT license + README + install wizard
