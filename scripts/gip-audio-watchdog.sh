@@ -11,7 +11,7 @@
 # reset (module reload) via the NOPASSWD sudoers rule, if installed.
 # COOLDOWN prevents a replug loop if neither reset clears the wedge.
 
-CHECK_INTERVAL=60
+CHECK_INTERVAL=20
 THRESHOLD=5
 DRIP_STREAK=3         # consecutive windows with >=1 failure = chronic low-rate wedge
 COOLDOWN=300
