@@ -610,6 +610,14 @@ lock = threading.Lock()
 _processing_lock = threading.Lock()
 _focus_window = None  # saved at recording start so we can restore focus before typing
 
+# Recorder readiness: parec can take >1s to actually attach to the PulseAudio
+# source. If the user releases F13 before it is capturing, the late-started
+# recorder would run free until the next press — a "ghost recording". We track
+# whether parec has produced its first bytes and only accept audio if it was
+# ready before release.
+_recorder_ready = threading.Event()
+_recorder_ready.set()  # idle state
+
 # xone-gip card reset, deferred out of the capture window. The reset cycles the
 # PulseAudio card profile off -> 0.7s -> on; running it while parec is attached
 # (or about to attach) destroys the take. See _mute_tts / _fire_deferred_audio_reset.
@@ -853,9 +861,39 @@ def start_recording():
                 rec_cmd,
                 stdout=open(rawfile, 'wb'), stderr=subprocess.DEVNULL)
             recording = True
+            _recorder_ready.clear()
             log.info("Recording...")
+            # Wait for parec to actually attach and emit bytes. If it doesn't
+            # start before the user releases F13, stop_and_send() will see
+            # _recorder_ready is False and kill it as a ghost.
+            threading.Thread(
+                target=_wait_recorder_ready,
+                args=(rec_proc, rawfile),
+                daemon=True,
+            ).start()
     finally:
         _processing_lock.release()
+
+
+def _wait_recorder_ready(proc, raw_path):
+    """Set _recorder_ready once parec has produced audio bytes or died."""
+    deadline = time.time() + 2.0
+    try:
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                # Recorder exited early — nothing to capture.
+                _recorder_ready.set()
+                return
+            try:
+                if os.path.exists(raw_path) and os.path.getsize(raw_path) > 0:
+                    _recorder_ready.set()
+                    return
+            except OSError:
+                pass
+            time.sleep(0.05)
+    finally:
+        # Ensure the gate is open even on unexpected errors so we don't deadlock.
+        _recorder_ready.set()
 
 
 def _wav_stats(path):
@@ -963,24 +1001,25 @@ def stop_and_send():
             if (now - _last_f13_time) * 1000 < _DEBOUNCE_MS:
                 # Debounced chatter: discard this take. But NEVER return without
                 # stopping the recorder first.
-                #
-                # This used to `return` here with parec still running. The process
-                # then held the controller mic open forever — one was found alive
-                # after 81 minutes on 2026-07-30. Because xone-gip shares a single
-                # channel between mic and headset, a permanent 24 kHz capture
-                # starves the playback buffers, which the kernel logs as
-                # "gip_send_audio_samples: get buffer failed: -28" and which is
-                # audible as random clicking/popping during TTS.
-                #
-                # Every fast trigger tap leaked another one, so it compounded.
                 _kill_recorder()
                 recording = False
+                _recorder_ready.set()
                 _fire_deferred_audio_reset()
                 _cleanup_temp_files()
                 return
             _last_f13_time = now
             _kill_recorder()
             recording = False
+
+            # If parec never actually started before release, this is a ghost
+            # recording. Kill it and bail before any STT or typing happens.
+            if not _recorder_ready.is_set():
+                log.info("Recorder never became ready — ghost recording prevented")
+                _fire_deferred_audio_reset()
+                _cleanup_temp_files()
+                _recorder_ready.set()
+                return
+
             # Mic is closed — safe to cycle the card now. Async: the STT round-trip
             # below runs in parallel, and the next press gates on _await_audio_reset.
             _fire_deferred_audio_reset()
@@ -1065,28 +1104,21 @@ def stop_and_send():
                     if not result.get("ok"):
                         log.warning(f"Browser inject failed: {result.get('error')}")
                 else:
-                    # Restore focus to the window that was active when recording
-                    # started — AntiMicroX or other apps may have stolen it.
+                    # Type into the window that was active when recording started.
+                    # AntiMicroX or other overlays may have moved focus since then,
+                    # so we restore it explicitly before typing. We do NOT search
+                    # for the Hermes TUI — if the user clicked a different window,
+                    # their voice goes there, not here.
                     global _focus_window
-                    target_window = None
-                    if _focus_window:
+                    target_window = _focus_window
+                    if target_window:
                         try:
-                            # If the saved focus window doesn't host the Hermes TUI,
-                            # the user may have clicked into another terminal; find
-                            # the actual TUI window instead.
-                            focus_pid = int(subprocess.check_output(
-                                ['xdotool', 'getwindowpid', _focus_window],
+                            subprocess.run(
+                                ['xdotool', 'windowfocus', '--sync', target_window],
                                 env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                                text=True, timeout=2).strip())
-                            if _is_hermes_tui_window(focus_pid):
-                                target_window = _focus_window
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
                         except Exception:
                             pass
-
-                    if target_window is None:
-                        target_window = _find_hermes_tui_window()
-                        if target_window:
-                            log.info(f"Hermes TUI window found: {target_window}")
 
                     # Leading space was already decided before capture started.
                     _type_text_fast(transcript, mode, target_window=target_window)
@@ -1115,6 +1147,9 @@ def on_press(key):
     log.debug("Key pressed: %s (vk=%s)", key, getattr(key, 'vk', None))
     if key == keyboard.Key.f13:
         log.info("F13 PRESSED — starting recording")
+        # Ensure the recorder-ready gate is idle before starting, otherwise a
+        # stale event from a previous failed take could let a ghost through.
+        _recorder_ready.set()
         threading.Thread(target=start_recording, daemon=True).start()
 
 

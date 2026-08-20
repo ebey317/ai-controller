@@ -282,13 +282,16 @@ for svc in "${SERVICES[@]}"; do
 done
 
 systemctl --user daemon-reload
-# Services are enabled (not launcher-controlled) so a reboot/logout doesn't
-# silently kill the rig with no auto-recovery — see the 2026-07-12 fix note.
+# Services are DISABLED after install so they start/stop ONLY from the AI
+# Controller desktop launcher.  The launcher app has a "Start on boot"
+# checkbox (it writes a .desktop autostart entry for the launcher itself),
+# which is the ONLY sanctioned auto-start path.  Enabling the individual
+# services directly would bypass the launcher and is not supported.
 for svc in "${SERVICES[@]}"; do
-    systemctl --user enable --now "${svc}" 2>/dev/null || true
+    systemctl --user disable "${svc}" 2>/dev/null || true
 done
 
-# ── 11. INSTALL DESKTOP LAUNCHER (no autostart — launcher app controls services) ──
+# ── 11. INSTALL DESKTOP LAUNCHER (launcher app controls services) ──
 echo "→ Installing desktop launcher..."
 chmod +x "${INSTALL_DIR}/scripts/ai-controller-launcher.sh"
 DESKTOP_DIR="${HOME}/.local/share/applications"
@@ -296,7 +299,7 @@ mkdir -p "${DESKTOP_DIR}"
 cp "${INSTALL_DIR}/ai-controller-launcher.desktop" "${DESKTOP_DIR}/"
 sed -i "s|__AI_CONTROLLER_DIR__|${INSTALL_DIR}|g" "${DESKTOP_DIR}/ai-controller-launcher.desktop"
 
-# ── 12. NOTE: Services are NOT auto-started — use the AI Controller launcher app.
+# ── 12. NOTE: Services are installed but NOT auto-started — use the launcher.
 echo ""
 echo "→ Services installed but not started. Use the AI Controller desktop app to start them."
 echo ""
