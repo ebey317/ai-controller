@@ -18,7 +18,7 @@ AI Controller is a Linux desktop accessibility system. It turns a wired Xbox Ser
 
 ## Hard rules for agents
 
-- **The active AntiMicroX profile is `desktop`** (see `~/.config/ai-controller/controller_current_profile`). Do not switch profiles, edit profile files, or stop/restart/disable `antimicrox-autoload.service` unless the user explicitly asks for it in the current task. This service is what keeps the controller mapped to the desktop at all — breaking it silently breaks the user's only input device.
+- **The active AntiMicroX profile is `desktop`** (see `~/.controller_current_profile`, written by `controller-profile-switcher.sh`; the separate `~/.config/ai-controller/lock_desktop_profile` sentinel pins it there). Do not switch profiles, edit profile files, or stop/restart/disable `antimicrox-autoload.service` unless the user explicitly asks for it in the current task. This service is what keeps the controller mapped to the desktop at all — breaking it silently breaks the user's only input device.
 - **Real API keys and audio device names live in `~/.config/ai-controller/config.env`** (Groq API key, `AUDIO_INPUT`, `AUDIO_OUTPUT`). This file is outside the repo and is never committed. Never hardcode a key, never print the file's contents into a commit, log that gets committed, or PR description.
 - **No hardcoded `/home/elijah` paths in committed code.** The repo already went through a portability pass for this — use `%h`/`$HOME`/relative paths in anything that ships. If you find a regression, fix it.
 

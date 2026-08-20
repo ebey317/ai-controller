@@ -6,7 +6,6 @@
 - [ ] Monitor ghost recordings after the recorder-readiness patch; collect evidence if they recur.
 - [ ] Rotate or cap `logs/voice-bridge.log` growth (currently gitignored; check disk usage periodically).
 - [ ] Add tests for `ptt_pynput.py` debounce/lock and `slide_keyboard.py` drag math.
-- [ ] Clean up committed `.bak.*` files from history when convenient.
 
 ## Done (Core Product Shipped)
 
@@ -22,3 +21,4 @@
 - [x] Ghost-recording prevention (debounce + processing lock + recorder-readiness gate)
 - [x] Public-repo portability pass (no hardcoded `/home/elijah` paths)
 - [x] MIT license + README + install wizard
+- [x] Removed tracked `.bak.*` files from git history (`.gitignore` already excludes them)
