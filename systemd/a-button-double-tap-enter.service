@@ -1,0 +1,15 @@
+[Unit]
+Description=A-button double-tap -> Enter (drag-safe, adds to existing click/drag mapping)
+After=graphical-session.target antimicrox-autoload.service
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/a_button_double_tap_enter.py
+Restart=on-failure
+RestartSec=3
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+
+[Install]
+WantedBy=default.target
