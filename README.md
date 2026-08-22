@@ -188,6 +188,99 @@ Common issues:
 
 Please run `black` on all Python files before submitting. Keep shell scripts `shellcheck`-clean.
 
+## API Documentation
+
+The voice bridge service runs on `http://localhost:8002` and provides the following endpoints:
+
+- `GET /health` - Returns service health status
+- `POST /voice` - Transcribes audio or generates TTS
+
+### Transcribe audio
+
+```bash
+curl -X POST http://localhost:8002/voice?mode=transcribe_only \
+  -F "audio=@recording.wav"
+```
+
+### Generate TTS
+
+```bash
+curl -X POST http://localhost:8002/voice?mode=tts_only \
+  -d "text=Hello, world!"
+```
+
+### Combined mode
+
+```bash
+curl -X POST http://localhost:8002/voice?mode=both \
+  -F "audio=@recording.wav"
+```
+
+## Service Documentation
+
+The system consists of the following services:
+
+- `ptt-pynput.service` - Listens for F13 key presses and captures audio
+- `voice-bridge.service` - FastAPI service for speech-to-text and text-to-speech
+- `ai-slide-keyboard.service` - On-screen keyboard overlay
+- `controller-legend.service` - Controller button mapping overlay
+- `antimicrox-autoload.service` - Auto-loads the default controller profile
+- `f13-xmodmap-heal.service` - Restores F13 key mapping when needed
+- `xone-driver-guard.service` - Prevents USB autosuspend on the Xbox controller
+
+All services are managed via systemd user units and can be controlled with:
+
+```bash
+systemctl --user start/stop/restart <service-name>.service
+systemctl --user enable/disable <service-name>.service
+```
+
+## Services & API
+
+AI Controller exposes a small HTTP surface for voice and status:
+
+| Service | Endpoint / Script | Purpose |
+|---|---|---|
+| Voice bridge | `scripts/voice_bridge.py` (FastAPI on `:8002`) | STT via Groq Whisper + TTS via edge-tts |
+| Push-to-talk | `scripts/ptt_pynput.py` | Watches F13 (Right Trigger) and sends audio to voice bridge |
+| On-screen keyboard | `scripts/slide_keyboard.py` | GTK keyboard that types into the focused window |
+| Controller legend | `scripts/controller-legend.py` | Floating HUD showing the active button map |
+| Profile switcher | `scripts/controller-profile-switcher.sh` | Watches the active window and swaps AntiMicroX profiles |
+
+All systemd services live under `systemd/` and are controlled with `systemctl --user`.
+
+---
+
+## Development Setup
+
+1. Clone the repository: `git clone https://github.com/ebey317/ai-controller.git`
+2. Install dependencies: `bash install.sh`
+3. Set up pre-commit hooks: `pre-commit install`
+4. Run linters: `ruff check . && black --check . && isort --check-only .`
+5. Run tests: `pytest`
+
+## Testing
+
+Tests are located in the `tests/` directory and can be run with:
+
+```bash
+pytest --tb=short -v --cov=scripts --cov=tests --cov-report=term-missing
+```
+
+The test suite includes:
+
+- `test_utils.py` - Tests for utility functions and repo structure
+- `test_ai_controller_paths.py` - Tests for path/config helpers
+- `test_voice_bridge.py` - Tests for the voice bridge API
+
+## Pull Request Guidelines
+
+- All Python code must pass `ruff` and `black` checks
+- All shell scripts must pass `shellcheck`
+- All new features must have accompanying tests
+- Documentation must be updated for any new features or API changes
+- CI must pass before merging
+
 ## License
 
 [MIT License](LICENSE) — © 2026 Elijah Wilkins

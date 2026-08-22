@@ -1,0 +1,39 @@
+# Continuous Integration workflow
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov ruff black isort shellcheck-py pre-commit
+      - name: Run linters
+        run: |
+          ruff check .
+          black --check .
+          isort --check-only .
+          shellcheck scripts/*.sh
+      - name: Run tests
+        run: |
+          pytest --tb=short -v --cov=scripts --cov=tests --cov-report=term-missing --cov-report=html
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: true
+          verbose: true
