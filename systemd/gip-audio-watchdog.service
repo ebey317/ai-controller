@@ -1,0 +1,15 @@
+[Unit]
+Description=xone-gip headset audio buffer wedge watchdog
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bash %h/ai-controller/scripts/gip-audio-watchdog.sh
+WorkingDirectory=%h/ai-controller/scripts
+Restart=on-failure
+RestartSec=5
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+
+[Install]
+WantedBy=default.target

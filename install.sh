@@ -19,6 +19,8 @@ SERVICES=(
     ptt-pynput.service
     voice-bridge.service
     ai-slide-keyboard.service
+    a-button-double-tap-enter.service
+    gip-audio-watchdog.service
 )
 
 echo "======================================"
@@ -152,8 +154,11 @@ echo "→ Creating Python virtual environment..."
 # so we don't have to build PyGObject from source on every install.
 python3 -m venv --system-site-packages "${INSTALL_DIR}/.venv"
 "${INSTALL_DIR}/.venv/bin/pip" install --quiet --upgrade pip
-"${INSTALL_DIR}/.venv/bin/pip" install --quiet \
-    httpx fastapi uvicorn pynput numpy scipy edge-tts
+# requirements.txt is the single source of truth for deps -- do not hardcode
+# a package list here, it will silently drift out of sync (it already had,
+# twice: evdev and pycairo were both missing from a duplicate list that used
+# to live here, which is exactly what let the venv ship broken).
+"${INSTALL_DIR}/.venv/bin/pip" install --quiet -r "${REPO_DIR}/requirements.txt"
 
 # ── 5. PROMPT FOR GROQ API KEY ───────────────────────────────────────────────
 echo ""

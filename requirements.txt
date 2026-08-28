@@ -5,3 +5,5 @@ pynput
 numpy
 scipy
 edge-tts
+evdev
+pycairo
