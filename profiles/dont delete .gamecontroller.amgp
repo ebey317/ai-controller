@@ -164,8 +164,8 @@
             <button index="3">
                 <slots>
                     <slot>
-                        <code>0x1000007</code>
-                        <mode>keyboard</mode>
+                        <path>/home/elijah/ai-controller/scripts/ai-rofi-launcher.sh</path>
+                        <mode>execute</mode>
                     </slot>
                 </slots>
             </button>
