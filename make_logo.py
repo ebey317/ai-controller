@@ -117,7 +117,7 @@ draw.arc([cup_x - 20, cup_y - 80, cup_x, cup_y - 40], 180, 0, fill=LIGHT, width=
 draw.arc([cup_x, cup_y - 90, cup_x + 20, cup_y - 50], 180, 0, fill=LIGHT, width=3)
 
 # --- Sound waves left side ---
-for i, (x, y, r) in enumerate([(160, 320, 30), (120, 340, 50), (80, 360, 70)]):
+for _i, (x, y, r) in enumerate([(160, 320, 30), (120, 340, 50), (80, 360, 70)]):
     draw.arc([x - r, y - r, x + r, y + r], 270, 90, fill=ORANGE, width=4)
 
 # --- Product name ---

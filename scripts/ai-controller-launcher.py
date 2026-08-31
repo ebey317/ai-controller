@@ -13,11 +13,11 @@ Features:
 import os
 import shutil
 import subprocess
-import sys
 
 import gi
+
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, GLib
+from gi.repository import GLib, Gtk
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTALL_DIR = os.path.dirname(SCRIPT_DIR)

@@ -15,12 +15,9 @@ voice, and premium lock status. Locked personas can be sold as add-on packs.
 import argparse
 import json
 import os
-import signal
 import subprocess
 import sys
 import tempfile
-import threading
-import time
 import wave
 
 import httpx

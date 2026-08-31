@@ -32,14 +32,15 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import cairo
 import gi
+
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
-from gi.repository import Gtk, Gdk, GLib
+from gi.repository import Gdk, GLib, Gtk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ai_controller_paths import config_dir, ensure_config_dir
-import voice_toggle
 import focus_guard
+import voice_toggle
+from ai_controller_paths import config_dir, ensure_config_dir
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()

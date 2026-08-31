@@ -4,7 +4,6 @@ Every script uses these helpers so the install can live anywhere under $HOME
 and never hardcode the original developer's home directory.
 """
 import os
-from pathlib import Path
 
 
 def ai_controller_dir() -> str:

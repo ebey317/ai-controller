@@ -4,10 +4,16 @@ Controller Legend HUD — horizontal strip below cursor with smoke pointer.
 Supports pagination (Left/Right to scroll through button mapping pages).
 """
 import gi
+
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
-from gi.repository import Gtk, Gdk, GLib
-import cairo, os, glob, fcntl, sys
+import fcntl
+import glob
+import os
+import sys
+
+import cairo
+from gi.repository import Gdk, GLib, Gtk
 
 # Singleton: bail out if another instance is already running.
 _singleton_fd = os.open("/tmp/controller-legend.lock", os.O_CREAT | os.O_RDWR)
@@ -161,7 +167,7 @@ class Legend(Gtk.Window):
         # Initialize button and action label lists (max 24 slots)
         self.btn_labels = []
         self.act_labels = []
-        MAX_BUTTONS = 24  # enough for 2 pages of 12 buttons each
+        # enough for 2 pages of 12 buttons each (kept as doc; loop is page-driven)
         for i in range(BUTTONS_PER_PAGE * 2):
             bl = Gtk.Label()
             bl.set_xalign(0.5)

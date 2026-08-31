@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
-import sys, subprocess, os, tempfile, json, threading, wave, struct, time, re, random, fcntl, signal
-from datetime import datetime
-import urllib.request
-import urllib.error
-from pynput import keyboard
+import fcntl
+import json
 import logging
 import logging.handlers
+import os
+import random
+import re
+import signal
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
+import wave
+from datetime import datetime
+
+from pynput import keyboard
 
 # Persistent file log for dictation pipeline debugging. Rotated -- this
 # process runs for days at a time and an unbounded FileHandler here grows
@@ -126,7 +139,7 @@ _EMOJI_MAP = {
     "time": "time ⏰", "date": "date 📅", "mail": "mail 📧", "email": "email 📧",
     # nature / animals
     "sun": "sun ☀️", "moon": "moon 🌙", "star": "star ⭐", "rain": "rain 🌧️",
-    "snow": "snow ❄️", "fire": "fire 🔥", "ghost": "ghost 👻", "skull": "skull 💀",
+    "snow": "snow ❄️", "ghost": "ghost 👻", "skull": "skull 💀",
     "cat": "cat 🐱", "dog": "dog 🐶", "bird": "bird 🐦", "fish": "fish 🐟",
     # events
     "party": "party 🎉", "birthday": "birthday 🎂", "congratulations": "congratulations 🎉",
@@ -725,6 +738,7 @@ def _mute_tts():
     # only thing that actually stops the sound.
     r4 = subprocess.run(['spd-say', '-C'],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    del r4  # exit code not actionable; call is for cancelling current speech
 
     # If we killed a live TTS player, reset the xone-gip audio to clear any wedge.
     #
@@ -1262,6 +1276,7 @@ _reap_orphan_recorders()
 
 # Start evdev listener thread (does the actual F13 capture)
 import threading as _thr
+
 _evdev_thread = _thr.Thread(target=_run_evdev_listener, daemon=True, name="evdev-f13")
 _evdev_thread.start()
 

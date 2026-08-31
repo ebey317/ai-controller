@@ -20,7 +20,7 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
-from voice_toggle import load_voice, get_voice  # reuse the tested voice resolution
+from voice_toggle import get_voice, load_voice  # reuse the tested voice resolution
 
 PIPER_CANDIDATES = (
     os.path.expanduser("~/.local/bin/piper"),

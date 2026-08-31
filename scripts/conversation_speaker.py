@@ -23,7 +23,6 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
-from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
@@ -281,7 +280,7 @@ def main():
     p_tail = sub.add_parser("tail", help="Tail a log file and speak new lines")
     p_tail.add_argument("file", help="Log file to watch")
 
-    p_tg = sub.add_parser("telegram", help="Poll Telegram and speak messages")
+    sub.add_parser("telegram", help="Poll Telegram and speak messages")
 
     p_loop = sub.add_parser("loop", help="Repeat specific messages for a set duration")
     p_loop.add_argument("--duration", type=int, default=7200, help="Total seconds to run (default 7200 = 2 hours)")

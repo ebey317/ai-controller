@@ -20,7 +20,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 import voice_toggle
-from ai_controller_paths import ai_controller_dir, config_dir, load_env
+from ai_controller_paths import load_env
 
 VOICE_BRIDGE_URL = os.environ.get("VOICE_BRIDGE_URL", "http://localhost:8002/voice")
 
