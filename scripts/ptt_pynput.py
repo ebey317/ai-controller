@@ -1078,7 +1078,7 @@ def stop_and_send():
                 ['curl', '-s', '-X', 'POST', endpoint,
                  '-F', f'audio=@{wavfile}', '-F', 'mode=transcribe_only',
                  '-H', 'Accept: application/json'],
-                capture_output=True, text=True, timeout=30)
+                capture_output=True, text=True, timeout=60)
             data = json.loads(r.stdout)
             # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
             transcript = data.get('text', data.get('transcript', ''))
