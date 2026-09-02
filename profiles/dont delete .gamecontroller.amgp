@@ -150,6 +150,7 @@
                 </triggerbutton>
             </trigger>
             <trigger index="5">
+                <deadZone>6000</deadZone>
                 <throttle>positivehalf</throttle>
                 <triggerbutton index="2">
                     <slots>
@@ -181,6 +182,14 @@
                     <slot>
                         <code>0x1000007</code>
                         <mode>keyboard</mode>
+                    </slot>
+                </slots>
+            </button>
+            <button index="6">
+                <slots>
+                    <slot>
+                        <path>/home/elijah/ai-controller/scripts/toggle-slide-keyboard.sh</path>
+                        <mode>execute</mode>
                     </slot>
                 </slots>
             </button>
