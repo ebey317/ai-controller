@@ -4,8 +4,8 @@
     <sdlname>Xbox Series Controller</sdlname>
     <!--The Unique ID for a joystick is included for informational purposes only.-->
     <uniqueID>060000005e040000120b00000b05000011182834</uniqueID>
-    <stickAxisAssociation index="1" xAxis="1" yAxis="2"/>
     <stickAxisAssociation index="2" xAxis="3" yAxis="4"/>
+    <stickAxisAssociation index="1" xAxis="1" yAxis="2"/>
     <vdpadButtonAssociations index="1">
         <vdpadButtonAssociation axis="0" button="12" direction="1"/>
         <vdpadButtonAssociation axis="0" button="13" direction="4"/>
@@ -13,15 +13,54 @@
         <vdpadButtonAssociation axis="0" button="15" direction="2"/>
     </vdpadButtonAssociations>
     <names>
-        <controlstickname index="1">Stick 1</controlstickname>
         <controlstickname index="2">Stick 2</controlstickname>
+        <controlstickname index="1">Stick 1</controlstickname>
     </names>
     <sets>
         <set index="1">
+            <stick index="2">
+                <deadZone>6500</deadZone>
+                <maxZone>28000</maxZone>
+                <stickbutton index="1">
+                    <slots>
+                        <slot>
+                            <code>4</code>
+                            <mode>mousebutton</mode>
+                        </slot>
+                    </slots>
+                </stickbutton>
+                <stickbutton index="5">
+                    <slots>
+                        <slot>
+                            <code>5</code>
+                            <mode>mousebutton</mode>
+                        </slot>
+                    </slots>
+                </stickbutton>
+                <stickbutton index="2">
+                    <slots>
+                        <slot>
+                            <code>0x61000028</code>
+                            <mode>keyboard</mode>
+                        </slot>
+                    </slots>
+                </stickbutton>
+            </stick>
             <stick index="1">
                 <deadZone>3000</deadZone>
                 <maxZone>28000</maxZone>
                 <diagonalRange>65</diagonalRange>
+                <stickbutton index="1">
+                    <mousespeedx>25</mousespeedx>
+                    <mousespeedy>25</mousespeedy>
+                    <mouseacceleration>quadratic</mouseacceleration>
+                    <slots>
+                        <slot>
+                            <code>1</code>
+                            <mode>mousemovement</mode>
+                        </slot>
+                    </slots>
+                </stickbutton>
                 <stickbutton index="7">
                     <mousespeedx>25</mousespeedx>
                     <mousespeedy>25</mousespeedy>
@@ -44,14 +83,6 @@
                         </slot>
                     </slots>
                 </stickbutton>
-                <stickbutton index="2">
-                    <slots>
-                        <slot>
-                            <code>0x1000000</code>
-                            <mode>keyboard</mode>
-                        </slot>
-                    </slots>
-                </stickbutton>
                 <stickbutton index="3">
                     <mousespeedx>25</mousespeedx>
                     <mousespeedy>25</mousespeedy>
@@ -63,51 +94,20 @@
                         </slot>
                     </slots>
                 </stickbutton>
-                <stickbutton index="1">
-                    <mousespeedx>25</mousespeedx>
-                    <mousespeedy>25</mousespeedy>
-                    <mouseacceleration>quadratic</mouseacceleration>
-                    <slots>
-                        <slot>
-                            <code>1</code>
-                            <mode>mousemovement</mode>
-                        </slot>
-                    </slots>
-                </stickbutton>
-            </stick>
-            <stick index="2">
-                <deadZone>6500</deadZone>
-                <maxZone>28000</maxZone>
-                <stickbutton index="5">
-                    <slots>
-                        <slot>
-                            <code>5</code>
-                            <mode>mousebutton</mode>
-                        </slot>
-                    </slots>
-                </stickbutton>
                 <stickbutton index="2">
                     <slots>
                         <slot>
-                            <code>0x61000028</code>
+                            <code>0x1000000</code>
                             <mode>keyboard</mode>
-                        </slot>
-                    </slots>
-                </stickbutton>
-                <stickbutton index="1">
-                    <slots>
-                        <slot>
-                            <code>4</code>
-                            <mode>mousebutton</mode>
                         </slot>
                     </slots>
                 </stickbutton>
             </stick>
             <dpad index="1">
-                <dpadbutton index="4">
+                <dpadbutton index="1">
                     <slots>
                         <slot>
-                            <code>0x1000015</code>
+                            <code>0x1000013</code>
                             <mode>keyboard</mode>
                         </slot>
                     </slots>
@@ -120,6 +120,14 @@
                         </slot>
                     </slots>
                 </dpadbutton>
+                <dpadbutton index="4">
+                    <slots>
+                        <slot>
+                            <code>0x1000015</code>
+                            <mode>keyboard</mode>
+                        </slot>
+                    </slots>
+                </dpadbutton>
                 <dpadbutton index="2">
                     <slots>
                         <slot>
@@ -128,27 +136,7 @@
                         </slot>
                     </slots>
                 </dpadbutton>
-                <dpadbutton index="1">
-                    <slots>
-                        <slot>
-                            <code>0x1000013</code>
-                            <mode>keyboard</mode>
-                        </slot>
-                    </slots>
-                </dpadbutton>
             </dpad>
-            <trigger index="5">
-                <deadZone>6000</deadZone>
-                <throttle>positivehalf</throttle>
-                <triggerbutton index="2">
-                    <slots>
-                        <slot>
-                            <code>0x1000021</code>
-                            <mode>keyboard</mode>
-                        </slot>
-                    </slots>
-                </triggerbutton>
-            </trigger>
             <trigger index="6">
                 <deadZone>5000</deadZone>
                 <throttle>positivehalf</throttle>
@@ -161,11 +149,38 @@
                     </slots>
                 </triggerbutton>
             </trigger>
-            <button index="3">
+            <trigger index="5">
+                <throttle>positivehalf</throttle>
+                <triggerbutton index="2">
+                    <slots>
+                        <slot>
+                            <code>0x1000021</code>
+                            <mode>keyboard</mode>
+                        </slot>
+                    </slots>
+                </triggerbutton>
+            </trigger>
+            <button index="8">
                 <slots>
                     <slot>
-                        <path>/home/elijah/ai-controller/scripts/ai-rofi-launcher.sh</path>
-                        <mode>execute</mode>
+                        <code>0x1000000</code>
+                        <mode>keyboard</mode>
+                    </slot>
+                </slots>
+            </button>
+            <button index="7">
+                <slots>
+                    <slot>
+                        <code>0x1000001</code>
+                        <mode>keyboard</mode>
+                    </slot>
+                </slots>
+            </button>
+            <button index="5">
+                <slots>
+                    <slot>
+                        <code>0x1000007</code>
+                        <mode>keyboard</mode>
                     </slot>
                 </slots>
             </button>
@@ -174,6 +189,22 @@
                     <slot>
                         <path>/home/elijah/ai-controller/scripts/ai-rofi-launcher.sh</path>
                         <mode>execute</mode>
+                    </slot>
+                </slots>
+            </button>
+            <button index="3">
+                <slots>
+                    <slot>
+                        <path>/home/elijah/ai-controller/scripts/ai-rofi-launcher.sh</path>
+                        <mode>execute</mode>
+                    </slot>
+                </slots>
+            </button>
+            <button index="2">
+                <slots>
+                    <slot>
+                        <code>0x1000003</code>
+                        <mode>keyboard</mode>
                     </slot>
                 </slots>
             </button>
@@ -193,38 +224,6 @@
                     </slot>
                 </slots>
             </button>
-            <button index="2">
-                <slots>
-                    <slot>
-                        <code>0x1000003</code>
-                        <mode>keyboard</mode>
-                    </slot>
-                </slots>
-            </button>
-            <button index="7">
-                <slots>
-                    <slot>
-                        <code>0x1000001</code>
-                        <mode>keyboard</mode>
-                    </slot>
-                </slots>
-            </button>
-            <button index="8">
-                <slots>
-                    <slot>
-                        <code>0x1000000</code>
-                        <mode>keyboard</mode>
-                    </slot>
-                </slots>
-            </button>
-            <button index="5">
-                <slots>
-                    <slot>
-                        <path>/home/elijah/ai-controller/scripts/toggle-slide-keyboard.sh</path>
-                        <mode>execute</mode>
-                    </slot>
-                </slots>
-            </button>
             <button index="11">
                 <slots>
                     <slot>
@@ -233,18 +232,18 @@
                     </slot>
                 </slots>
             </button>
-            <button index="9">
-                <slots>
-                    <slot>
-                        <code>0x1000004</code>
-                        <mode>keyboard</mode>
-                    </slot>
-                </slots>
-            </button>
             <button index="10">
                 <slots>
                     <slot>
                         <code>0x1000020</code>
+                        <mode>keyboard</mode>
+                    </slot>
+                </slots>
+            </button>
+            <button index="9">
+                <slots>
+                    <slot>
+                        <code>0x1000004</code>
                         <mode>keyboard</mode>
                     </slot>
                 </slots>
