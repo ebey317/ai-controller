@@ -135,8 +135,8 @@ class Legend(Gtk.Window):
         self.grid = Gtk.Grid()
         self.grid.set_column_spacing(9)
         self.grid.set_row_spacing(0)
-        self.grid.set_margin_start(8)
-        self.grid.set_margin_end(6)
+        self.grid.set_margin_start(4)
+        self.grid.set_margin_end(4)
         self.grid.set_margin_top(0)
         self.grid.set_margin_bottom(0)
         self.content_box.pack_start(self.grid, False, False, 0)
@@ -167,8 +167,11 @@ class Legend(Gtk.Window):
         # Initialize button and action label lists (max 24 slots)
         self.btn_labels = []
         self.act_labels = []
-        # enough for 2 pages of 12 buttons each (kept as doc; loop is page-driven)
-        for i in range(BUTTONS_PER_PAGE * 2):
+        # One page's worth of slots. No layout in ALL_LAYOUTS exceeds
+        # BUTTONS_PER_PAGE entries, so a second page's worth of hidden grid
+        # columns was permanently reserving ~150px of empty width on the
+        # right of the HUD for content that can never appear.
+        for i in range(BUTTONS_PER_PAGE):
             bl = Gtk.Label()
             bl.set_xalign(0.5)
             bl.set_halign(Gtk.Align.CENTER)
