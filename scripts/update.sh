@@ -17,7 +17,7 @@
 set -euo pipefail
 
 INSTALL_DIR="${AI_CONTROLLER_DIR:-$HOME/ai-controller}"
-CONTROLLER_SERVICES=(voice-bridge.service ptt-pynput.service controller-legend.service antimicrox-autoload.service)
+CONTROLLER_SERVICES=(voice-bridge.service ptt-pynput.service controller-legend.service antimicrox-autoload.service ai-slide-keyboard.service)
 
 git_update() {
     echo "Checking for updates in $INSTALL_DIR (git) ..."
