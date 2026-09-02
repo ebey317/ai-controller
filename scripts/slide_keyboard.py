@@ -90,17 +90,29 @@ LABELS = {
 # Same dark/orange family as controller-legend.py's HUD, so the two read as
 # one floating-overlay system instead of unrelated widgets.
 def _modifier_state():
-    """Return (ctrl, alt) from live X11 keyboard state — queried at click time, no listener."""
+    """Return (ctrl, alt, shift) from live X11 keyboard state.
+
+    Query X11 directly via python-xlib rather than GTK. The keyboard window
+    never takes focus (set_accept_focus(False)), so GTK/Gdk's modifier
+    state can lag or miss synthetic modifier events from the controller.
+    X11's global keymap state matches real-keyboard behaviour so
+    Ctrl/Shift/Alt held by the controller are detected.
+    """
     try:
-        try:
-            keymap = Gdk.Keymap.get_for_display(Gdk.Display.get_default())
-        except Exception:
-            keymap = Gdk.Keymap.get_default()
-        mask = keymap.get_modifier_state()
-        return (bool(mask & Gdk.ModifierType.CONTROL_MASK),
-                bool(mask & Gdk.ModifierType.MOD1_MASK))
+        import Xlib.display
+        disp = Xlib.display.Display()
+        keymap = disp.query_keymap()
+        # Standard X11 modifier keycodes:
+        #   Control_L = 37, Control_R = 109
+        #   Shift_L = 50, Shift_R = 62
+        #   Alt_L (Mod1) = 64, Alt_R = 108
+        ctrl = bool(keymap[37 >> 3] & (1 << (37 & 7))) or bool(keymap[109 >> 3] & (1 << (109 & 7)))
+        shift = bool(keymap[50 >> 3] & (1 << (50 & 7))) or bool(keymap[62 >> 3] & (1 << (62 & 7)))
+        alt = bool(keymap[64 >> 3] & (1 << (64 & 7))) or bool(keymap[108 >> 3] & (1 << (108 & 7)))
+        disp.close()
+        return ctrl, alt, shift
     except Exception:
-        return False, False
+        return False, False, False
 
 
 HUD_ORANGE = "#FF6A00"
@@ -146,7 +158,7 @@ button.pin-add:hover { background-color: #2f2f3a; color: #3ddc97; }
 """
 
 
-def send(key, ctrl=False, alt=False, target_win=None):
+def send(key, ctrl=False, alt=False, shift=False, target_win=None):
     """Send `key` to `target_win`, verified focused first.
 
     The keyboard window never takes focus (see class docstring), so every
@@ -161,8 +173,8 @@ def send(key, ctrl=False, alt=False, target_win=None):
     if key == "shift":
         return
     try:
-        if ctrl or alt:
-            prefix = ("ctrl+" if ctrl else "") + ("alt+" if alt else "")
+        if ctrl or alt or shift:
+            prefix = ("ctrl+" if ctrl else "") + ("alt+" if alt else "") + ("shift+" if shift else "")
             key_spec = prefix + (SPECIAL[key] if key in SPECIAL else key.lower())
             focus_guard.guarded_key(target_win, key_spec)
         elif key in SPECIAL:
@@ -532,8 +544,8 @@ class SlideKeyboard(Gtk.Window):
             self.shift_on = not self.shift_on
             self._build_keys()
             return
-        ctrl, alt = _modifier_state()
-        send(key, ctrl=ctrl, alt=alt, target_win=self._focus_target_win)
+        ctrl, alt, shift = _modifier_state()
+        send(key, ctrl=ctrl, alt=alt, shift=shift, target_win=self._focus_target_win)
         if self.shift_on:
             self.shift_on = False
             self._build_keys()
