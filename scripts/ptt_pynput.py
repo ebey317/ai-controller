@@ -115,16 +115,16 @@ _EMOJI_MAP = {
     "omg": "omg 😱", "yay": "yay 🎉", "woo": "woo 🥳", "yikes": "yikes 😬",
     "ugh": "ugh 😩", "meh": "meh 😒", "hm": "hm 🤔", "hmm": "hmm 🤔",
     # greetings / goodbyes
-    "hello": "hello 👋", "hi": "hi 👋", "hey": "hey 👋",
-    "goodbye": "goodbye 👋", "bye": "bye 👋", "see you": "see you 👋",
+    "hello": "hello 👋🏿", "hi": "hi 👋🏿", "hey": "hey 👋🏿",
+    "goodbye": "goodbye 👋🏿", "bye": "bye 👋🏿", "see you": "see you 👋🏿",
     "good morning": "good morning 🌅", "good night": "good night 🌙",
-    "thank you": "thank you 🙏", "thanks": "thanks 🙏", "please": "please 🥺",
-    "sorry": "sorry 😔", "apologize": "apologize 🙇",
+    "thank you": "thank you 🙏🏿", "thanks": "thanks 🙏🏿", "please": "please 🥺",
+    "sorry": "sorry 😔", "apologize": "apologize 🙇🏿",
     # quality
     "fire": "fire 🔥", "cool": "cool 😎", "nice": "nice ✨", "great": "great 🎉",
     "awesome": "awesome 🤩", "amazing": "amazing 🤩", "perfect": "perfect 💯",
-    "good": "good 👍", "bad": "bad 👎", "ok": "ok 👌", "okay": "okay 👌",
-    "yes": "yes ✅", "no": "no ❌", "maybe": "maybe 🤷", "definitely": "definitely 💯",
+    "good": "good 👍🏿", "bad": "bad 👎🏿", "ok": "ok 👌🏿", "okay": "okay 👌🏿",
+    "yes": "yes ✅", "no": "no ❌", "maybe": "maybe 🤷🏿", "definitely": "definitely 💯",
     "check": "check ✅", "done": "done ✅", "finished": "finished ✅",
     # food / drink
     "hungry": "hungry 🍔", "coffee": "coffee ☕", "beer": "beer 🍺", "wine": "wine 🍷",
@@ -396,22 +396,22 @@ def _add_emojis(text: str) -> str:
 
 
 # Casual-mode emoji boost: appended when no keyword emoji already fired.
-_CASUAL_EMOJIS = ["👋", "☕", "😊", "✌️", "🙌", "🤙", "😎", "✨", "💯", "🔥", "🫡"]
+_CASUAL_EMOJIS = ["👋🏿", "☕", "😊", "✌🏿️", "🙌🏿", "🤙🏿", "😎", "✨", "💯", "🔥", "🫡"]
 
 # Fitzpatrick type-6 (dark) skin tone modifier for hand/person emojis.
 # Face emojis (😊, 😎, etc.) do not support skin tones in Unicode.
 _SKIN_TONE = "🏿"
 _TONEABLE_BASES = {
-    "\U0001F44B",  # 👋 waving hand
-    "\u270C",       # ✌ victory hand
-    "\U0001F64C",   # 🙌 raising hands
-    "\U0001F919",   # 🤙 call me hand
-    "\U0001F64F",   # 🙏 folded hands
-    "\U0001F647",   # 🙇 person bowing
-    "\U0001F44D",   # 👍 thumbs up
-    "\U0001F44E",   # 👎 thumbs down
-    "\U0001F44C",   # 👌 OK hand
-    "\U0001F937",   # 🤷 shrug
+    "\U0001F44B",  # 👋🏿 waving hand
+    "\u270C",       # ✌🏿 victory hand
+    "\U0001F64C",   # 🙌🏿 raising hands
+    "\U0001F919",   # 🤙🏿 call me hand
+    "\U0001F64F",   # 🙏🏿 folded hands
+    "\U0001F647",   # 🙇🏿 person bowing
+    "\U0001F44D",   # 👍🏿 thumbs up
+    "\U0001F44E",   # 👎🏿 thumbs down
+    "\U0001F44C",   # 👌🏿 OK hand
+    "\U0001F937",   # 🤷🏿 shrug
 }
 
 
