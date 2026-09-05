@@ -664,6 +664,73 @@ def _active_window():
         return None
 
 
+# Exact WM_CLASS allowlist for security prompts worth retargeting to.
+# Deliberately exact-match, not a title/substring heuristic: a loose match
+# (e.g. title contains "password") would also fire on ordinary AntiMicroX/
+# overlay focus changes and reintroduce the bug the frozen-window restore
+# in stop_and_send() exists to prevent. Anything not on this list is treated
+# as an ordinary focus change, not a prompt to chase.
+_AUTH_PROMPT_CLASSES = {"gcr-prompter", "polkit-gnome-authentication-agent-1"}
+
+
+def _window_wm_classes(window_id):
+    """Return the lowercased WM_CLASS instance/class strings for a window.
+
+    xdotool on this machine (3.20160805.1) has no `getwindowclassname`
+    subcommand -- confirmed via `xdotool help` (only getactivewindow/
+    getwindowfocus/getwindowname/getwindowpid/getwindowgeometry exist), so
+    a naive `xdotool getwindowclassname` check always raises and silently
+    fails closed. Shells out to `xprop` instead, which is present and gives
+    ground-truth WM_CLASS. (NOTE: `_active_window_class()` above has this
+    exact same latent bug for browser/Discord detection -- separate issue,
+    not fixed here, flagging for a future pass.)
+    """
+    try:
+        out = subprocess.check_output(
+            ["xprop", "-id", window_id, "WM_CLASS"],
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+            stderr=subprocess.DEVNULL, timeout=2,
+        ).decode()
+    except Exception:
+        return set()
+    return {s.lower() for s in re.findall(r'"([^"]+)"', out)}
+
+
+def _resolve_type_target(frozen_window):
+    """Decide whether to type into `frozen_window` (active when recording
+    started) or retarget to a security prompt that appeared mid-recording.
+
+    Bug this fixes (confirmed live 2026-09-04): the gnome-keyring "Unlock
+    Login Keyring" dialog (gcr-prompter) and polkit's auth dialog take real,
+    measurable time to appear after the action that triggers them (a Chrome
+    login, a Google Photos OAuth flow, pkexec, etc.) -- a D-Bus round trip
+    plus spawning gcr-prompter as a fresh process, not instant. If the user
+    starts holding the PTT trigger right as they click the thing that
+    summons the prompt (the natural gesture -- click, then immediately talk),
+    `_focus_window` freezes on whatever was focused *before* the prompt
+    existed. stop_and_send() then explicitly restores focus to that frozen
+    window before typing (see the block below), on purpose, to survive
+    AntiMicroX/overlay focus-stealing -- so the dictated password lands in
+    the old window and the actual keyring/auth field never receives it.
+    Manual xdotool testing directly against the real gcr-prompter dialog
+    confirms xdotool CAN type into it fine once it's the active window --
+    this is a stale-target bug, not an X11/GTK input-injection limitation.
+
+    Only retarget for a window that's identifiably a security prompt --
+    anything else changing focus mid-recording is exactly the
+    AntiMicroX/overlay case the frozen-window restore already guards
+    against, and blindly following focus there would reintroduce that bug.
+    """
+    current = _active_window()
+    if not current or current == frozen_window:
+        return frozen_window
+    matched = _window_wm_classes(current) & _AUTH_PROMPT_CLASSES
+    if not matched:
+        return frozen_window
+    log.info(f"Auth prompt appeared mid-recording ({next(iter(matched))}) — retargeting to it")
+    return current
+
+
 def _build_wav(raw_path: str, wav_path: str):
     """Wrap raw s16le PCM in a WAV container."""
     with open(raw_path, "rb") as f:
@@ -1124,7 +1191,7 @@ def stop_and_send():
                     # for the Hermes TUI — if the user clicked a different window,
                     # their voice goes there, not here.
                     global _focus_window
-                    target_window = _focus_window
+                    target_window = _resolve_type_target(_focus_window)
                     if target_window:
                         try:
                             subprocess.run(

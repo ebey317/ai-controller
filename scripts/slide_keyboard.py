@@ -19,6 +19,7 @@ a separate full-width dock. Press F14 again to pop it back down.
 import json
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -156,6 +157,54 @@ button.pin:hover { background-color: #163a30; }
 button.pin-add { background-color: #23232b; color: #6a6a72; border-color: #3a3a44; }
 button.pin-add:hover { background-color: #2f2f3a; color: #3ddc97; }
 """
+
+
+_AUTH_PROMPT_CLASSES = {"gcr-prompter", "polkit-gnome-authentication-agent-1"}
+
+
+def _window_wm_classes(window_id):
+    """Return the lowercased WM_CLASS instance/class strings for a window.
+
+    xdotool on this machine (3.20160805.1) has no `getwindowclassname`
+    subcommand -- confirmed via `xdotool help` (only getactivewindow/
+    getwindowfocus/getwindowname/getwindowpid/getwindowgeometry exist), so
+    a naive `xdotool getwindowclassname` check always raises and silently
+    fails closed. Shells out to `xprop` instead, which is present and gives
+    ground-truth WM_CLASS.
+    """
+    try:
+        out = subprocess.check_output(
+            ["xprop", "-id", window_id, "WM_CLASS"],
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+            stderr=subprocess.DEVNULL, timeout=2,
+        ).decode()
+    except Exception:
+        return set()
+    return {s.lower() for s in re.findall(r'"([^"]+)"', out)}
+
+
+def _resolve_target(frozen_win):
+    """If a recognized security prompt has become active since the keyboard
+    opened, retarget to it instead of chasing the stale snapshot.
+
+    Bug: _focus_target_win is captured once, in _toggle_main_thread, when
+    the keyboard opens. If a keyring/polkit dialog appears *after* that --
+    the normal case: open the keyboard, then click something that triggers
+    the prompt -- every key click calls focus_guard.guarded_type/guarded_key
+    against the stale window. ensure_focus() tries to reactivate that old
+    window, fails (the dialog holds focus), and raises FocusLostError, which
+    send() catches and only logs -- so keys appear to silently do nothing.
+    Confirmed live 2026-09-04 alongside the identical bug in ptt_pynput.py's
+    PTT dictation path.
+    """
+    current = focus_guard.active_window()
+    if not current or current == frozen_win:
+        return frozen_win
+    matched = _window_wm_classes(current) & _AUTH_PROMPT_CLASSES
+    if not matched:
+        return frozen_win
+    log.info(f"Auth prompt appeared while keyboard open ({next(iter(matched))}) — retargeting")
+    return current
 
 
 def send(key, ctrl=False, alt=False, shift=False, target_win=None):
@@ -545,7 +594,8 @@ class SlideKeyboard(Gtk.Window):
             self._build_keys()
             return
         ctrl, alt, shift = _modifier_state()
-        send(key, ctrl=ctrl, alt=alt, shift=shift, target_win=self._focus_target_win)
+        target = _resolve_target(self._focus_target_win)
+        send(key, ctrl=ctrl, alt=alt, shift=shift, target_win=target)
         if self.shift_on:
             self.shift_on = False
             self._build_keys()
