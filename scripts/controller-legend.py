@@ -91,7 +91,14 @@ _KEY_LABELS = {
     "0x1000021": "Ctrl", "0x100003c": "Talk",  # F13, wired to push-to-talk
     "0x61000028": "Enter",  # observed on RS-click (AntiMicroX keypad-flagged Enter)
 }
-_MOUSE_LABELS = {"1": "Click", "2": "R·Clk", "3": "M·Clk", "4": "Side1", "5": "Side2"}
+# 2026-09-07: was backwards (2/3 swapped) -- verified against AntiMicroX's
+# actual source (uinputeventhandler.cpp, matching this profile's --eventgen
+# uinput runtime): code 1=BTN_LEFT, 2=BTN_MIDDLE, 3=BTN_RIGHT. The earlier
+# version's assumption (2=right, 3=middle) was never checked against source
+# and caused a real bug: "fixing" RB from 3 to 2 turned working right-click
+# into middle-click, which closes browser tabs on click. Don't re-swap this
+# without re-verifying against the actual event handler source first.
+_MOUSE_LABELS = {"1": "Click", "2": "M·Clk", "3": "R·Clk", "4": "Side1", "5": "Side2"}
 # execute-mode script basename -> short display label. Extend as new
 # scripts get bound to buttons; unknown scripts fall back to a truncated
 # filename rather than disappearing silently.

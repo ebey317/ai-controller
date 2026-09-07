@@ -228,7 +228,7 @@
             <button index="11">
                 <slots>
                     <slot>
-                        <code>2</code>
+                        <code>3</code>
                         <mode>mousebutton</mode>
                     </slot>
                 </slots>
