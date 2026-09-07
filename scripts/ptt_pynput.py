@@ -460,7 +460,15 @@ def _transform_text(text: str, mode: str) -> str:
         return text
     text = _add_emojis(text)
     if mode == "bubbly":
-        text = _to_italic(text)
+        # 2026-09-07: was _to_italic() -- sans-serif italic, not cursive at
+        # all, despite the typing indicator already (correctly) labeling
+        # this mode "Typing cursive..." (see _set_typing_indicator). The
+        # real _to_cursive() existed the whole time, built on the Unicode
+        # Mathematical BOLD SCRIPT block (U+1D4D0), which is fully
+        # populated -- unlike the plain (non-bold) Script block, which has
+        # known gaps for B/E/F/H/I/L/M/R and e/g/o. It just was never
+        # wired into the mode dispatch.
+        text = _to_cursive(text)
     elif mode == "casual":
         text = _casual_emoji_boost(text.lower())
     elif mode == "bold":
