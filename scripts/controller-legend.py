@@ -91,14 +91,19 @@ _KEY_LABELS = {
     "0x1000021": "Ctrl", "0x100003c": "Talk",  # F13, wired to push-to-talk
     "0x61000028": "Enter",  # observed on RS-click (AntiMicroX keypad-flagged Enter)
 }
-# 2026-09-07: was backwards (2/3 swapped) -- verified against AntiMicroX's
-# actual source (uinputeventhandler.cpp, matching this profile's --eventgen
-# uinput runtime): code 1=BTN_LEFT, 2=BTN_MIDDLE, 3=BTN_RIGHT. The earlier
-# version's assumption (2=right, 3=middle) was never checked against source
-# and caused a real bug: "fixing" RB from 3 to 2 turned working right-click
-# into middle-click, which closes browser tabs on click. Don't re-swap this
-# without re-verifying against the actual event handler source first.
-_MOUSE_LABELS = {"1": "Click", "2": "M·Clk", "3": "R·Clk", "4": "Side1", "5": "Side2"}
+# 2026-09-07: verified in full against AntiMicroX's actual source
+# (eventhandlers/uinputeventhandler.cpp sendMouseButtonEvent, matching this
+# profile's --eventgen uinput runtime). The previous version had 2/3
+# swapped (real bug: broke RB's right-click into middle-click, which
+# closes browser tabs) AND mislabeled 4/5 as side buttons when they're
+# actually scroll wheel up/down -- side buttons are 8/9. Don't edit this
+# without re-checking that source file; it is not the generic X11
+#1=left/2=right/3=middle convention.
+_MOUSE_LABELS = {
+    "1": "Click", "2": "M·Clk", "3": "R·Clk",
+    "4": "Whl↑", "5": "Whl↓", "6": "Whl←", "7": "Whl→",
+    "8": "Side1", "9": "Side2",
+}
 # execute-mode script basename -> short display label. Extend as new
 # scripts get bound to buttons; unknown scripts fall back to a truncated
 # filename rather than disappearing silently.
