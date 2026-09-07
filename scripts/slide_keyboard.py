@@ -330,7 +330,7 @@ class SlideKeyboard(Gtk.Window):
                 "bubbly": "✨",
                 "casual": "☕ CASUAL",
                 "bold": "BOLD",
-                "big": "BIG",
+                "big": "OLDE",  # Old English / bold Fraktur, 2026-09-07 (was fullwidth "BIG")
                 "pro": "PRO",
             }
             btn = Gtk.Button(label=labels[mode])
@@ -790,7 +790,7 @@ class SlideKeyboard(Gtk.Window):
         labels = {
             "bubbly": "✨  Typing cursive...",
             "bold": "𝐁  Typing bold...",
-            "big": "Ｔ  Typing big...",
+            "big": "𝕿  Typing Old English...",
         }
         self.typing_indicator.set_markup(
             f'<span font="16" weight="bold" color="{HUD_ORANGE}">'

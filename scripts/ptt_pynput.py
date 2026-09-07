@@ -91,14 +91,18 @@ _ITALIC_MAP = {
     **{chr(0x41 + i): _ITALIC_UPPER[i] for i in range(26)},
 }
 
-# Fullwidth characters: visually wider/larger than normal ASCII
-_FULLWIDTH_LOWER = "ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ"
-_FULLWIDTH_UPPER = "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ"
-_FULLWIDTH_DIGITS = "０１２３４５６７８９"
-_FULLWIDTH_MAP = {
-    **{chr(0x61 + i): _FULLWIDTH_LOWER[i] for i in range(26)},
-    **{chr(0x41 + i): _FULLWIDTH_UPPER[i] for i in range(26)},
-    **{chr(0x30 + i): _FULLWIDTH_DIGITS[i] for i in range(10)},
+# Old English (blackletter) -- Unicode MATHEMATICAL BOLD FRAKTUR block
+# (U+1D56C), replacing the old "big"/fullwidth mode 2026-09-07. Bold
+# Fraktur specifically, not plain Fraktur: plain Fraktur (U+1D504) has the
+# same legacy gap problem as plain Script (missing C/H/I/R/Z, aliased to
+# pre-existing Letterlike Symbols) -- same class of bug as the BUBBLY/
+# cursive fix earlier tonight. Bold Fraktur is a contiguous, fully
+# populated 52-codepoint block with no aliasing.
+_FRAKTUR_LOWER = "𝖆𝖇𝖈𝖉𝖊𝖋𝖌𝖍𝖎𝖏𝖐𝖑𝖒𝖓𝖔𝖕𝖖𝖗𝖘𝖙𝖚𝖛𝖜𝖝𝖞𝖟"
+_FRAKTUR_UPPER = "𝕬𝕭𝕮𝕯𝕰𝕱𝕲𝕳𝕴𝕵𝕶𝕷𝕸𝕹𝕺𝕻𝕼𝕽𝕾𝕿𝖀𝖁𝖂𝖃𝖄𝖅"
+_FRAKTUR_MAP = {
+    **{chr(0x61 + i): _FRAKTUR_LOWER[i] for i in range(26)},
+    **{chr(0x41 + i): _FRAKTUR_UPPER[i] for i in range(26)},
 }
 
 # Big standalone emoji keyword map — no LLM, no network, instant
@@ -324,7 +328,7 @@ def _typing_hud(mode: str, text: str):
     labels = {
         "bubbly": "✨  Typing cursive...",
         "bold": "𝐁  Typing bold...",
-        "big": "Ｔ  Typing big...",
+        "big": "𝕿  Typing Old English...",
     }
     try:
         return subprocess.Popen(
@@ -378,9 +382,9 @@ def _to_italic(text: str) -> str:
     return "".join(_ITALIC_MAP.get(ch, ch) for ch in text)
 
 
-def _to_big(text: str) -> str:
-    """Map ASCII letters/digits to fullwidth Unicode (visually larger)."""
-    return "".join(_FULLWIDTH_MAP.get(ch, ch) for ch in text)
+def _to_old_english(text: str) -> str:
+    """Map ASCII letters to Old English (bold Fraktur) Unicode."""
+    return "".join(_FRAKTUR_MAP.get(ch, ch) for ch in text)
 
 
 def _add_emojis(text: str) -> str:
@@ -452,9 +456,10 @@ def _casual_emoji_boost(text: str) -> str:
 def _transform_text(text: str, mode: str) -> str:
     """Apply style to transcript based on active mode.
 
-    PRO returns the raw transcript with no changes. BUBBLY uses italic Unicode.
-    CASUAL lowercases everything and gets an extra emoji boost. BOLD and BIG
-    use their respective Unicode letter blocks.
+    PRO returns the raw transcript with no changes. BUBBLY uses cursive
+    Unicode. CASUAL lowercases everything and gets an extra emoji boost.
+    BOLD and BIG (Old English / bold Fraktur, 2026-09-07) use their
+    respective Unicode letter blocks.
     """
     if mode == "pro":
         return text
@@ -474,7 +479,7 @@ def _transform_text(text: str, mode: str) -> str:
     elif mode == "bold":
         text = _to_bold(text)
     elif mode == "big":
-        text = _to_big(text)
+        text = _to_old_english(text)
     return text
 
 

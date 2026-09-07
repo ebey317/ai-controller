@@ -513,7 +513,7 @@ class Legend(Gtk.Window):
         labels = {
             "bubbly": "✨  Typing cursive...",
             "bold": "𝐁  Typing bold...",
-            "big": "Ｔ  Typing big...",
+            "big": "𝕿  Typing Old English...",
         }
         self.typing_lbl.set_markup(
             f'<span font_family="monospace" weight="bold" '
