@@ -51,8 +51,8 @@
                 <maxZone>28000</maxZone>
                 <diagonalRange>65</diagonalRange>
                 <stickbutton index="1">
-                    <mousespeedx>25</mousespeedx>
-                    <mousespeedy>25</mousespeedy>
+                    <mousespeedx>32</mousespeedx>
+                    <mousespeedy>32</mousespeedy>
                     <mouseacceleration>quadratic</mouseacceleration>
                     <slots>
                         <slot>
@@ -62,8 +62,8 @@
                     </slots>
                 </stickbutton>
                 <stickbutton index="7">
-                    <mousespeedx>25</mousespeedx>
-                    <mousespeedy>25</mousespeedy>
+                    <mousespeedx>32</mousespeedx>
+                    <mousespeedy>32</mousespeedy>
                     <mouseacceleration>quadratic</mouseacceleration>
                     <slots>
                         <slot>
@@ -73,8 +73,8 @@
                     </slots>
                 </stickbutton>
                 <stickbutton index="5">
-                    <mousespeedx>25</mousespeedx>
-                    <mousespeedy>25</mousespeedy>
+                    <mousespeedx>32</mousespeedx>
+                    <mousespeedy>32</mousespeedy>
                     <mouseacceleration>quadratic</mouseacceleration>
                     <slots>
                         <slot>
@@ -84,8 +84,8 @@
                     </slots>
                 </stickbutton>
                 <stickbutton index="3">
-                    <mousespeedx>25</mousespeedx>
-                    <mousespeedy>25</mousespeedy>
+                    <mousespeedx>32</mousespeedx>
+                    <mousespeedy>32</mousespeedy>
                     <mouseacceleration>quadratic</mouseacceleration>
                     <slots>
                         <slot>
