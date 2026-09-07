@@ -11,6 +11,7 @@ import fcntl
 import glob
 import os
 import sys
+import xml.etree.ElementTree as ET
 
 import cairo
 from gi.repository import Gdk, GLib, Gtk
@@ -34,23 +35,137 @@ PROFILE_STATE = os.path.join(config_dir(), "controller_current_profile")
 PAGE_STATE = os.path.join(config_dir(), "controller_legend_page")
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
+# 2026-09-07: "desktop" used to be a hand-typed snapshot ("Matches
+# good_1n.gamecontroller.amgp") that silently drifted out of sync with the
+# real, locked-read-only profile actually in use
+# (~/.config/antimicrox/dont delete .gamecontroller.amgp) -- confirmed live:
+# this list already said Back->Kbd/X->Del (what SHOULD be true) while the
+# real file on disk still had Back->Delete/X->ai-rofi-launcher.sh (what WAS
+# true) until that file was fixed. The HUD was describing an intention, not
+# reading reality. load_desktop_layout() below replaces the hand-typed list
+# by parsing the actual profile at startup, so this can't drift again --
+# the hardcoded list stays only as a fallback if that file goes missing or
+# fails to parse.
+_DESKTOP_FALLBACK = [
+    ("A",    "Click"),
+    ("B",    "Bksp"),
+    ("X",    "Del"),
+    ("Y",    "Super"),
+    ("LB",   "Shift"),
+    ("RB",   "R·Clk"),
+    ("LT",   "Ctrl"),
+    ("RT",   "Talk"),
+    ("⧉", "Kbd"),  # View/Back = toggle on-screen keyboard
+    ("☰", "Tab"),  # Start = Tab
+    ("LS", "Esc"),  # LS click = Escape
+    ("RS", "Enter"),  # RS click = Return
+]
+
+LOCKED_PROFILE_PATH = os.path.join(
+    os.path.expanduser("~/.config/antimicrox"), "dont delete .gamecontroller.amgp")
+
+# AntiMicroX <button index> for an Xbox controller, standard SDL mapping
+# (SDL_CONTROLLER_BUTTON_* is 0-indexed; AntiMicroX's index is that +1).
+# D-pad directions are handled via <vdpadButtonAssociations>, not plain
+# <button> entries, so they're deliberately not in this table. Index 6
+# (Guide/Xbox button) is deliberately not in LEGEND_SLOT_ORDER below -- it
+# has never had a HUD slot, kept that way per the 2026-09-07 request that
+# it stay empty regardless of what the profile binds it to.
+LEGEND_SLOT_ORDER = [
+    ("A", ("button", 1)), ("B", ("button", 2)),
+    ("X", ("button", 3)), ("Y", ("button", 4)),
+    ("LB", ("button", 10)), ("RB", ("button", 11)),
+    ("LT", ("trigger", 5)), ("RT", ("trigger", 6)),
+    ("⧉", ("button", 5)),   # Back / View
+    ("☰", ("button", 7)),   # Start
+    ("LS", ("stick", 1)),   # left-stick click
+    ("RS", ("stick", 2)),   # right-stick click
+]
+
+# Qt key codes this specific profile actually emits -> short display label.
+# Deliberately not a general Qt-keycode table: an unrecognized code shows
+# its raw hex instead of silently guessing a wrong label.
+_KEY_LABELS = {
+    "0x1000000": "Esc", "0x1000001": "Tab", "0x1000003": "Bksp",
+    "0x1000007": "Del", "0x1000004": "Enter", "0x1000020": "Shift",
+    "0x1000021": "Ctrl", "0x100003c": "Talk",  # F13, wired to push-to-talk
+    "0x61000028": "Enter",  # observed on RS-click (AntiMicroX keypad-flagged Enter)
+}
+_MOUSE_LABELS = {"1": "Click", "2": "R·Clk", "3": "M·Clk", "4": "Side1", "5": "Side2"}
+# execute-mode script basename -> short display label. Extend as new
+# scripts get bound to buttons; unknown scripts fall back to a truncated
+# filename rather than disappearing silently.
+_SCRIPT_LABELS = {
+    "ai-rofi-launcher.sh": "Super",
+    "toggle-slide-keyboard.sh": "Kbd",
+    "settle_wiggle.sh": "Click",
+}
+
+
+def _slot_label(slot_el):
+    if slot_el is None:
+        return None
+    mode = (slot_el.findtext("mode") or "").strip()
+    if mode == "keyboard":
+        code = (slot_el.findtext("code") or "").strip()
+        return _KEY_LABELS.get(code, code or None)
+    if mode == "execute":
+        name = os.path.basename((slot_el.findtext("path") or "").strip())
+        return _SCRIPT_LABELS.get(name, (name[:8] or None))
+    if mode == "mousebutton":
+        code = (slot_el.findtext("code") or "").strip()
+        return _MOUSE_LABELS.get(code, f"M{code}" if code else None)
+    return None  # "pause" slots and anything else aren't a display label
+
+
+def _first_label(container_el):
+    """First slot under a <button>/<triggerbutton>/<stickbutton> that
+    actually renders a label -- a button can have multiple slots (e.g. a
+    script then a pause then a click), only the first meaningful one is
+    shown in the HUD."""
+    if container_el is None:
+        return None
+    for slot in container_el.findall("./slots/slot"):
+        label = _slot_label(slot)
+        if label:
+            return label
+    return None
+
+
+def load_desktop_layout(path=LOCKED_PROFILE_PATH):
+    """Build the 'desktop' legend layout by reading the real, locked
+    AntiMicroX profile instead of a hand-typed snapshot of it. Returns None
+    on any failure so the caller can fall back to _DESKTOP_FALLBACK."""
+    try:
+        root = ET.parse(path).getroot()
+    except Exception:
+        return None
+    set_el = root.find("./sets/set")
+    if set_el is None:
+        return None
+
+    buttons = {int(b.get("index", "0")): _first_label(b) for b in set_el.findall("button")}
+    triggers = {}
+    for trig in set_el.findall("trigger"):
+        idx = int(trig.get("index", "0"))
+        triggers[idx] = _first_label(trig.find("triggerbutton"))
+    sticks = {}
+    for stick in set_el.findall("stick"):
+        idx = int(stick.get("index", "0"))
+        sticks[idx] = _first_label(stick.find("stickbutton[@index='2']"))
+
+    sources = {"button": buttons, "trigger": triggers, "stick": sticks}
+    layout = []
+    for position, (kind, idx) in LEGEND_SLOT_ORDER:
+        label = sources[kind].get(idx)
+        if label:
+            layout.append((position, label))
+    return layout or None
+
+
 # All button mappings organized by profile (can span multiple pages)
 ALL_LAYOUTS = {
-    "desktop": [
-        # Matches good_1n.gamecontroller.amgp (the active profile)
-        ("A",    "Click"),
-        ("B",    "Bksp"),
-        ("X",    "Del"),
-        ("Y",    "Super"),
-        ("LB",   "Shift"),
-        ("RB",   "R·Clk"),
-        ("LT",   "Ctrl"),
-        ("RT",   "Talk"),
-        ("⧉", "Kbd"),  # View/Back = toggle on-screen keyboard
-        ("☰", "Tab"),  # Start = Tab
-        ("LS", "Esc"),  # LS click = Escape
-        ("RS", "Enter"),  # RS click = Return
-    ],
+    "desktop": load_desktop_layout() or _DESKTOP_FALLBACK,
     "browser": [
         ("A",   "Click"),
         ("B",   "Back"),

@@ -53,7 +53,10 @@ TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 # new copy silently overwrites). These live in the empty strip to the right
 # of the arrow/space row and survive until explicitly unpinned.
 PINS_FILE = os.path.join(config_dir(), "pinned_snippets.json")
-PIN_SLOTS = 7  # columns 7-13 of row 4; col 14 is reserved for the + button
+# 2026-09-07: pins moved to their own row (grid row -1, above row 0) --
+# each pin is 2 grid-columns wide, so 7 slots + the 1-wide "+ pin" button
+# = 15 columns, same width as row 0's number row.
+PIN_SLOTS = 7
 DEFAULT_PINS = [
     {"label": "hermes", "text": "hermes --tui"},
     {"label": "claude", "text": "claude"},
@@ -133,26 +136,26 @@ window { background-color: transparent; }
 .handle-label {
     color: #8a8a92;
     font-family: monospace;
-    font-size: 11px;
+    font-size: 9px;
 }
 button {
     background-image: none;
     background-color: #23232b;
     color: #e8e8e8;
     border: 1px solid #3a3a44;
-    border-radius: 6px;
+    border-radius: 5px;
     font-family: monospace;
-    font-size: 13px;
-    min-width: 34px;
-    min-height: 34px;
-    padding: 4px;
+    font-size: 11px;
+    min-width: 26px;
+    min-height: 26px;
+    padding: 2px;
 }
 button:hover { background-color: #2f2f3a; }
 button.special { background-color: #1a2226; color: #FF6A00; border-color: #4a3318; }
-button.mode { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; padding: 2px 10px; }
-button.mode-active { background-color: #FF6A00; color: #0d0d12; border-color: #FF6A00; font-weight: bold; padding: 2px 10px; }
-.shelf-title { color: #FF6A00; font-weight: bold; font-size: 11px; margin-bottom: 4px; }
-button.pin { background-color: #0f2a24; color: #3ddc97; border-color: #1f5c4a; font-size: 11px; }
+button.mode { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; padding: 1px 7px; }
+button.mode-active { background-color: #FF6A00; color: #0d0d12; border-color: #FF6A00; font-weight: bold; padding: 1px 7px; }
+.shelf-title { color: #FF6A00; font-weight: bold; font-size: 9px; margin-bottom: 3px; }
+button.pin { background-color: #0f2a24; color: #3ddc97; border-color: #1f5c4a; font-size: 9px; }
 button.pin:hover { background-color: #163a30; }
 button.pin-add { background-color: #23232b; color: #6a6a72; border-color: #3a3a44; }
 button.pin-add:hover { background-color: #2f2f3a; color: #3ddc97; }
@@ -236,8 +239,11 @@ def send(key, ctrl=False, alt=False, shift=False, target_win=None):
 
 class SlideKeyboard(Gtk.Window):
     # Width fits the key grid and mode bar only (no voice-profile shelf).
-    WIDTH = 860
-    HEIGHT = 300
+    # 2026-09-07: condensed from 860x300 -- was taking up far more screen
+    # than the key grid needed, scaled down together with the button/font
+    # CSS below so nothing clips or overflows.
+    WIDTH = 680
+    HEIGHT = 262  # +1 row for pins moving above row 0 (see _build_pins)
     POP_OFFSET = 36  # px it rises from on pop-in, for the "pop" feel
 
     def __init__(self):
@@ -272,10 +278,10 @@ class SlideKeyboard(Gtk.Window):
         # grid, matching the legend HUD's visual language.
         self.panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.panel.set_name("panel")
-        self.panel.set_margin_start(10)
-        self.panel.set_margin_end(10)
-        self.panel.set_margin_top(10)
-        self.panel.set_margin_bottom(10)
+        self.panel.set_margin_start(7)
+        self.panel.set_margin_end(7)
+        self.panel.set_margin_top(7)
+        self.panel.set_margin_bottom(7)
         self.add(self.panel)
 
         # DRAG HANDLE — a thin labeled bar at the very top of the panel.
@@ -288,10 +294,10 @@ class SlideKeyboard(Gtk.Window):
         self.drag_handle.set_above_child(False)
         self.drag_handle.connect("realize", self._on_drag_handle_realize)
         handle_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        handle_row.set_margin_start(8)
-        handle_row.set_margin_end(8)
-        handle_row.set_margin_top(4)
-        handle_row.set_margin_bottom(4)
+        handle_row.set_margin_start(6)
+        handle_row.set_margin_end(6)
+        handle_row.set_margin_top(3)
+        handle_row.set_margin_bottom(3)
         handle_label = Gtk.Label(label="\u2261  drag")
         handle_label.set_xalign(0.5)
         handle_label.get_style_context().add_class("handle-label")
@@ -312,9 +318,9 @@ class SlideKeyboard(Gtk.Window):
 
         # Mode bar: buttons left-to-right, ending at PRO.
         self.mode_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        self.mode_bar.set_margin_start(8)
-        self.mode_bar.set_margin_end(8)
-        self.mode_bar.set_margin_top(6)
+        self.mode_bar.set_margin_start(6)
+        self.mode_bar.set_margin_end(6)
+        self.mode_bar.set_margin_top(4)
         self.mode_bar.set_spacing(6)
         self.left_col.pack_start(self.mode_bar, False, False, 0)
 
@@ -348,10 +354,10 @@ class SlideKeyboard(Gtk.Window):
         self._refresh_mode_buttons()
 
         self.grid = Gtk.Grid(column_spacing=4, row_spacing=4)
-        self.grid.set_margin_start(8)
-        self.grid.set_margin_end(8)
-        self.grid.set_margin_top(6)
-        self.grid.set_margin_bottom(8)
+        self.grid.set_margin_start(6)
+        self.grid.set_margin_end(6)
+        self.grid.set_margin_top(4)
+        self.grid.set_margin_bottom(6)
         self.left_col.pack_start(self.grid, True, True, 0)
         self._build_keys()
 
@@ -572,19 +578,33 @@ class SlideKeyboard(Gtk.Window):
         except Exception:
             pass
 
+    # 2026-09-07: row 4 (arrows/space) used to only fill cols 0-6 of the
+    # 15-wide grid, with pins crammed into cols 7-14 of that same row to use
+    # the rest -- which is what made the pins tiny and hard to hit. Pins now
+    # get their own row above the grid (see _build_pins), so row 4's own
+    # keys are widened here to use the full 15 columns themselves instead
+    # of leaving them empty.
+    ROW4_WIDTHS = {"left": 2, "down": 2, "up": 2, "right": 2, "space": 4, "⇧tab": 3}
+
     def _build_keys(self):
         for child in self.grid.get_children():
             self.grid.remove(child)
         rows = ROWS_UPPER if self.shift_on else ROWS_LOWER
+        last_row = len(rows) - 1
         for r, row in enumerate(rows):
-            for c, key in enumerate(row):
+            col = 0
+            for key in row:
                 label = LABELS.get(key, key)
                 btn = Gtk.Button(label=label)
                 if key in SPECIAL or key == "shift":
                     btn.get_style_context().add_class("special")
-                width = 2 if key in ("space",) else 1
+                width = self.ROW4_WIDTHS.get(key, 1) if r == last_row else 1
+                if width > 1:
+                    btn.set_hexpand(True)
+                    btn.set_halign(Gtk.Align.FILL)
                 btn.connect("clicked", self._on_key, key)
-                self.grid.attach(btn, c, r, width, 1)
+                self.grid.attach(btn, col, r, width, 1)
+                col += width
         self._build_pins()
         self.grid.show_all()
 
@@ -623,22 +643,30 @@ class SlideKeyboard(Gtk.Window):
             json.dump(pins, f, indent=2)
 
     def _build_pins(self):
+        # Own row now, attached at grid row -1 (GtkGrid supports negative
+        # indices -- this inserts a row above row 0, i.e. the very top of
+        # the key grid, directly under the mode bar). Each pin gets 2
+        # columns instead of 1, so labels have room and the row is a real
+        # target to hit instead of a sliver next to the arrow keys.
         pins = self._load_pins()
-        row = len(ROWS_LOWER) - 1  # arrows/space row -- the empty strip
-        start_col = 7  # cols 0-6 are left/down/up/right/space(x2)/shift-tab
+        col = 0
+        pin_width = 2
         for i, pin in enumerate(pins[:PIN_SLOTS]):
             btn = Gtk.Button(label=pin.get("label", pin.get("text", "?"))[:10])
             btn.get_style_context().add_class("pin")
             btn.set_tooltip_text(pin.get("text", ""))
+            btn.set_hexpand(True)
+            btn.set_halign(Gtk.Align.FILL)
             btn.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             btn.connect("clicked", self._on_pin_clicked, pin.get("text", ""))
             btn.connect("button-press-event", self._on_pin_right_click, i)
-            self.grid.attach(btn, start_col + i, row, 1, 1)
+            self.grid.attach(btn, col, -1, pin_width, 1)
+            col += pin_width
         add_btn = Gtk.Button(label="+ pin")
         add_btn.get_style_context().add_class("pin-add")
         add_btn.set_tooltip_text("Pin current clipboard contents")
         add_btn.connect("clicked", self._on_pin_add)
-        self.grid.attach(add_btn, start_col + PIN_SLOTS, row, 1, 1)
+        self.grid.attach(add_btn, col, -1, 1, 1)
 
     def _on_pin_clicked(self, _widget, text):
         if not text:
