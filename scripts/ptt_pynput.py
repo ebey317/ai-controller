@@ -300,13 +300,17 @@ def _type_text_fast(text: str, mode: str = "pro", target_window: str | None = No
     if any(ord(ch) >= 128 for ch in text):
         # Unicode / emoji: clipboard paste. xdotool type per-character is
         # unreliable for multi-byte UTF-8 in the TUI terminal input buffer.
-        if _set_clipboard_text(text):
+        if _set_clipboard_text(text) and _wait_for_clipboard(text):
             subprocess.run(
                 ['xdotool', 'key', 'ctrl+shift+v'],
                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         else:
-            # Clipboard failed — fall back to slow character typing.
+            # Clipboard failed, or never became readable in time — fall back
+            # to slow character typing rather than racing a paste against an
+            # X11 selection that hasn't registered its owner yet (that race,
+            # lost, is what drops a bare 'v' into the focused window: an
+            # unbound/failed Ctrl+Shift+V falls through to the plain key).
             delay = 55 if mode == "bubbly" else 35
             subprocess.run(
                 ['xdotool', 'type', '--clearmodifiers', f'--delay={delay}', '--', text],
@@ -568,6 +572,29 @@ def _set_clipboard_text(text):
     except Exception as exc:
         log.warning(f"clipboard set failed: {exc}")
         return False
+
+
+def _wait_for_clipboard(text, retries=6, delay=0.02):
+    """Poll the X11 CLIPBOARD until it actually holds `text`.
+
+    xclip forks a background process to own the CLIPBOARD selection; its
+    parent can return before that fork has registered as selection owner.
+    Firing Ctrl+Shift+V before that registration lands loses the paste
+    race — see the caller in _type_text_fast for what that looks like.
+    """
+    env = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
+    for _ in range(retries):
+        try:
+            out = subprocess.run(
+                ["xclip", "-selection", "clipboard", "-out"],
+                env=env, capture_output=True, timeout=1,
+            )
+            if out.returncode == 0 and out.stdout.decode("utf-8", "replace") == text:
+                return True
+        except Exception:
+            pass
+        time.sleep(delay)
+    return False
 
 
 def _queue_discord_text(text):
@@ -1339,6 +1366,48 @@ def _run_evdev_listener():
                 pass
             time.sleep(0.3)
 
+def _run_x11_f13_grab():
+    """Globally grab the F13 KEYSYM (not the device) so X11 stops delivering
+    it to whatever window has focus.
+
+    2026-09-08: reproduced live — F13 presses were landing as literal "F13"
+    text in the focused window (a terminal with no F13 binding), because the
+    evdev fallback above deliberately reads passively (see its comment) so
+    every OTHER AntiMicroX-mapped key keeps flowing to X11 normally. An
+    exclusive EVIOCGRAB on the device was tried before and reverted for
+    exactly that reason — it would silence every button on this device, not
+    just F13. XGrabKey is the selective tool: it grabs one keysym server-wide
+    regardless of which device injects it, and leaves everything else alone.
+    The actual PTT start/stop logic still comes entirely from the evdev
+    listener above — this thread only has to keep draining the grabbed
+    key's events off this connection so they never escape to focus."""
+    try:
+        from Xlib import X, XK, display as _xdisplay
+    except ImportError:
+        log.warning("python-xlib not available — F13 will keep leaking to focused windows")
+        return
+    backoff = 1.0
+    while True:
+        try:
+            disp = _xdisplay.Display()
+            root = disp.screen().root
+            keysym = XK.string_to_keysym("F13")
+            keycode = disp.keysym_to_keycode(keysym)
+            if not keycode:
+                log.warning("X11 has no keycode mapped for F13 keysym — nothing to grab")
+                return
+            root.grab_key(keycode, X.AnyModifier, True, X.GrabModeAsync, X.GrabModeAsync)
+            disp.sync()
+            log.info("X11 F13 grab active (keycode=%s) — F13 will no longer reach focused windows", keycode)
+            backoff = 1.0
+            while True:
+                disp.next_event()  # drain grabbed KeyPress/KeyRelease; PTT logic lives in the evdev thread
+        except Exception as e:
+            log.warning("X11 F13 grab lost/failed (%s) — retrying in %.1fs", e, backoff)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 10.0)
+
+
 # A leaked recorder from a previous instance survives a service restart and
 # keeps the controller mic open, clicking the headset. Clear them before we
 # start listening.
@@ -1349,6 +1418,11 @@ import threading as _thr
 
 _evdev_thread = _thr.Thread(target=_run_evdev_listener, daemon=True, name="evdev-f13")
 _evdev_thread.start()
+
+# Start X11 F13 grab thread (stops F13 from leaking into focused windows —
+# purely a suppression layer, the evdev thread above still does the PTT work)
+_x11_grab_thread = _thr.Thread(target=_run_x11_f13_grab, daemon=True, name="x11-f13-grab")
+_x11_grab_thread.start()
 
 with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
     try:
