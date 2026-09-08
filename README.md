@@ -97,6 +97,28 @@ In the launcher:
 4. Press **View** to toggle the floating keyboard.
 5. Press **Guide** to toggle the controller legend HUD.
 
+**Floating keyboard — style modes:**
+
+The top-left button of the keyboard cycles through 5 typing styles, each button rendered in its own real font so you can tell what it does at a glance — click it to advance to the next one:
+
+| Mode | Button reads | What it does |
+|---|---|---|
+| Pro | `PRO` | Plain text, no changes |
+| Cursive | `✨ 𝓒𝓾𝓻𝓼𝓲𝓿𝓮` | Mathematical Bold Script Unicode |
+| Casual | `☕ casual` | Lowercases the text + adds a casual emoji |
+| Bold | `𝐁𝐨𝐥𝐝` | Mathematical Bold Unicode |
+| Old-E | `𝕺𝖑𝖉-𝕰` | Mathematical Bold Fraktur (Old English) Unicode |
+
+The active style applies to both push-to-talk dictation and manual keyboard typing.
+
+**Floating keyboard — pinned snippets:**
+
+The bottom row of the keyboard holds up to 7 pinned commands/snippets:
+- **Left-click** a pin — types its text into the whatever window is focused.
+- **Right-click** a pin — unpins it.
+- **+ pin** — pins whatever's currently on the clipboard.
+- **Shift + left-click** a pin that has multiple variants (e.g. `hermes` cycles `hermes` → `hermes --tui` → `hermes desktop`) — advances to the next variant and relabels the button, without typing anything. A plain left-click then types whichever variant is currently shown. This split exists so browsing through variants never spams keystrokes into your terminal.
+
 **Profile switching:**
 
 ```bash

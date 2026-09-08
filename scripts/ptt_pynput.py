@@ -923,25 +923,15 @@ def start_recording():
             # AntiMicroX or other apps may steal focus during recording.
             _focus_window = _active_window()
             # Auto-space before dictation so consecutive utterances don't run together.
-            # Skip for Hermes TUI: each utterance is a separate message; a leading
-            # space becomes junk in the input buffer.
-            focus_title = ""
-            if _focus_window:
-                try:
-                    focus_title = subprocess.check_output(
-                        ['xdotool', 'getwindowname', _focus_window],
-                        env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                        text=True, timeout=2,
-                    ).strip()
-                except Exception:
-                    pass
-            is_tui = (' · ' in focus_title and 'kimi' in focus_title.lower())
-            if _focus_window is not None and not is_tui:
+            # 2026-09-07: removed TUI skip. Hermes, Anthropic, and Sensei all benefit
+            # from a leading space; the previous title-based TUI detection was
+            # suppressing the space in Hermes and breaking the user's muscle memory.
+            if _focus_window is not None:
                 subprocess.run(['xdotool', 'key', 'space'],
                                env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
             else:
-                log.info("skipping auto-space (TUI or no focus window)")
+                log.info("skipping auto-space (no focus window)")
             fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
             os.close(fd)
             fd, wavfile = tempfile.mkstemp(suffix='.wav', dir='/tmp')

@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import focus_guard
 import voice_toggle
 from ai_controller_paths import config_dir, ensure_config_dir
+from text_styles import to_cursive, to_bold, to_old_english
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()
@@ -154,6 +155,7 @@ button:hover { background-color: #2f2f3a; }
 button.special { background-color: #1a2226; color: #FF6A00; border-color: #4a3318; }
 button.mode { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; padding: 1px 7px; }
 button.mode-active { background-color: #FF6A00; color: #0d0d12; border-color: #FF6A00; font-weight: bold; padding: 1px 7px; }
+button.mode-toggle { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; font-size: 20px; letter-spacing: 2px; min-width: 100px; min-height: 34px; padding: 3px 10px; }
 .shelf-title { color: #FF6A00; font-weight: bold; font-size: 9px; margin-bottom: 3px; }
 button.pin { background-color: #0f2a24; color: #3ddc97; border-color: #1f5c4a; font-size: 9px; }
 button.pin:hover { background-color: #163a30; }
@@ -243,7 +245,7 @@ class SlideKeyboard(Gtk.Window):
     # than the key grid needed, scaled down together with the button/font
     # CSS below so nothing clips or overflows.
     WIDTH = 680
-    HEIGHT = 262  # +1 row for pins moving above row 0 (see _build_pins)
+    HEIGHT = 276  # +14 for the bigger mode-toggle button (Olde legibility, 2026-09-07)
     POP_OFFSET = 36  # px it rises from on pop-in, for the "pop" feel
 
     def __init__(self):
@@ -324,20 +326,15 @@ class SlideKeyboard(Gtk.Window):
         self.mode_bar.set_spacing(6)
         self.left_col.pack_start(self.mode_bar, False, False, 0)
 
-        self._mode_buttons = []
-        for mode in ("bubbly", "casual", "bold", "big", "pro"):
-            labels = {
-                "bubbly": "✨",
-                "casual": "☕ CASUAL",
-                "bold": "BOLD",
-                "big": "OLDE",  # Old English / bold Fraktur, 2026-09-07 (was fullwidth "BIG")
-                "pro": "PRO",
-            }
-            btn = Gtk.Button(label=labels[mode])
-            btn.get_style_context().add_class("mode")
-            btn.connect("clicked", self._on_mode_set, mode)
-            self.mode_bar.pack_start(btn, False, False, 0)
-            self._mode_buttons.append((mode, btn))
+        # One button, cycling, same shape as the voice toggle next to it --
+        # 2026-09-07: used to be 5 separate buttons crammed side by side,
+        # which left no room for Olde's Fraktur glyphs to actually be
+        # readable. Now there's one button sized like the old "casual"
+        # button, showing only the active mode at full size.
+        self.mode_btn = Gtk.Button(label=self._mode_display_label(self._load_ptt_mode()))
+        self.mode_btn.get_style_context().add_class("mode-toggle")
+        self.mode_btn.connect("clicked", self._on_mode_cycle)
+        self.mode_bar.pack_start(self.mode_btn, False, False, 0)
 
         # Voice toggle: cycles between unlocked voice packs (aria ↔ joe).
         self.voice_btn = Gtk.Button(label=self._voice_label())
@@ -350,8 +347,6 @@ class SlideKeyboard(Gtk.Window):
         self.target_btn.get_style_context().add_class("mode")
         self.target_btn.connect("clicked", self._on_target_toggle)
         self.mode_bar.pack_end(self.target_btn, False, False, 0)
-
-        self._refresh_mode_buttons()
 
         self.grid = Gtk.Grid(column_spacing=4, row_spacing=4)
         self.grid.set_margin_start(6)
@@ -519,19 +514,33 @@ class SlideKeyboard(Gtk.Window):
         with open(PTT_MODE_FILE, "w", encoding="utf-8") as f:
             f.write(mode)
 
-    def _refresh_mode_buttons(self):
-        current = self._load_ptt_mode()
-        for mode, btn in self._mode_buttons:
-            if mode == current:
-                btn.get_style_context().add_class("mode-active")
-                btn.get_style_context().remove_class("mode")
-            else:
-                btn.get_style_context().add_class("mode")
-                btn.get_style_context().remove_class("mode-active")
+    # Cycle order for the single mode-toggle button. "bubbly" is the mode
+    # value ptt_pynput.py's MODE_FILE actually expects (see _load_ptt_mode)
+    # -- only the on-screen label calls it "cursive", which is what it is.
+    _MODE_ORDER = ("pro", "bubbly", "casual", "bold", "big")
 
-    def _on_mode_set(self, _widget, mode):
-        self._save_ptt_mode(mode)
-        self._refresh_mode_buttons()
+    def _mode_display_label(self, mode: str) -> str:
+        # Each label is rendered in the actual style it applies, so the
+        # font itself says what the mode does -- no legend to cross-
+        # reference. CASUAL has no distinct Unicode block (its real
+        # transform just lowercases + adds an emoji), so its label is
+        # lowercased too, matching that real behavior. PRO stays plain
+        # ASCII on purpose: plain is what it does.
+        labels = {
+            "pro": "PRO",
+            "bubbly": "✨ " + to_cursive("Cursive"),
+            "casual": "☕ casual",
+            "bold": to_bold("Bold"),
+            "big": to_old_english("Old-E"),  # bold Fraktur, was fullwidth "BIG"
+        }
+        return labels.get(mode, mode)
+
+    def _on_mode_cycle(self, _widget):
+        current = self._load_ptt_mode()
+        idx = self._MODE_ORDER.index(current) if current in self._MODE_ORDER else 0
+        new_mode = self._MODE_ORDER[(idx + 1) % len(self._MODE_ORDER)]
+        self._save_ptt_mode(new_mode)
+        self.mode_btn.set_label(self._mode_display_label(new_mode))
 
     def _load_input_target(self) -> str:
         try:
@@ -652,14 +661,13 @@ class SlideKeyboard(Gtk.Window):
         col = 0
         pin_width = 2
         for i, pin in enumerate(pins[:PIN_SLOTS]):
-            btn = Gtk.Button(label=pin.get("label", pin.get("text", "?"))[:10])
+            btn = Gtk.Button(label=self._pin_display_label(pin))
             btn.get_style_context().add_class("pin")
             btn.set_tooltip_text(pin.get("text", ""))
             btn.set_hexpand(True)
             btn.set_halign(Gtk.Align.FILL)
             btn.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-            btn.connect("clicked", self._on_pin_clicked, pin.get("text", ""))
-            btn.connect("button-press-event", self._on_pin_right_click, i)
+            btn.connect("button-press-event", self._on_pin_press, i)
             self.grid.attach(btn, col, -1, pin_width, 1)
             col += pin_width
         add_btn = Gtk.Button(label="+ pin")
@@ -668,16 +676,35 @@ class SlideKeyboard(Gtk.Window):
         add_btn.connect("clicked", self._on_pin_add)
         self.grid.attach(add_btn, col, -1, 1, 1)
 
-    def _on_pin_clicked(self, _widget, text):
-        if not text:
-            return
-        focus_guard.guarded_type(self._focus_target_win, text)
+    def _pin_display_label(self, pin):
+        # Base label stays recognizable; an active non-regular variant gets
+        # a short "·SUFFIX" tag appended so it's clear which one is loaded
+        # after a press, without losing the pin's identity at a glance.
+        label = pin.get("label", pin.get("text", "?"))[:10]
+        variants = pin.get("variants")
+        if variants:
+            idx = pin.get("variant_index", 0)
+            if 0 <= idx < len(variants):
+                suffix = variants[idx].get("suffix", "")
+                if suffix:
+                    return f"{label}·{suffix}"[:14]
+        return label
 
-    def _on_pin_right_click(self, _widget, event, index):
-        if event.button != 3:  # only right-click unpins
-            return False
+    def _on_pin_press(self, _widget, event, index):
+        # One handler for all pin mouse interaction, so a cycling pin can
+        # tell "browse" from "commit" apart:
+        #   - right-click: unpin (unchanged)
+        #   - shift + left-click: cycle to the next variant, relabel, but
+        #     DON'T type anything -- browsing must not spam keystrokes into
+        #     whatever window is focused.
+        #   - plain left-click: type whatever variant is currently shown,
+        #     without advancing it. Non-cycling pins only ever get here.
         pins = self._load_pins()
-        if 0 <= index < len(pins):
+        if not (0 <= index < len(pins)):
+            return False
+        pin = pins[index]
+
+        if event.button == 3:
             removed = pins.pop(index)
             self._save_pins(pins)
             self._build_keys()
@@ -685,6 +712,23 @@ class SlideKeyboard(Gtk.Window):
                 voice_toggle.speak(f"Unpinned {removed.get('label', 'that')}.")
             except Exception:
                 pass
+            return True
+
+        if event.button != 1:
+            return False
+
+        variants = pin.get("variants")
+        browsing = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
+        if variants and browsing:
+            pin["variant_index"] = (pin.get("variant_index", 0) + 1) % len(variants)
+            pin["text"] = variants[pin["variant_index"]].get("text", "")
+            self._save_pins(pins)
+            self._build_keys()  # relabel to show the newly-browsed variant
+            return True
+
+        text = pin.get("text", "")
+        if text:
+            focus_guard.guarded_type(self._focus_target_win, text)
         return True
 
     def _on_pin_add(self, _widget):
