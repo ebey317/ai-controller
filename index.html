@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Controller — Run Linux with an Xbox Controller</title>
+  <meta name="description" content="AI Controller turns a wired Xbox controller into a complete keyboard, mouse, and voice input device for Linux. Built for accessibility, couch use, and limited mobility.">
+  <meta property="og:title" content="AI Controller — Run Linux with an Xbox Controller">
+  <meta property="og:description" content="Push-to-talk dictation, floating keyboard, mouse, scroll, and HUD overlay. Built for accessibility.">
+  <meta property="og:image" content="https://ebey317.github.io/ai-controller/og-image.png">
+  <meta property="og:url" content="https://ebey317.github.io/ai-controller/">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/png" href="logo.png">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-2: #161b22;
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --accent: #2fbb4f;
+      --accent-2: #1f8c35;
+      --border: #30363d;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.6;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    header {
+      padding: 48px 0 32px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid var(--accent);
+      margin-bottom: 20px;
+      box-shadow: 0 0 30px rgba(47, 187, 79, 0.25);
+    }
+    h1 { font-size: 2.8rem; margin: 0 0 12px; letter-spacing: -0.02em; }
+    .tagline { font-size: 1.25rem; color: var(--muted); max-width: 700px; margin: 0 auto 28px; }
+    .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 24px;
+      border-radius: var(--radius);
+      font-weight: 600;
+      font-size: 1rem;
+      transition: transform .12s, box-shadow .12s;
+    }
+    .btn:hover { transform: translateY(-1px); text-decoration: none; }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-primary:hover { box-shadow: 0 8px 24px rgba(47, 187, 79, 0.3); }
+    .btn-secondary { background: var(--bg-2); color: var(--fg); border: 1px solid var(--border); }
+    section { padding: 64px 0; border-bottom: 1px solid var(--border); }
+    section:last-child { border-bottom: none; }
+    h2 { font-size: 2rem; margin: 0 0 24px; text-align: center; }
+    h3 { font-size: 1.3rem; margin: 0 0 10px; color: var(--accent); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; }
+    .card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+    }
+    .card p { margin: 0; color: var(--muted); }
+    .hero-img {
+      width: 100%;
+      max-width: 900px;
+      margin: 32px auto 0;
+      display: block;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .for-who { list-style: none; padding: 0; }
+    .for-who li {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .for-who li:last-child { border-bottom: none; }
+    .for-who strong { color: var(--fg); }
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      background: var(--bg-2);
+      border-radius: 6px;
+    }
+    code { padding: 2px 6px; font-size: 0.9em; }
+    pre {
+      padding: 18px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      font-size: 0.95rem;
+    }
+    .tech-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    .tech-table th, .tech-table td {
+      text-align: left;
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tech-table th { color: var(--accent); font-weight: 600; }
+    .badge-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; }
+    .badge {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    footer { text-align: center; padding: 48px 0; color: var(--muted); font-size: 0.9rem; }
+    footer a { color: var(--muted); }
+    @media (max-width: 640px) {
+      h1 { font-size: 2rem; }
+      .tagline { font-size: 1.05rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <img src="logo.png" alt="AI Controller logo" class="logo">
+      <h1>AI Controller</h1>
+      <p class="tagline">Run your entire Linux desktop with an Xbox controller — push-to-talk dictation, floating keyboard, mouse, scroll, and HUD overlay.</p>
+      <div class="badge-row">
+        <span class="badge">Linux</span>
+        <span class="badge">Accessibility</span>
+        <span class="badge">Voice Control</span>
+        <span class="badge">Game Controller</span>
+        <span class="badge">Open Source</span>
+      </div>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/ebey317/ai-controller#quick-start">Install Now</a>
+        <a class="btn btn-secondary" href="https://github.com/ebey317/ai-controller">View on GitHub</a>
+      </div>
+      <img src="reference-controller-layout.png" alt="AI Controller button layout reference" class="hero-img">
+    </div>
+  </header>
+
+  <section>
+    <div class="container">
+      <h2>What it does</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>🎙️ Push-to-Talk Dictation</h3>
+          <p>Hold Right Trigger, speak, release. Groq Whisper transcribes your voice and types it into the focused window — like a walkie-talkie for your desktop.</p>
+        </div>
+        <div class="card">
+          <h3>⌨️ Floating Keyboard</h3>
+          <p>Press View for a GTK on-screen keyboard that sends keystrokes without stealing focus. Style modes and pinned snippets included.</p>
+        </div>
+        <div class="card">
+          <h3>🖱️ Mouse + Scroll</h3>
+          <p>Left stick moves the cursor. Right stick scrolls. No mouse required.</p>
+        </div>
+        <div class="card">
+          <h3>🗺️ HUD Legend</h3>
+          <p>Press Guide to show your current button mappings as a floating overlay. Never forget what a button does.</p>
+        </div>
+        <div class="card">
+          <h3>🔄 Smart Profiles</h3>
+          <p>AntiMicroX profiles auto-switch between desktop, browser, and YouTube TV based on the focused window.</p>
+        </div>
+        <div class="card">
+          <h3>🔊 Voice Responses</h3>
+          <p>The FastAPI voice bridge can speak answers back with edge-tts when you ask it something.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <h2>Who it's for</h2>
+      <ul class="for-who">
+        <li><strong>Couch or bed computing</strong> — when a keyboard and mouse are out of reach.</li>
+        <li><strong>Limited mobility</strong> — one-handed, low-dexterity, or limited reach.</li>
+        <li><strong>Voice-first users</strong> — people who prefer dictation over typing.</li>
+        <li><strong>HTPC / living-room PCs</strong> — run Linux from the sofa with a controller.</li>
+      </ul>
+      <p style="text-align:center; color:var(--muted); margin-top:24px;">This is not "download this instead of that." AI Controller does something most people don't have at all: a controller-native desktop experience with voice control.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <h2>Get started in 30 seconds</h2>
+      <pre><code>git clone https://github.com/ebey317/ai-controller.git
+cd ai-controller
+bash install.sh</code></pre>
+      <p style="text-align:center; color:var(--muted);">Plug in your Xbox controller, open the launcher, hold Right Trigger, and talk.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <h2>Tech stack</h2>
+      <table class="tech-table">
+        <thead>
+          <tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Button mapping</td><td>AntiMicroX</td><td>Controller → keyboard/mouse events</td></tr>
+          <tr><td>Push-to-talk</td><td>Python + pynput</td><td>F13 hotkey listener, audio capture</td></tr>
+          <tr><td>Voice bridge</td><td>FastAPI + uvicorn</td><td>STT + TTS on :8002</td></tr>
+          <tr><td>On-screen keyboard</td><td>Python + GTK3</td><td>Floating keyboard, xdotool keystrokes</td></tr>
+          <tr><td>HUD legend</td><td>Python + GTK3</td><td>Button-map overlay</td></tr>
+          <tr><td>Profile switching</td><td>Bash + xdotool</td><td>Window-focus watcher</td></tr>
+          <tr><td>TTS</td><td>edge-tts</td><td>Cloud text-to-speech</td></tr>
+          <tr><td>Service management</td><td>systemd user units</td><td>Start/stop/autostart</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <h2>Watch it work</h2>
+      <p style="text-align:center; color:var(--muted);">Live screenshots and demo GIFs are in the repo under <code>media/demo/</code>.</p>
+      <div class="grid">
+        <div class="card"><p><strong>Screenshot 1</strong> — Terminal + floating keyboard + controller legend in action.</p></div>
+        <div class="card"><p><strong>Demo GIFs</strong> — Push-to-talk, keyboard toggle, scrolling, and profile switching.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <h2>License</h2>
+      <p style="text-align:center; color:var(--muted);">MIT License — © 2026 Elijah Wilkins. Use it, modify it, resell your own builds.</p>
+      <p style="text-align:center; margin-top:18px;">
+        <a class="btn btn-primary" href="https://github.com/ebey317/ai-controller">Get it on GitHub</a>
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <p>Built by <a href="https://github.com/ebey317">Elijah Wilkins</a>. Related: <a href="https://github.com/ebey317/master-ai-cli">master-ai-cli</a></p>
+    </div>
+  </footer>
+</body>
+</html>

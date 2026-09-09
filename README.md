@@ -1,52 +1,47 @@
-# AI Controller
+# AI Controller for Linux
 
-> Voice-first desktop accessibility and HCI automation for Linux. Control your entire desktop with an Xbox controller — push-to-talk dictation, floating keyboard, mouse movement, and HUD overlay.
+> **Control your entire Linux desktop with an Xbox controller.** Push-to-talk dictation, floating keyboard, mouse, scroll, and HUD overlay — built for couch use, bed use, and limited mobility.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/ebey317/ai-controller)](https://github.com/ebey317/ai-controller)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)]()
-[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue.svg)]()
 [![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](https://github.com/ebey317/ai-controller/releases/tag/v1.0.0)
-
-AI Controller turns a wired Xbox Series X/S controller into a complete desktop input device. It was built for couch use, bed use, limited mobility, and any situation where a keyboard and mouse are not within reach.
-
----
-
-## What It Does
-
-- **Push-to-talk speech-to-text** — press Right Trigger, speak, release; your words are transcribed by Groq Whisper and typed into the focused window.
-- **Floating on-screen keyboard** — toggle with the View button; a GTK keyboard that sends keystrokes without stealing focus.
-- **Controller legend HUD** — toggle with the Guide button to see your current button mappings as a floating overlay.
-- **Auto profile switching** — swaps AntiMicroX layouts between desktop, browser, and YouTube TV based on the focused window.
-- **Voice response (TTS)** — answers read back aloud via edge-tts through the FastAPI voice bridge.
-- **Mouse and scroll control** — left stick moves the cursor, right stick scrolls.
-- **Systemd-managed services** — start/stop from the launcher app, with optional opt-in autostart.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue.svg)]()
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)]()
+[![Last Commit](https://img.shields.io/github/last-commit/ebey317/ai-controller)](https://github.com/ebey317/ai-controller)
 
 ---
 
-## Why It Exists
+## What is AI Controller?
 
-Desktop computing assumes a keyboard and mouse are always within reach. That assumption breaks on a couch, in bed, or for users with limited mobility. AI Controller removes that assumption by turning a $30 game controller into a full input device — voice, keyboard, mouse, and profile switching in one.
+AI Controller turns a **wired Xbox Series X/S controller** into a complete keyboard + mouse + voice input device for Linux.
 
----
+It is a real, daily-used accessibility product — not a prototype. Plug in the controller, put on headphones, and run your whole desktop without touching a physical keyboard or mouse.
 
-## Tech Stack
+### Core features
 
-| Component | Technology | Purpose |
-|---|---|---|
-| Button mapping | [AntiMicroX](https://github.com/AntiMicroX/antimicrox) | Controller → keyboard/mouse events |
-| Push-to-talk | Python + [pynput](https://github.com/moses-palmer/pynput) | F13 hotkey listener, audio capture |
-| Voice bridge | [FastAPI](https://fastapi.tiangolo.com/) + [uvicorn](https://www.uvicorn.org/) | STT + TTS on `:8002` |
-| On-screen keyboard | Python + GTK3 (PyGObject) | Floating keyboard, xdotool keystroke injection |
-| HUD legend | Python + GTK3 | Floating controller button-map overlay |
-| Profile switching | Bash + xdotool | Window-focus watcher, AntiMicroX profile swap |
-| TTS | [edge-tts](https://github.com/rhasspy/rhasspy-edge-tts) | Cloud text-to-speech |
-| Service management | systemd user units | Start/stop via launcher, crash recovery, optional autostart |
-| Device rules | udev | USB autosuspend control, controller ACLs, xone/xpad driver guard |
+| Feature | How you use it |
+|---|---|
+| **Push-to-talk dictation** | Hold **Right Trigger**, speak, release — your words are transcribed by Groq Whisper and typed into the focused window. |
+| **Floating on-screen keyboard** | Press **View** to open a GTK keyboard that sends keystrokes without stealing focus. |
+| **Controller legend HUD** | Press **Guide** to see your current button mappings as a floating overlay. |
+| **Mouse + scroll** | Left stick moves the cursor, right stick scrolls. |
+| **Auto profile switching** | AntiMicroX layouts swap between desktop, browser, and YouTube TV based on the active window. |
+| **Voice responses (TTS)** | The voice bridge can speak answers back via edge-tts. |
+| **Systemd-managed services** | Start, stop, and opt-in autostart from the launcher app. |
 
 ---
 
-## Quick Start
+## Who is it for?
+
+- **Couch or bed computing** — when a keyboard and mouse are not within reach.
+- **Limited mobility** — one-handed, low-dexterity, or limited reach scenarios.
+- **Voice-first users** — people who prefer dictation over typing.
+- **Anyone who wants to run Linux from a controller** — HTPC setups, living-room PCs, etc.
+
+> *This is not another "download this instead of that" app. AI Controller does something most people don't have at all: a controller-native desktop experience with voice control.*
+
+---
+
+## Quick start
 
 ```bash
 git clone https://github.com/ebey317/ai-controller.git
@@ -60,95 +55,81 @@ bash install.sh
 # AntiMicroX
 sudo apt install antimicrox
 
-# Python dependencies (venv created automatically during install)
-# See requirements.txt: httpx fastapi uvicorn pynput numpy scipy edge-tts
-
 # TTS playback
 sudo apt install mpv
 
 # GTK3 (on-screen keyboard + HUD)
 sudo apt install python3-gi gir1.2-gtk-3.0
 
-# Groq API key — free tier available at https://console.groq.com/keys
-# The installer prompts you to paste it.
+# Groq API key — free tier at https://console.groq.com/keys
+# The installer prompts you to paste it securely.
 ```
 
-**Supported platforms:** Ubuntu / Mint / Debian (apt) with wired Xbox Series X/S controller (045e:0b12). Linux only.
+**Supported:** Ubuntu / Mint / Debian with a wired Xbox Series X/S controller (`045e:0b12`). Linux only.
 
 ---
 
-## Usage
+## Try it
 
 ```bash
 # Open the launcher (or click the AI Controller desktop icon)
 python3 scripts/ai-controller-launcher.py
 ```
 
-In the launcher:
-- **Start AI Controller** — start all services
-- **Stop AI Controller** — stop all services
-- **Start on boot** — opt-in autostart (off by default)
-
-**On the controller:**
-
-1. Plug in your wired Xbox Series X/S controller.
+1. Plug in your controller.
 2. Put on headphones.
-3. Press **Right Trigger** and talk — your speech is transcribed and typed.
-4. Press **View** to toggle the floating keyboard.
-5. Press **Guide** to toggle the controller legend HUD.
+3. Hold **Right Trigger** and talk — text appears wherever your cursor is.
+4. Press **View** for the keyboard, **Guide** for the legend.
 
-**Floating keyboard — style modes:**
+![Controller layout reference](reference-controller-layout.png)
 
-The top-left button of the keyboard cycles through 5 typing styles, each button rendered in its own real font so you can tell what it does at a glance — click it to advance to the next one:
+---
 
-| Mode | Button reads | What it does |
+## What makes it different?
+
+Most controller apps map a gamepad to keyboard keys and call it done. AI Controller is built around **voice as a first-class input method**:
+
+- Dictation is triggered like a walkie-talkie — hold RT, talk, release.
+- The floating keyboard has **style modes** (Pro, Cursive, Casual, Bold, Old English) and **pinned snippets**.
+- The **legend HUD** shows the current layout live, so you never forget what a button does.
+- **Profile auto-switching** means the same controller behaves differently in a browser, a media player, or the desktop.
+
+---
+
+## Tech stack
+
+| Layer | Tool | Purpose |
 |---|---|---|
-| Pro | `PRO` | Plain text, no changes |
-| Cursive | `✨ 𝓒𝓾𝓻𝓼𝓲𝓿𝓮` | Mathematical Bold Script Unicode |
-| Casual | `☕ casual` | Lowercases the text + adds a casual emoji |
-| Bold | `𝐁𝐨𝐥𝐝` | Mathematical Bold Unicode |
-| Old-E | `𝕺𝖑𝖉-𝕰` | Mathematical Bold Fraktur (Old English) Unicode |
-
-The active style applies to both push-to-talk dictation and manual keyboard typing.
-
-**Floating keyboard — pinned snippets:**
-
-The bottom row of the keyboard holds up to 7 pinned commands/snippets:
-- **Left-click** a pin — types its text into the whatever window is focused.
-- **Right-click** a pin — unpins it.
-- **+ pin** — pins whatever's currently on the clipboard.
-- **Shift + left-click** a pin that has multiple variants (e.g. `hermes` cycles `hermes` → `hermes --tui` → `hermes desktop`) — advances to the next variant and relabels the button, without typing anything. A plain left-click then types whichever variant is currently shown. This split exists so browsing through variants never spams keystrokes into your terminal.
-
-**Profile switching:**
-
-```bash
-# Auto-switch profiles based on focused window
-nohup DISPLAY=:0 bash scripts/controller-profile-switcher.sh &
-
-# Lock to desktop profile
-touch ~/.config/ai-controller/lock_desktop_profile
-```
+| Button mapping | [AntiMicroX](https://github.com/AntiMicroX/antimicrox) | Controller → keyboard/mouse events |
+| Push-to-talk listener | Python + [pynput](https://github.com/moses-palmer/pynput) | F13 hotkey + audio capture |
+| Voice bridge | [FastAPI](https://fastapi.tiangolo.com/) + [uvicorn](https://www.uvicorn.org/) | STT + TTS on `:8002` |
+| On-screen keyboard | Python + GTK3 | Floating keyboard, xdotool keystroke injection |
+| HUD legend | Python + GTK3 | Floating controller button-map overlay |
+| Profile switching | Bash + xdotool | Window-focus watcher, AntiMicroX profile swap |
+| TTS | [edge-tts](https://github.com/rhasspy/rhasspy-edge-tts) | Cloud text-to-speech |
+| Service management | systemd user units | Start/stop/crash recovery/autostart |
+| Device rules | udev | USB autosuspend, controller ACLs, xone/xpad guard |
 
 ---
 
 ## Architecture
 
 ```text
-┌──────────────────────────────────────────────────────────────────┐
-│                        Xbox / PS Controller                      │
-│  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐    │
-│  │   RT   │  │  View  │  │ Guide  │  │   LS   │  │   RS   │    │
-│  │ (Talk) │  │ (Kbd)  │  │ (HUD)  │  │(Mouse) │  │(Scroll)│    │
-│  └────────┘  └────────┘  └────────┘  └────────┘  └────────┘    │
-└──────────────────────────────────────────────────────────────────┘
-       │           │            │           │           │
-       ▼           ▼            ▼           ▼           ▼
-┌──────────┐ ┌───────────┐ ┌──────────┐ ┌──────────────────────┐
-│ AntiMicroX│ │slide_     │ │controller│ │  Mouse movement     │
+┌─────────────────────────────────────────────────────────────────┐
+│                    Xbox / PS Controller                         │
+│  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐      │
+│  │  RT    │ │  View  │ │ Guide  │ │   LS   │ │   RS   │      │
+│  │ (Talk) │ │ (Kbd)  │ │ (HUD)  │ │(Mouse) │ │(Scroll)│      │
+│  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘      │
+└─────────────────────────────────────────────────────────────────┘
+      │          │           │          │           │
+      ▼          ▼           ▼          ▼           ▼
+┌──────────┐ ┌───────────┐ ┌──────────┐ ┌─────────────────────┐
+│ AntiMicroX│ │ slide_    │ │controller│ │  Mouse movement     │
 │ → F13     │ │keyboard.py│ │legend.py │ │  (xtest event gen)  │
-└──────────┘ └───────────┘ └──────────┘ └──────────────────────┘
-     │ F13
-     ▼
+└──────────┘ └───────────┘ └──────────┘ └─────────────────────┘
+      │ F13
+      ▼
 ┌──────────────┐     ┌──────────────────┐     ┌──────────────┐
 │ ptt_pynput.py│────▶│  voice_bridge.py  │────▶│  xdotool     │
 │ (hotkey      │     │  (FastAPI :8002)  │     │  (type text  │
@@ -161,62 +142,56 @@ touch ~/.config/ai-controller/lock_desktop_profile
                  │  → mpv            │
                  └──────────────────┘
 
-┌──────────────────────────────────────────────────────────────────┐
-│              controller-profile-switcher.sh                      │
-│  watches focused window → swaps AntiMicroX profile               │
-│  desktop │ browser │ YouTube TV                                   │
-└──────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│              controller-profile-switcher.sh                     │
+│  watches focused window → swaps AntiMicroX profile              │
+│  desktop │ browser │ YouTube TV                                  │
+└─────────────────────────────────────────────────────────────────┘
 
-┌──────────────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────────────┐
 │                    systemd user services                          │
 │  ptt-pynput │ voice-bridge │ ai-slide-keyboard │ controller-legend │
 │  antimicrox-autoload │ f13-xmodmap-heal │ xone-driver-guard       │
-└──────────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Voice Bridge API
+## Voice bridge API
 
-The voice bridge runs on `http://localhost:8002`.
+Runs on `http://localhost:8002`.
 
 | Endpoint | Description |
 |---|---|
-| `GET /health` | Service health check |
-| `POST /voice?mode=transcribe_only` | Transcribe audio file |
-| `POST /voice?mode=tts_only` | Generate TTS from text |
+| `GET /health` | Service health |
+| `POST /voice?mode=transcribe_only` | Transcribe audio |
+| `POST /voice?mode=tts_only` | Speak text |
 | `POST /voice?mode=both` | Transcribe audio, then read response aloud |
 
 ```bash
-# Health check
 curl http://localhost:8002/health
 
-# Transcribe audio
 curl -X POST http://localhost:8002/voice?mode=transcribe_only \
   -F "audio=@recording.wav"
-
-# Generate TTS
-curl -X POST http://localhost:8002/voice?mode=tts_only \
-  -d "text=Hello, world!"
 ```
 
 ---
 
-## Systemd Services
+## Systemd services
 
 | Service | Purpose |
 |---|---|
-| `ptt-pynput.service` | Listens for F13 key presses and captures audio |
-| `voice-bridge.service` | FastAPI STT/TTS service |
-| `ai-slide-keyboard.service` | On-screen keyboard overlay |
-| `controller-legend.service` | Controller button mapping overlay |
-| `antimicrox-autoload.service` | Auto-loads the default controller profile |
-| `f13-xmodmap-heal.service` | Restores F13 key mapping after X reloads or controller hotplugs |
-| `xone-driver-guard.service` | Blocks in-kernel `xpad` driver and prevents USB autosuspend on the controller |
+| `ptt-pynput.service` | F13 listener + audio capture |
+| `voice-bridge.service` | FastAPI STT/TTS |
+| `ai-slide-keyboard.service` | On-screen keyboard |
+| `controller-legend.service` | HUD overlay |
+| `antimicrox-autoload.service` | Auto-load default profile |
+| `f13-xmodmap-heal.service` | Restore F13 keymap after X reload |
+| `xone-driver-guard.service` | Block in-kernel xpad + prevent USB autosuspend |
 
 ```bash
-systemctl --user start/stop/restart <service-name>.service
-systemctl --user enable/disable <service-name>.service
+systemctl --user start/stop/restart <service>.service
+systemctl --user enable/disable <service>.service
 ```
 
 ---
@@ -225,9 +200,17 @@ systemctl --user enable/disable <service-name>.service
 
 | Symptom | Fix |
 |---|---|
-| Right trigger doesn't trigger dictation | `bash scripts/fix-f13-keymap.sh` — reapplies F13 xmodmap overlay |
-| PTT service can't see AntiMicroX devices | `sudo udevadm trigger --action=add --subsystem-match=input && systemctl --user restart ptt-pynput.service` |
+| Right trigger doesn't trigger dictation | `bash scripts/fix-f13-keymap.sh` |
+| PTT can't see AntiMicroX devices | `sudo udevadm trigger --action=add --subsystem-match=input && systemctl --user restart ptt-pynput.service` |
 | Duplicate AntiMicroX processes | `systemctl --user restart antimicrox-autoload.service` |
+
+---
+
+## Product site
+
+For screenshots, demo GIFs, and a polished product overview, visit:
+
+**https://ebey317.github.io/ai-controller**
 
 ---
 
@@ -235,11 +218,9 @@ systemctl --user enable/disable <service-name>.service
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Format Python code: `black scripts/ tests/`
+3. Format Python: `black scripts/ tests/`
 4. Run linters: `ruff check . && black --check . && shellcheck *.sh`
-5. Commit changes: `git commit -m "Add my feature"`
-6. Push to your fork: `git push origin feature/my-feature`
-7. Open a Pull Request
+5. Commit, push, and open a Pull Request
 
 ---
 
@@ -251,16 +232,13 @@ Use it, modify it, resell your own builds.
 
 ---
 
-## Author / Contact
+## Author
 
-**Elijah Wilkins**
+**Elijah Wilkins** — GitHub: [@ebey317](https://github.com/ebey317)
 
-- GitHub: [@ebey317](https://github.com/ebey317)
-- Repository: [ebey317/ai-controller](https://github.com/ebey317/ai-controller)
-
-### Related Repositories
+### Related projects
 
 | Repo | Purpose |
 |---|---|
-| [`ebey317/ai-controller-profile`](https://github.com/ebey317/ai-controller-profile) | Profiles, scripts, systemd units, and reference docs |
-| [`ebey317/master-ai-cli`](https://github.com/ebey317/master-ai-cli) | Local-first AI agent runtime that can drive this accessibility stack |
+| [`ebey317/ai-controller-profile`](https://github.com/ebey317/ai-controller-profile) | Profiles, scripts, systemd units, reference docs |
+| [`ebey317/master-ai-cli`](https://github.com/ebey317/master-ai-cli) | Local-first AI agent runtime that can drive this stack |
