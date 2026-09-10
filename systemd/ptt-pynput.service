@@ -1,7 +1,11 @@
 [Unit]
 Description=Push-to-Talk Dictation Listener (pynput)
+# 2026-09-09: graphical-session.target dropped from Wants= (kept the
+# voice-bridge.service app dependency) — see controller-legend.service for
+# why (StopWhenUnneeded=yes cascade that closed every open terminal on
+# `stop-all.sh`). After= alone still sequences startup correctly.
 After=graphical-session.target voice-bridge.service
-Wants=graphical-session.target voice-bridge.service
+Wants=voice-bridge.service
 
 [Service]
 Type=simple

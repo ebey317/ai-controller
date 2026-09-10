@@ -289,11 +289,26 @@ def _type_text_fast(text: str, mode: str = "pro", target_window: str | None = No
     """
     env = {**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')}
 
+    # 2026-09-09: none of the calls below had a timeout — the one function
+    # in this file that didn't (every sibling xdotool call elsewhere uses
+    # timeout=2). stop_and_send() holds _processing_lock for this entire
+    # call, and start_recording() blocks indefinitely on that same lock
+    # (no timeout there either) — so a single X stall here (window-manager
+    # grab, X server hiccup) deadlocked every future trigger-press forever,
+    # with no recovery short of restarting the service. A TimeoutExpired
+    # here is already caught by stop_and_send()'s own
+    # `except Exception as ex: log.error(...)` and the lock still releases
+    # in its `finally` — this only needed the timeout, not new handling.
+    # The two typing calls scale with text length (xdotool's --delay is
+    # per-character) so a long legitimate dictation is never killed early;
+    # only a genuine hang is.
+
     # Ensure the target window has focus before we type or paste.
     if target_window:
         subprocess.run(
             ['xdotool', 'windowactivate', target_window],
             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=3,
         )
         time.sleep(0.03)
 
@@ -304,6 +319,7 @@ def _type_text_fast(text: str, mode: str = "pro", target_window: str | None = No
             subprocess.run(
                 ['xdotool', 'key', 'ctrl+shift+v'],
                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=3,
             )
         else:
             # Clipboard failed, or never became readable in time — fall back
@@ -314,13 +330,14 @@ def _type_text_fast(text: str, mode: str = "pro", target_window: str | None = No
             delay = 55 if mode == "bubbly" else 35
             subprocess.run(
                 ['xdotool', 'type', '--clearmodifiers', f'--delay={delay}', '--', text],
-                env=env,
+                env=env, timeout=max(5, len(text) * delay / 1000 * 2),
             )
         return
 
     # Plain ASCII: fast direct typing.
     cmd = ['xdotool', 'type', '--clearmodifiers', f'--delay={_XDOTOOL_TYPE_DELAY_MS}', '--', text]
-    subprocess.run(cmd, env=env)
+    subprocess.run(cmd, env=env,
+                    timeout=max(5, len(text) * _XDOTOOL_TYPE_DELAY_MS / 1000 * 2))
 
 
 def _typing_hud(mode: str, text: str):

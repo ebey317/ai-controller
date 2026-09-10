@@ -1,7 +1,14 @@
 [Unit]
 Description=Controller Legend HUD
+# 2026-09-09: graphical-session.target has StopWhenUnneeded=yes, and this
+# unit's own Wants= (removed here) was one of the 5 things keeping it
+# "needed." `systemctl --user stop` on all 5 ai-controller services took
+# the shared target down as a side effect, and gnome-terminal-server.service
+# (PartOf=graphical-session.target) cascaded with it — closing every open
+# terminal. After= alone still sequences startup correctly; only something
+# that should be capable of bringing the graphical session up itself needs
+# Wants= on it, and none of these accessibility services are that.
 After=graphical-session.target
-Wants=graphical-session.target
 
 [Service]
 Type=simple
