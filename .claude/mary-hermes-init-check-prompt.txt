@@ -1,0 +1,19 @@
+You are Claude Code CLI running on the local host Mary. Verify that a Hermes agent can initialize and respond using only the local Ollama-backed model.
+
+DO NOT change the default Hermes model or provider. Use only the already-configured local provider and model.
+
+Run this exact command from /home/elijah/ai-controller and capture everything that is printed:
+
+    timeout 540 hermes chat --provider mary-local -m qwen2.5:7b-32k -q 'hello' -Q --max-turns 1 -t terminal,file,todo --safe-mode -v
+
+Wait up to 9 minutes for the response. Hermes will request 32,768 tokens of context. The model is a 7B Q4_K_M CPU-only Ollama model, so the first call may take several minutes.
+
+After it finishes, write a concise summary to /tmp/claude-mary-hermes-init-check.txt containing:
+- The exact command run.
+- Whether Hermes initialized successfully with model qwen2.5:7b-32k and provider mary-local.
+- The model's final text response (or timeout/error if any).
+- The total latency or any relevant log line showing API call time.
+- Whether any cloud-model fallback occurred.
+- The exit code.
+
+Do not ask the user for input. Do not modify system files. Only run the single test command and write the summary file.
