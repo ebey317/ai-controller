@@ -1,7 +1,10 @@
 [Unit]
 Description=Voice Bridge — PTT → Groq Whisper → TTS
+# 2026-09-09: Wants=graphical-session.target removed — see
+# controller-legend.service for why (StopWhenUnneeded=yes cascade that
+# closed every open terminal on `stop-all.sh`). After= alone still sequences
+# startup correctly.
 After=graphical-session.target
-Wants=graphical-session.target
 
 [Service]
 Environment=AI_CONTROLLER_DIR=%h/ai-controller

@@ -178,21 +178,27 @@ class Launcher(Gtk.Window):
         self.status_label.set_text(self._service_status())
         return True
 
+    # 2026-09-09: _on_fix/_on_start/_on_stop used to fire raw `systemctl
+    # start/stop` + SERVICES directly, in parallel with no ordering. That
+    # bypassed start-all.sh (which exists specifically because ptt-pynput
+    # starting before voice-bridge answers on :8002 breaks the first
+    # recording) and stop-all.sh (which exists because a bare `systemctl
+    # stop` can leave a root-owned or cgroup-escaped process running). This
+    # GUI is the operator's actual "fix it" button — it needs to go through
+    # the same ordering/teardown those scripts were written to guarantee,
+    # not race against it.
     def _on_fix(self, _widget):
         subprocess.Popen(
             ["bash", os.path.join(SCRIPT_DIR, "fix-controller-driver.sh")],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.Popen(
-            ["systemctl", "--user", "start"] + SERVICES,
+            ["bash", os.path.join(SCRIPT_DIR, "start-all.sh")],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.Popen(
-            ["bash", os.path.join(SCRIPT_DIR, "reset-controller-audio.sh")],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.status_label.set_text("Fixing controller + services + audio...")
+        self.status_label.set_text("Fixing controller + starting services...")
 
     def _on_start(self, _widget):
         subprocess.Popen(
-            ["systemctl", "--user", "start"] + SERVICES,
+            ["bash", os.path.join(SCRIPT_DIR, "start-all.sh")],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.status_label.set_text("Starting services...")
 
@@ -204,7 +210,7 @@ class Launcher(Gtk.Window):
 
     def _on_stop(self, _widget):
         subprocess.Popen(
-            ["systemctl", "--user", "stop"] + SERVICES,
+            ["bash", os.path.join(SCRIPT_DIR, "stop-all.sh")],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.status_label.set_text("Stopping services...")
 

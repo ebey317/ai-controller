@@ -84,10 +84,16 @@ else
     case "$PKG_MANAGER" in
         apt)
             sudo apt-get update -qq
+            # 2026-09-09: x11-xserver-utils (xmodmap) and speech-dispatcher
+            # (spd-say) were used throughout scripts/ (F13 keymap healing,
+            # the last-resort TTS fallback) but never provisioned here --
+            # silently no-op on a fresh install, same bug class as the
+            # python-xlib gap already fixed in requirements.txt.
             sudo apt-get install -y -qq \
                 python3 python3-venv python3-pip python3-dev \
                 libgirepository1.0-dev libcairo2-dev python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-                xdotool xclip curl antimicrox pulseaudio-utils mpv wget git libportaudio2 libnotify-bin rofi || {
+                xdotool xclip curl antimicrox pulseaudio-utils mpv wget git libportaudio2 libnotify-bin rofi \
+                x11-xserver-utils speech-dispatcher || {
                 echo "ERROR: failed to install system packages" >&2
                 exit 1
             }
@@ -96,7 +102,8 @@ else
             sudo dnf install -y \
                 python3 python3-pip python3-devel \
                 gobject-introspection-devel cairo-devel python3-gobject python3-gobject-base gtk3 \
-                xdotool xclip curl pulseaudio-utils mpv wget git portaudio libnotify rofi || {
+                xdotool xclip curl pulseaudio-utils mpv wget git portaudio libnotify rofi \
+                xorg-x11-server-utils speech-dispatcher || {
                 echo "ERROR: failed to install system packages" >&2
                 exit 1
             }
@@ -106,7 +113,8 @@ else
             sudo pacman -Sy --noconfirm \
                 python python-pip \
                 gobject-introspection cairo python-gobject gtk3 \
-                xdotool xclip curl pulseaudio wget git portaudio libnotify rofi || {
+                xdotool xclip curl pulseaudio wget git portaudio libnotify rofi \
+                xorg-xmodmap speech-dispatch || {
                 echo "ERROR: failed to install system packages" >&2
                 exit 1
             }
@@ -116,7 +124,8 @@ else
             sudo zypper --non-interactive install \
                 python3 python3-pip python3-devel \
                 gobject-introspection-devel cairo-devel python3-gobject python3-gobject-cairo gtk3 \
-                xdotool xclip curl pulseaudio-utils mpv wget git portaudio libnotify-tools rofi || {
+                xdotool xclip curl pulseaudio-utils mpv wget git portaudio libnotify-tools rofi \
+                xorg-x11-server-utils speech-dispatcher || {
                 echo "ERROR: failed to install system packages" >&2
                 exit 1
             }
@@ -145,6 +154,10 @@ else
     cp -r "${REPO_DIR}/profiles" "${INSTALL_DIR}/"
     cp -r "${REPO_DIR}/systemd" "${INSTALL_DIR}/"
     cp -r "${REPO_DIR}/docs" "${INSTALL_DIR}/" 2>/dev/null || true
+    # 2026-09-09: voices/ was in the rm -rf set above but never recopied
+    # here (only the rsync branch restored it) -- every Piper voice model
+    # was silently absent on any install where rsync isn't on PATH.
+    cp -r "${REPO_DIR}/voices" "${INSTALL_DIR}/" 2>/dev/null || true
     cp "${REPO_DIR}/README.md" "${INSTALL_DIR}/" 2>/dev/null || true
 fi
 
