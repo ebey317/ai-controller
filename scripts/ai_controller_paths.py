@@ -4,6 +4,7 @@ Every script uses these helpers so the install can live anywhere under $HOME
 and never hardcode the original developer's home directory.
 """
 import os
+from typing import Dict, Optional
 
 
 def ai_controller_dir() -> str:
@@ -31,7 +32,7 @@ def config_file() -> str:
     return os.path.join(config_dir(), "config.env")
 
 
-def load_env(path: str | None = None) -> dict[str, str]:
+def load_env(path: Optional[str] = None) -> Dict[str, str]:
     """Read KEY=VALUE lines from a file, ignoring comments and blanks."""
     path = path or config_file()
     out: dict[str, str] = {}

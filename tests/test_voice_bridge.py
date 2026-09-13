@@ -2,6 +2,7 @@
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Use the project venv packages and make voice_bridge importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -14,7 +15,7 @@ from fastapi.testclient import TestClient
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: dict | None = None):
+    def __init__(self, status_code: int = 200, json_data: Optional[dict] = None):
         self.status_code = status_code
         self._json = json_data or {}
 
