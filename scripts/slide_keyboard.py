@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import focus_guard
 import voice_toggle
 from ai_controller_paths import config_dir, ensure_config_dir
-from text_styles import to_cursive, to_bold, to_old_english
+from text_styles import to_bold, to_cursive, to_old_english
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()
@@ -728,7 +728,8 @@ class SlideKeyboard(Gtk.Window):
 
         text = pin.get("text", "")
         if text:
-            focus_guard.guarded_type(self._focus_target_win, text)
+            target = _resolve_target(self._focus_target_win)
+            send(text, target_win=target)
         return True
 
     def _on_pin_add(self, _widget):
