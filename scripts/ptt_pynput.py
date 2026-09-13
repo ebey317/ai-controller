@@ -1382,7 +1382,8 @@ def _run_x11_f13_grab():
     listener above — this thread only has to keep draining the grabbed
     key's events off this connection so they never escape to focus."""
     try:
-        from Xlib import X, XK, display as _xdisplay
+        from Xlib import XK, X
+        from Xlib import display as _xdisplay
     except ImportError:
         log.warning("python-xlib not available — F13 will keep leaking to focused windows")
         return

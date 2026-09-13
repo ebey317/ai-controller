@@ -97,13 +97,14 @@ url_update() {
 
     local TMP_DIR
     TMP_DIR=$(mktemp -d)
-    trap "rm -rf $TMP_DIR" EXIT
+    trap 'rm -rf "$TMP_DIR"' EXIT
 
     echo "Downloading $ARCHIVE_URL ..."
     curl -fsSL "$ARCHIVE_URL" -o "$TMP_DIR/ai-controller-$REMOTE_VERSION.tar.gz"
 
     echo "Installing update ..."
-    local BACKUP_DIR="$INSTALL_DIR.backup.$(date +%s)"
+    local BACKUP_DIR
+    BACKUP_DIR="$INSTALL_DIR.backup.$(date +%s)"
     local NEW_DIR="$INSTALL_DIR.new"
     rm -rf "$NEW_DIR"
     mkdir -p "$NEW_DIR"
