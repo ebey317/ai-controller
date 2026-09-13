@@ -38,5 +38,11 @@ jobs:
           file: ./coverage.xml
           flags: unittests
           name: codecov-umbrella
-          fail_ci_if_error: true
+          # Tokenless uploads are rate-limited by Codecov and returned
+          # HTTP 429 ("Rate limit reached. Please upload with the Codecov
+          # repository upload token"). A third-party upload service being
+          # throttled says nothing about whether the code is correct, so it
+          # should not fail the build. To make this step enforcing, add a
+          # CODECOV_TOKEN repository secret and flip this back to true.
+          fail_ci_if_error: false
           verbose: true
