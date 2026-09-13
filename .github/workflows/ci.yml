@@ -26,7 +26,7 @@ jobs:
           shellcheck scripts/*.sh
       - name: Run tests
         run: |
-          pytest --tb=short -v --cov=scripts --cov=tests --cov-report=term-missing --cov-report=html
+          pytest --tb=short -v --cov=scripts --cov=tests --cov-report=term-missing --cov-report=xml --cov-report=html
       - name: Upload coverage report
         uses: codecov/codecov-action@v3
         with:
