@@ -1,36 +1,24 @@
 # ShellCheck configuration file
-# Disable SC2034 (var appears unused) - often used in sourced files
-SC2034:ignore
+#
+# Syntax note: shellcheck only accepts `disable=SCxxxx` / `enable=SCxxxx`
+# directives here. The previous `SCxxxx:ignore` / `SCxxxx:enable` form was
+# never valid — shellcheck rejected the whole file with SC1134 and reported
+# that error against every single script, so `shellcheck scripts/*.sh` failed
+# unconditionally instead of linting anything.
 
-# Disable SC2154 (var is referenced but not assigned) - common in config files
-SC2154:ignore
+# SC2034 — var appears unused; common in sourced files.
+# SC2154 — var referenced but not assigned; common in config files.
+# SC2148 — file has no shebang; some files are sourced, not executed.
+# SC2164 — `cd` without failure handling; common in scripts sourcing others.
+# SC2086 — unquoted expansion; sometimes deliberate.
+# SC2001 — "use sed instead of parameter expansion"; expansion is sometimes clearer.
+# SC2002 — "useless cat"; sometimes kept for clarity.
+# SC2046 — unquoted command substitution; sometimes deliberate.
+# SC2039 — undefined variable in POSIX-ish scripts that source config files.
+disable=SC2034,SC2154,SC2148,SC2164,SC2086,SC2001,SC2002,SC2046,SC2039
 
-# Disable SC2148 (files without shebang) - some files are sourced, not executed
-SC2148:ignore
+# Surfaces worth keeping on.
+enable=SC2155,SC1090,SC1091
 
-# Disable SC2164 (cd in subshell) - common in scripts that source other scripts
-SC2164:ignore
-
-# Disable SC2086 (double quote to prevent word splitting) - sometimes intentional
-SC2086:ignore
-
-# Enable SC2155 (declare and assign separately) - good practice
-SC2155:enable
-
-# Enable SC1090 (source not followed) - warn about sourcing files without full path
-SC1090:enable
-
-# Enable SC1091 (source file not found) - warn about missing sourced files
-SC1091:enable
-
-# Disable SC2001 (use sed instead of parameter expansion) - sometimes clearer with parameter expansion
-SC2001:ignore
-
-# Disable SC2002 (useless cat) - sometimes needed for clarity
-SC2002:ignore
-
-# Disable SC2046 (quote to prevent word splitting) - sometimes intentional
-SC2046:ignore
-
-# Disable SC2039 (variable is undefined) - common in scripts that source config files
-SC2039:ignore
+# Follow sourced files so SC1090/SC1091 can actually resolve them.
+external-sources=true

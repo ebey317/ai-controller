@@ -63,6 +63,11 @@ while true; do
         if [ "$last_shallow" -gt 0 ] && [ $((now - last_shallow)) -lt "$ESCALATE_WINDOW" ] \
            && [ -x "$DEEP_RESET" ] && sudo -n -l "$DEEP_RESET" >/dev/null 2>&1; then
             log "wedge back within ${ESCALATE_WINDOW}s of shallow reset ($count failures) — escalating to deep reset (module reload)"
+            # shellcheck disable=SC2024  # $LOG lives under $HOME and is
+            # user-writable, so the redirect is opened by the invoking user
+            # deliberately. Switching to `sudo tee` would replace the reset
+            # command's exit status with tee's and make the else branch below
+            # unreachable — it would report success on a failed reset.
             if sudo -n "$DEEP_RESET" >> "$LOG" 2>&1; then
                 last_reset=$now
                 last_shallow=0

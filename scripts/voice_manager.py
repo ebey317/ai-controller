@@ -18,6 +18,7 @@ import os
 import shutil
 import sys
 import zipfile
+from typing import Optional
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
@@ -32,7 +33,7 @@ def _pack_path(voice_id: str) -> str:
     return os.path.join(VOICES_DIR, voice_id)
 
 
-def _load_config(voice_id: str) -> dict | None:
+def _load_config(voice_id: str) -> Optional[dict]:
     path = os.path.join(_pack_path(voice_id), "config.json")
     try:
         with open(path, "r", encoding="utf-8") as f:
