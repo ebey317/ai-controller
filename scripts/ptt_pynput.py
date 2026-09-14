@@ -67,6 +67,41 @@ VOCAB_FILE = os.path.join(config_dir(), "ptt_vocabulary.json")
 INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
+# ---------------------------------------------------------------------------
+# Hermex (iPhone) push notifications via hermes-webui /api/notify
+# ---------------------------------------------------------------------------
+def _notify_hermex(title: str, body: str, urgency: str = "normal", sound: bool = False) -> None:
+    """Best-effort push notification to the Hermex iOS app.
+
+    Reads HERMES_SESSION_ID and HERMES_WEBUI_URL from the environment.
+    Failures are logged at debug level and swallowed so a notification
+    problem never breaks the dictation pipeline.
+    """
+    sid = os.environ.get("HERMES_SESSION_ID", "*").strip()
+    if not sid:
+        sid = "*"
+    base = os.environ.get("HERMES_WEBUI_URL", "http://127.0.0.1:8787").rstrip("/")
+    payload = {
+        "session_id": sid,
+        "title": title,
+        "body": body,
+        "urgency": urgency,
+        "action": "",
+        "sound": bool(sound),
+    }
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base}/api/notify",
+            data=data,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+    except Exception:
+        log.debug("Hermex notify failed", exc_info=True)
+
 
 
 # Unicode font maps (standalone, no dependencies)
@@ -1162,6 +1197,7 @@ def stop_and_send():
 
         duration, rms = _wav_stats(wavfile)
         log.info(f"Sending... ({duration:.2f}s RMS={rms:.1f})")
+        _notify_hermex("Voice recording sent", f"Sent {duration:.1f}s audio for transcription", urgency="low")
 
         # For Unicode modes, show the typing indicator immediately on trigger
         # release so the operator gets feedback while STT runs.
@@ -1212,6 +1248,7 @@ def stop_and_send():
                 use_clipboard = (target == "clipboard")
 
                 log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
+                _notify_hermex("Transcript ready", transcript[:120], urgency="normal")
                 time.sleep(_TYPE_SETTLE_MS / 1000.0)
 
                 if use_clipboard:
@@ -1243,6 +1280,7 @@ def stop_and_send():
                 log.info("(nothing heard)")
         except Exception as ex:
             log.error(f"Error: {ex}")
+            _notify_hermex("Dictation failed", str(ex)[:120], urgency="high", sound=True)
         finally:
             if show_indicator:
                 _set_typing_state("idle")
