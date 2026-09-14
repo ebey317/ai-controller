@@ -63,6 +63,8 @@ DEFAULT_PINS = [
     {"label": "claude", "text": "claude"},
     {"label": "desktop", "text": "hermes desktop"},
     {"label": "qwen", "text": "qwen"},
+    {"label": "dashboard", "text": "xdg-open /home/elijah/dashboard_live.html", "exec": True},
+    {"label": "sensei", "text": "~/scripts/update_master_ai.sh", "exec": True},
 ]
 
 ROWS_LOWER = [
@@ -728,8 +730,14 @@ class SlideKeyboard(Gtk.Window):
 
         text = pin.get("text", "")
         if text:
-            target = _resolve_target(self._focus_target_win)
-            send(text, target_win=target)
+            if pin.get("exec"):
+                try:
+                    subprocess.run(text, shell=True, check=False, timeout=60)
+                except Exception:
+                    log.warning("exec pin failed", exc_info=True)
+            else:
+                target = _resolve_target(self._focus_target_win)
+                send(text, target_win=target)
         return True
 
     def _on_pin_add(self, _widget):
