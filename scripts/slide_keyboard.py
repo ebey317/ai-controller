@@ -728,7 +728,8 @@ class SlideKeyboard(Gtk.Window):
 
         text = pin.get("text", "")
         if text:
-            focus_guard.guarded_type(self._focus_target_win, text)
+            target = _resolve_target(self._focus_target_win)
+            send(text, target_win=target)
         return True
 
     def _on_pin_add(self, _widget):
