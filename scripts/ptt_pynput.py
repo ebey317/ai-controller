@@ -1172,11 +1172,16 @@ def stop_and_send():
 
         transcript = ""
         try:
+            # Timeout scales with audio length: Groq Whisper generally needs
+            # roughly real-time-ish processing plus upload overhead. Use
+            # max(30s, 5 * duration + 30s) so long paragraphs don't get killed
+            # at a hard 60s wall.
+            stt_timeout = max(30, int(duration * 5) + 30)
             r = subprocess.run(
                 ['curl', '-s', '-X', 'POST', endpoint,
                  '-F', f'audio=@{wavfile}', '-F', 'mode=transcribe_only',
                  '-H', 'Accept: application/json'],
-                capture_output=True, text=True, timeout=60)
+                capture_output=True, text=True, timeout=stt_timeout)
             data = json.loads(r.stdout)
             # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
             transcript = data.get('text', data.get('transcript', ''))
