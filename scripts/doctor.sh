@@ -73,14 +73,14 @@ else
         # Every path-looking token in the deployed unit must actually exist,
         # after expanding the %h systemd specifier to $HOME.
         bad_path=0
-        for tok in $(grep -E '^(ExecStart|ExecStartPre|WorkingDirectory)=' "$deployed" | grep -oE '(%h|/[^ ]*)?/[A-Za-z0-9_./-]+'); do
+        while IFS= read -r tok; do
             resolved="${tok/#%h/$HOME}"
             [[ "$resolved" == /* ]] || continue
             if [[ ! -e "$resolved" ]]; then
                 fail "$svc references missing path: $resolved"
                 bad_path=1
             fi
-        done
+        done < <(grep -E '^(ExecStart|ExecStartPre|WorkingDirectory)=' "$deployed" | grep -oE '(%h|/[^ ]*)?/[A-Za-z0-9_./-]+')
         [[ $bad_path -eq 0 ]] && ok "$svc paths resolve"
         # oneshot units (e.g. f13-xmodmap-heal) are supposed to run once and
         # go inactive -- judge them by last-run result, not by is-active.

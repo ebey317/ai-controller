@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import focus_guard
 import voice_toggle
 from ai_controller_paths import config_dir, ensure_config_dir
-from text_styles import to_cursive, to_bold, to_old_english
+from text_styles import to_bold, to_cursive, to_old_english
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()

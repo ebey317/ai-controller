@@ -11,6 +11,12 @@ logs/*.log
 *.bak.*
 *.bak
 
+# Test/coverage artifacts (htmlcov/ self-ignores via the .gitignore that
+# coverage.py writes into it; these two do not).
+.coverage
+.coverage.*
+coverage.xml
+
 # Secrets — real config lives in ~/.config/ai-controller/ and its backups/.
 # Never track it; snapshots/ carries a redacted template instead.
 config.env

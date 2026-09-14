@@ -17,6 +17,7 @@ import urllib.error
 import urllib.request
 import wave
 from datetime import datetime
+from typing import Dict, Optional
 
 from pynput import keyboard
 
@@ -235,7 +236,7 @@ def _is_hermes_tui_window(window_pid: int) -> bool:
     return False
 
 
-def _find_hermes_tui_window() -> str | None:
+def _find_hermes_tui_window() -> Optional[str]:
     """Find the GNOME Terminal window ID that hosts the Hermes TUI, or None.
 
     Multiple GNOME Terminal windows share the same process PID, so we can't
@@ -278,7 +279,7 @@ def _find_hermes_tui_window() -> str | None:
     return candidates[0] if candidates else None
 
 
-def _type_text_fast(text: str, mode: str = "pro", target_window: str | None = None) -> None:
+def _type_text_fast(text: str, mode: str = "pro", target_window: Optional[str] = None) -> None:
     """Type text into the focused or target window.
 
     Plain ASCII (PRO mode) is injected with xdotool type for speed.
@@ -497,8 +498,8 @@ def _load_vocabulary() -> dict[str, str]:
         return {}
 
 
-_VOCAB_CACHE: dict[str, str] | None = None
-_VOCAB_RE: re.Pattern | None = None
+_VOCAB_CACHE: Optional[Dict[str, str]] = None
+_VOCAB_RE: Optional[re.Pattern] = None
 
 
 def _apply_vocabulary(text: str) -> str:
@@ -1382,7 +1383,8 @@ def _run_x11_f13_grab():
     listener above — this thread only has to keep draining the grabbed
     key's events off this connection so they never escape to focus."""
     try:
-        from Xlib import X, XK, display as _xdisplay
+        from Xlib import XK, X
+        from Xlib import display as _xdisplay
     except ImportError:
         log.warning("python-xlib not available — F13 will keep leaking to focused windows")
         return
