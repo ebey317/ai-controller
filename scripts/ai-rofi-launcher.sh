@@ -24,4 +24,6 @@
 # specific invocation context wasn't worth chasing further -- this sidesteps
 # it entirely by never introspecting how the script was invoked.
 AI_DIR="${AI_CONTROLLER_DIR:-$HOME/ai-controller}"
-exec /usr/bin/rofi -show drun -theme "${AI_DIR}/config/rofi-ai-controller.rasi"
+# Disable rofi's drun desktop cache. The cache can become stale/partial and
+# only show a subset of installed apps; always scan desktop files fresh.
+exec /usr/bin/rofi -show drun -no-drun-use-desktop-cache -theme "${AI_DIR}/config/rofi-ai-controller.rasi"
