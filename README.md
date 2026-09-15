@@ -85,6 +85,62 @@ python3 scripts/ai-controller-launcher.py
 
 ---
 
+## See it in action
+
+### Push-to-talk dictation
+![Dictation demo](media/demo/gifs/clip_01_000000_00.gif)
+
+*Hold Right Trigger, speak, release — your words are transcribed by Groq Whisper and typed into the focused window.*
+
+### Floating on-screen keyboard
+![Keyboard demo](media/demo/gifs/clip_02_000014_33.gif)
+
+*Press View button → GTK keyboard slides in. Types into any app without stealing focus. Style modes: Pro, Cursive, Casual, Bold, Old English.*
+
+### Controller legend HUD
+![Legend overlay](media/demo/gifs/clip_03_000023_35.gif)
+
+*Press Guide button → floating overlay shows your current button mappings. Never forget what a button does.*
+
+### Profile auto-switching
+![Profile switch](media/demo/gifs/clip_04_000515_57.gif)
+
+*AntiMicroX layouts swap automatically based on the active window (desktop → browser → YouTube TV).*
+
+### Mouse + scroll control
+![Mouse demo](media/demo/gifs/clip_05_000556_98.gif)
+
+*Left stick moves cursor, right stick scrolls. Full mouse control without touching a physical mouse.*
+
+### Voice responses (TTS)
+![TTS demo](media/demo/gifs/clip_06_001109_52.gif)
+
+*Ask a question → voice bridge speaks answers back via edge-tts (Aria Neural voice, -22Hz pitch, +18% rate).*
+
+---
+
+## Screenshots
+
+![Terminal + keyboard + HUD](media/demo/snapshots/snapshot_01_000000_00.png)
+*Terminal session with floating keyboard and controller legend HUD visible.*
+
+![Browser control](media/demo/snapshots/snapshot_02_000014_33.png)
+*Browser window with profile auto-switched to browser layout.*
+
+![Desktop workflow](media/demo/snapshots/snapshot_03_000023_35.png)
+*Desktop workspace with controller-driven mouse and scroll.*
+
+![Keyboard style modes](media/demo/snapshots/snapshot_04_000515_57.png)
+*Floating keyboard in Cursive mode — style transforms for different workflows.*
+
+![Couch setup](media/demo/snapshots/snapshot_05_000556_98.png)
+*Living room HTPC setup — no keyboard or mouse in sight.*
+
+![Full system view](media/demo/snapshots/snapshot_06_001109_52.png)
+*Complete AI Controller stack: controller, voice bridge, keyboard, HUD, systemd services.*
+
+---
+
 ## What makes it different?
 
 Most controller apps map a gamepad to keyboard keys and call it done. AI Controller is built around **voice as a first-class input method**:
