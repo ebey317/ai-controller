@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -732,7 +733,11 @@ class SlideKeyboard(Gtk.Window):
         if text:
             if pin.get("exec"):
                 try:
-                    subprocess.run(text, shell=True, check=False, timeout=60)
+                    # Run exec pins with shell=False and a tokenized command to
+                    # avoid shell-injection if the pin file is ever tampered.
+                    cmd = shlex.split(os.path.expanduser(text))
+                    if cmd:
+                        subprocess.run(cmd, shell=False, check=False, timeout=60)
                 except Exception:
                     log.warning("exec pin failed", exc_info=True)
             else:
