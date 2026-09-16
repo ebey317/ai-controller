@@ -70,37 +70,38 @@ TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 # ---------------------------------------------------------------------------
 # Hermex (iPhone) push notifications via hermes-webui /api/notify
 # ---------------------------------------------------------------------------
-def _notify_hermex(title: str, body: str, urgency: str = "normal", sound: bool = False) -> None:
-    """Best-effort push notification to the Hermex iOS app.
+# 2026-09-15 code review (commit 7ca6144) found this call site was making
+# the pipeline's own hot path share fate with hermes-webui's availability:
+# start_recording() and stop_and_send() serialize on the same
+# _processing_lock (no timeout on either side), and the original
+# implementation ran up to 3 synchronous urlopen(timeout=10) calls INSIDE
+# the section stop_and_send() holds that lock for. A slow or hung (not
+# just down) hermes-webui could stall the next F13 press up to ~20-30s --
+# exactly the "have to hold it for a while" symptom reported live.
+#
+# Fixed by: (1) firing the actual HTTP call on a short-lived daemon thread
+# so it can never hold _processing_lock or delay the STT request that
+# follows it, and (2) importing notify_hermex.py's client instead of
+# re-implementing it here -- the two had already drifted (10s vs 15s
+# timeout, this file silently dropped HTTPError bodies the CLI surfaces).
+from notify_hermex import notify_hermex as _notify_hermex_impl
 
-    Reads HERMES_SESSION_ID and HERMES_WEBUI_URL from the environment.
-    Failures are logged at debug level and swallowed so a notification
-    problem never breaks the dictation pipeline.
+
+def _notify_hermex(title: str, body: str, urgency: str = "normal", sound: bool = False) -> None:
+    """Fire-and-forget push notification to the Hermex iOS app.
+
+    Runs on a daemon thread so a slow or unreachable hermes-webui can never
+    delay the dictation pipeline -- only network/HTTP exceptions are
+    swallowed (logged at debug level); this function itself never blocks
+    the caller at all, which is the actual guarantee the pipeline needs.
     """
-    sid = os.environ.get("HERMES_SESSION_ID", "*").strip()
-    if not sid:
-        sid = "*"
-    base = os.environ.get("HERMES_WEBUI_URL", "http://127.0.0.1:8787").rstrip("/")
-    payload = {
-        "session_id": sid,
-        "title": title,
-        "body": body,
-        "urgency": urgency,
-        "action": "",
-        "sound": bool(sound),
-    }
-    try:
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            f"{base}/api/notify",
-            data=data,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            resp.read()
-    except Exception:
-        log.debug("Hermex notify failed", exc_info=True)
+    def _fire():
+        try:
+            _notify_hermex_impl(title, body, urgency=urgency, sound=sound)
+        except Exception:
+            log.debug("Hermex notify failed", exc_info=True)
+
+    threading.Thread(target=_fire, daemon=True).start()
 
 
 
@@ -873,6 +874,16 @@ def _mute_tts():
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     r3 = subprocess.run(['pkill', '-f', '[a]play.*hermes_voice'],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Hermes also uses /tmp/tmp*.mp3 for TTS — catch those too.
+    r5 = subprocess.run(['pkill', '-f', '[f]fplay.*/tmp/tmp.*\\.mp3'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r6 = subprocess.run(['pkill', '-f', '[a]play.*/tmp/tmp.*\\.mp3'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Hermes Edge TTS writes to ~/.hermes/cache/audio/*.mp3 — kill any ffplay playing mp3s.
+    r7 = subprocess.run(['pkill', '-f', '[f]fplay.*\\.mp3'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r8 = subprocess.run(['pkill', '-f', '[a]play.*\\.mp3'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # voice_bridge's last-resort path uses speech-dispatcher. Do NOT pkill -f
     # 'spd-say' here: that pattern matches any command line merely mentioning
     # the string (a shell running a script that contains it, for instance) and
@@ -895,9 +906,9 @@ def _mute_tts():
     # the <16000-byte check as "Too short — skipped", including 9-second holds.
     # STT was dead for every press. Found 2026-08-06.
     #
-    # Only the pkill results (r1-r3) are honest here: pkill exits 0 only when it
+    # Only the pkill results (r1-r3, r5-r8) are honest here: pkill exits 0 only when it
     # actually matched a process.
-    killed = any(r.returncode == 0 for r in [r1, r2, r3])
+    killed = any(r.returncode == 0 for r in [r1, r2, r3, r5, r6, r7, r8])
     if killed:
         # DEFERRED, never fired here. The reset cycles the card profile
         # off -> 0.7s -> on, and start_recording() spawns parec ~0.3s after this
@@ -976,8 +987,15 @@ def start_recording():
             _last_f13_time = now
             # Mute any agent TTS before we open the mic.
             _mute_tts()
-            # If a previous take's card reset is still cycling, the capture source
-            # is missing right now. Wait it out rather than record silence.
+            # 2026-09-15: re-enabled after finding this commented out,
+            # uncommitted, with no test evidence it was safe. Its own
+            # docstring explains why it exists: without it, a fast second
+            # press opens parec while the previous take's card-profile
+            # reset is still cycling, which the earlier CONTROLLER_AUDIO_PROFILE=input
+            # fix (retiring the "combined" profile's speaker-output reset)
+            # already made rarer and faster — but on_press() now also fires
+            # _mute_tts() immediately on press (see below), which can still
+            # trigger a fresh deferred reset, so the wait stays.
             _await_audio_reset()
             # PulseAudio may have auto-suspended the Xbox headset source; wake it
             # with a short dummy stream so the real capture gets actual audio.
@@ -1280,7 +1298,12 @@ def stop_and_send():
                 log.info("(nothing heard)")
         except Exception as ex:
             log.error(f"Error: {ex}")
-            _notify_hermex("Dictation failed", str(ex)[:120], urgency="high", sound=True)
+            # Strip the home directory before this goes into a phone push
+            # notification -- the full local path (or a transcript/stderr
+            # fragment an exception happens to carry) has no business
+            # leaving the machine. Local logs above keep the raw text.
+            _safe_msg = str(ex)[:120].replace(os.path.expanduser("~"), "~")
+            _notify_hermex("Dictation failed", _safe_msg, urgency="high", sound=True)
         finally:
             if show_indicator:
                 _set_typing_state("idle")
@@ -1302,6 +1325,9 @@ def on_press(key):
     log.debug("Key pressed: %s (vk=%s)", key, getattr(key, 'vk', None))
     if key == keyboard.Key.f13:
         log.info("F13 PRESSED — starting recording")
+        # Mute TTS IMMEDIATELY on press — do not wait for the recording thread.
+        # This is the barge-in interrupt: RT press should stop agent speech instantly.
+        _mute_tts()
         # Ensure the recorder-ready gate is idle before starting, otherwise a
         # stale event from a previous failed take could let a ghost through.
         _recorder_ready.set()

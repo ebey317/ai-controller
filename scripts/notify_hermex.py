@@ -59,7 +59,7 @@ def notify_hermex(
         raise ValueError("title or body is required")
 
     base = (base_url or os.environ.get("HERMES_WEBUI_URL", "http://127.0.0.1:8787")).rstrip("/")
-    sid = (session_id or os.environ.get("HERMES_SESSION_ID", "*")).strip()
+    sid = (session_id or _default_session_id()).strip()
     if not sid:
         sid = "*"
 
