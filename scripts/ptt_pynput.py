@@ -70,38 +70,13 @@ TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 # ---------------------------------------------------------------------------
 # Hermex (iPhone) push notifications via hermes-webui /api/notify
 # ---------------------------------------------------------------------------
-# 2026-09-15 code review (commit 7ca6144) found this call site was making
-# the pipeline's own hot path share fate with hermes-webui's availability:
-# start_recording() and stop_and_send() serialize on the same
-# _processing_lock (no timeout on either side), and the original
-# implementation ran up to 3 synchronous urlopen(timeout=10) calls INSIDE
-# the section stop_and_send() holds that lock for. A slow or hung (not
-# just down) hermes-webui could stall the next F13 press up to ~20-30s --
-# exactly the "have to hold it for a while" symptom reported live.
-#
-# Fixed by: (1) firing the actual HTTP call on a short-lived daemon thread
-# so it can never hold _processing_lock or delay the STT request that
-# follows it, and (2) importing notify_hermex.py's client instead of
-# re-implementing it here -- the two had already drifted (10s vs 15s
-# timeout, this file silently dropped HTTPError bodies the CLI surfaces).
-from notify_hermex import notify_hermex as _notify_hermex_impl
-
-
-def _notify_hermex(title: str, body: str, urgency: str = "normal", sound: bool = False) -> None:
-    """Fire-and-forget push notification to the Hermex iOS app.
-
-    Runs on a daemon thread so a slow or unreachable hermes-webui can never
-    delay the dictation pipeline -- only network/HTTP exceptions are
-    swallowed (logged at debug level); this function itself never blocks
-    the caller at all, which is the actual guarantee the pipeline needs.
-    """
-    def _fire():
-        try:
-            _notify_hermex_impl(title, body, urgency=urgency, sound=sound)
-        except Exception:
-            log.debug("Hermex notify failed", exc_info=True)
-
-    threading.Thread(target=_fire, daemon=True).start()
+# 2026-09-15: extracted into ptt_notify.py -- see that module's docstring
+# for the full history (commit 7ca6144 put blocking network I/O directly in
+# this file's PTT hot path) and tests/test_ptt_notify.py for the regression
+# test. Kept as a module-level alias here so every existing call site in
+# this file (`_notify_hermex(...)`) keeps working unchanged.
+from ptt_notify import notify_hermex as _notify_hermex
+from ptt_notify import sanitize_for_notify as _sanitize_for_notify
 
 
 
@@ -1302,8 +1277,12 @@ def stop_and_send():
             # notification -- the full local path (or a transcript/stderr
             # fragment an exception happens to carry) has no business
             # leaving the machine. Local logs above keep the raw text.
-            _safe_msg = str(ex)[:120].replace(os.path.expanduser("~"), "~")
-            _notify_hermex("Dictation failed", _safe_msg, urgency="high", sound=True)
+            _notify_hermex(
+                "Dictation failed",
+                _sanitize_for_notify(str(ex)),
+                urgency="high",
+                sound=True,
+            )
         finally:
             if show_indicator:
                 _set_typing_state("idle")
@@ -1324,6 +1303,19 @@ def stop_and_send():
 def on_press(key):
     log.debug("Key pressed: %s (vk=%s)", key, getattr(key, 'vk', None))
     if key == keyboard.Key.f13:
+        # 2026-09-15: reproduced live -- X11/antimicrox key-repeat fires
+        # on_press() repeatedly for a single physical hold (observed: 11
+        # F13 PRESSED events in ~1.15s, ~110ms apart) once the OS's normal
+        # key-repeat kicks in on a held key. This function had no debounce
+        # guard at all, so every repeat re-fired _mute_tts() and re-spawned
+        # a start_recording() thread -- symptom: "only works for a split
+        # second... it's not cutting off." start_recording() itself already
+        # debounces on _last_f13_time/_DEBOUNCE_MS (see line ~959); reusing
+        # that same clock here (read-only, no lock -- a debounce heuristic
+        # tolerates the tiny race with start_recording()'s write) keeps a
+        # key-repeat flood from doing anything at all past the first press.
+        if (time.time() - _last_f13_time) * 1000 < _DEBOUNCE_MS:
+            return
         log.info("F13 PRESSED — starting recording")
         # Mute TTS IMMEDIATELY on press — do not wait for the recording thread.
         # This is the barge-in interrupt: RT press should stop agent speech instantly.
