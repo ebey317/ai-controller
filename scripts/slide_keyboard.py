@@ -21,10 +21,14 @@ import logging
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
+import threading
 import warnings
+
+import httpx
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
@@ -67,6 +71,24 @@ DEFAULT_PINS = [
     {"label": "dashboard", "text": "xdg-open /home/elijah/dashboard_live.html", "exec": True},
     {"label": "sensei", "text": "~/scripts/update_master_ai.sh", "exec": True},
 ]
+
+# 2026-09-24: automatic per-pin variant discovery (Elijah: "we don't want to
+# have to say add it. it naturally looks and sees if it has any other pins
+# or toggles and adds them"). Every pinned command's --help text is handed
+# to a local model, which decides which lines are real alternate launch
+# modes (desktop/web/update/etc.) -- see _discover_variants_worker. Runs on
+# a background thread from _on_pin_add so the keyboard UI never blocks on
+# a model call; qwen3-vl:8b is the only general-purpose model actually
+# installed on this machine right now (checked live, not from memory --
+# the qwen2.5 models some scripts assume are NOT present).
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+VARIANT_DISCOVERY_MODEL = os.environ.get("VARIANT_DISCOVERY_MODEL", "qwen2.5vl:3b")
+VARIANT_DISCOVERY_TIMEOUT = 240  # seconds -- qwen3-vl:8b is CPU-bound and slow;
+# measured live: ~50-90s just for "reply with OK" (it always generates a full
+# <think> block first, ~180 tokens, regardless of think:false -- this Ollama
+# build doesn't honor that param for this model). The real prompt (help text
+# + a JSON array) runs longer. Backgrounded via threading.Thread so this
+# never blocks the keyboard UI either way.
 
 ROWS_LOWER = [
     ["`", "esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "bksp"],
@@ -240,6 +262,121 @@ def send(key, ctrl=False, alt=False, shift=False, target_win=None):
             focus_guard.guarded_type(target_win, key)
     except focus_guard.FocusLostError as exc:
         log.warning(f"{exc} — key '{key}' not sent")
+
+
+_VARIANT_DISCOVERY_PROMPT = """Task: read a CLI tool's --help text and pull out its alternate launch
+subcommands as a JSON array. A "launch subcommand" is any line in the
+Commands/Usage list that starts a genuinely different mode of the same
+tool -- a GUI/desktop mode, a web-server mode, an update/upgrade action,
+a TUI mode. Skip flags for output formatting, help, completion scripts,
+or anything that isn't really "a different way to run this tool."
+
+Worked example. Given this help text for a tool called "widget":
+
+  Commands:
+    widget completion       generate shell completion
+    widget [project]        start widget tui   [default]
+    widget web               start widget server and open web interface
+    widget upgrade [target]  upgrade widget to the latest version
+
+The correct output is exactly:
+[{{"suffix": "Web", "text": "widget web"}}, {{"suffix": "Upd", "text": "widget upgrade"}}]
+
+("completion" was skipped -- it's not a launch mode. "[project]" was
+skipped -- that's the plain default invocation, already handled
+separately.)
+
+Now do the same for the real tool "{cmd}". Reply with ONLY the JSON array,
+nothing else -- no explanation, no markdown fences. Return at most 3
+elements. Return [] only if truly nothing like this exists.
+
+--- help text for {cmd} ---
+{help_text}
+--- end help text ---
+
+JSON array:"""
+
+
+def _discover_pin_variants(base_cmd):
+    """Given a pinned command string (e.g. "hermes" or "hermes --tui"),
+    try to discover its real alternate launch modes by reading --help and
+    asking a local model which lines are genuine variants. Returns a list
+    of {suffix, text} dicts (possibly empty) -- never raises, never blocks
+    longer than VARIANT_DISCOVERY_TIMEOUT plus a few seconds for --help
+    itself. Safe to call from a background thread (does no GTK/file I/O).
+    """
+    first_token = (base_cmd or "").strip().split(None, 1)[:1]
+    if not first_token:
+        return []
+    exe = first_token[0]
+    if not shutil.which(exe):
+        return []  # not a real command on PATH -- e.g. an xdg-open/curl one-liner
+
+    help_text = ""
+    for flag in ("--help", "-h"):
+        try:
+            r = subprocess.run(
+                [exe, flag], capture_output=True, text=True, timeout=10
+            )
+            help_text = (r.stdout or "") + (r.stderr or "")
+            if help_text.strip():
+                break
+        except Exception:
+            continue
+    if not help_text.strip():
+        return []
+
+    help_text = help_text[:6000]  # keep the prompt bounded for a slow local model
+
+    try:
+        r = httpx.post(
+            f"{OLLAMA_URL}/api/chat",
+            json={
+                "model": VARIANT_DISCOVERY_MODEL,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": _VARIANT_DISCOVERY_PROMPT.format(
+                            cmd=exe, help_text=help_text
+                        ),
+                    }
+                ],
+                "stream": False,
+            },
+            timeout=VARIANT_DISCOVERY_TIMEOUT,
+        )
+        r.raise_for_status()
+        reply = r.json().get("message", {}).get("content", "")
+    except Exception:
+        log.warning("variant discovery: ollama call failed", exc_info=True)
+        return []
+
+    match = re.search(r"\[.*\]", reply, re.DOTALL)
+    if not match:
+        return []
+    try:
+        raw = json.loads(match.group(0))
+    except Exception:
+        return []
+
+    variants = []
+    for item in raw[:3]:
+        if not isinstance(item, dict):
+            continue
+        suffix = str(item.get("suffix", "")).strip()[:10]
+        text = str(item.get("text", "")).strip()
+        if not text or not suffix:
+            continue
+        # 2026-09-24: the model doesn't reliably keep the "{cmd} " prefix on
+        # `text` even though the prompt asks for it (measured live: correct
+        # for "opencode", dropped for "hermes" -> just "dashboard" instead
+        # of "hermes dashboard", which would type the bare word instead of
+        # running the command). Guarantee it in code instead of trusting
+        # the model to follow that instruction every time.
+        if text.split(None, 1)[0] != exe:
+            text = f"{exe} {text}"
+        variants.append({"suffix": suffix, "text": text})
+    return variants
 
 
 class SlideKeyboard(Gtk.Window):
@@ -745,6 +882,42 @@ class SlideKeyboard(Gtk.Window):
                 send(text, target_win=target)
         return True
 
+    def _discover_variants_worker(self, label, base_cmd):
+        """Runs off the GTK main thread (called via threading.Thread from
+        _on_pin_add). Fetches base_cmd's --help, asks the local model which
+        lines are genuine alternate launch modes, and merges the result
+        into the live pins file via GLib.idle_add so the write and the
+        _build_keys() relabel both happen back on the main thread.
+        """
+        variants = _discover_pin_variants(base_cmd)
+        if not variants:
+            return
+        GLib.idle_add(self._merge_discovered_variants, label, variants)
+
+    def _merge_discovered_variants(self, label, variants):
+        # Runs on the main thread (via idle_add). Re-reads pins fresh
+        # rather than reusing a stale list captured before the model call
+        # finished -- the user could have added/removed/browsed pins
+        # during the (up to 90s) wait.
+        pins = self._load_pins()
+        idx = next((i for i, p in enumerate(pins) if p.get("label") == label), None)
+        if idx is None:
+            return False  # pin was removed while discovery was running
+        if pins[idx].get("variants"):
+            return False  # already has variants (e.g. re-added while running)
+        base_text = pins[idx].get("text", label)
+        pins[idx]["variants"] = [{"suffix": "", "text": base_text}] + variants
+        pins[idx]["variant_index"] = 0
+        self._save_pins(pins)
+        self._build_keys()
+        try:
+            voice_toggle.speak(
+                f"Found {len(variants)} variant{'s' if len(variants) != 1 else ''} for {label}."
+            )
+        except Exception:
+            pass
+        return False  # GLib.idle_add: don't repeat
+
     def _on_pin_add(self, _widget):
         pins = self._load_pins()
         if len(pins) >= PIN_SLOTS:
@@ -775,6 +948,15 @@ class SlideKeyboard(Gtk.Window):
             voice_toggle.speak(f"Pinned {label}.")
         except Exception:
             pass
+        # 2026-09-24: automatic variant discovery -- the pin shows up
+        # immediately in its plain form; if the local model finds real
+        # alternate launch modes it relabels itself a few seconds later.
+        # Backgrounded so this never blocks the keyboard UI.
+        threading.Thread(
+            target=self._discover_variants_worker,
+            args=(label, text),
+            daemon=True,
+        ).start()
 
     def toggle(self):
         GLib.idle_add(self._toggle_main_thread)
