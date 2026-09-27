@@ -295,8 +295,15 @@ load() {
     # Prevent debug-spam log from eating all disk/RAM: rotate/append through a
     # small named pipe + logger so the file can't grow unbounded.  The old
     # redirect to /tmp/antimicrox.log produced a 4.6 GB debug leak after ~12 h.
+    # 2026-09-26: that fix only relocated the leak -- piping through logger
+    # sent the same debug-level joystick spam into /var/log/syslog instead,
+    # which grew to 7.8G (+4G in syslog.1) in under two weeks and helped
+    # fill the disk to 99%. Root cause was AntiMicroX's own log level, never
+    # actually addressed -- --log-level warn cuts it at the source instead
+    # of just picking a new place to relocate it. Bump to `debug` by hand
+    # when actively diagnosing controller/joystick issues.
     setsid nohup bash -c "exec 1> >(exec logger -t antimicrox -p user.info); exec 2>&1; \
-        \"$ANTIMICROX\" --profile \"$profile\" --tray --eventgen uinput" &
+        \"$ANTIMICROX\" --profile \"$profile\" --tray --eventgen uinput --log-level warn" &
     local loader=$!
     echo "$loader" > "$ANTIMICROX_PIDFILE"
     current_profile="$profile"
