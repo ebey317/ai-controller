@@ -67,6 +67,7 @@ DEFAULT_PINS = [
     {"label": "hermes", "text": "hermes --tui"},
     {"label": "claude", "text": "claude"},
     {"label": "desktop", "text": "hermes desktop"},
+    {"label": "dashboard", "text": "python3 /home/elijah/generate_dashboard.py && xdg-open /home/elijah/dashboard_demo.html"},
     {"label": "qwen", "text": "qwen"},
     {"label": "dashboard", "text": "xdg-open /home/elijah/dashboard_live.html", "exec": True},
     {"label": "sensei", "text": "~/scripts/update_master_ai.sh", "exec": True},
