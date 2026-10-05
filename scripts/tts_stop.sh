@@ -78,9 +78,49 @@ speaking_pids() {
     done | sort -un
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TTS_CONTROL="$SCRIPT_DIR/tts_control.py"
+PYTHON_BIN="$(command -v python3 || echo /usr/bin/python3)"
+# stderr goes to a log, not /dev/null -- see scripts/tts_log.sh.
+# shellcheck source=scripts/tts_log.sh
+if [ -f "$SCRIPT_DIR/tts_log.sh" ]; then
+    source "$SCRIPT_DIR/tts_log.sh"
+else
+    # Partial checkout: degrade to discarding stderr rather than aborting.
+    TTS_LOG=""
+fi
+
 if [[ "${1:-}" == "--status" ]]; then
     echo "=== currently speaking ==="
     found=0
+    # 2026-09-30: playback streams first. Hermes plays TTS through a
+    # sounddevice OutputStream inside its own python process, so it appears as
+    # a PulseAudio stream and NOT as a player binary -- this script used to
+    # report "silent" while the agent was still talking.
+    if [[ -f "$TTS_CONTROL" ]]; then
+        # Capture combined output: a helper that crashes must be reported as a
+        # crash, never as "0 streams". Its stderr used to be discarded here,
+        # which made a broken helper indistinguishable from silence.
+        helper_out="$("$PYTHON_BIN" "$TTS_CONTROL" streams 2>&1)"
+        helper_rc=$?
+        [[ -n "${TTS_LOG:-}" ]] && printf '%s\n' "$helper_out" >> "$TTS_LOG" 2>/dev/null
+        if [[ "$helper_rc" -ne 0 ]]; then
+            echo "  helper tts_control.py streams FAILED (rc=$helper_rc)"
+            printf '%s\n' "$helper_out" | head -5 | sed 's/^/      /'
+            found=1
+        else
+            while read -r line; do
+                # Only indent real stream lines; the "no TTS playback streams"
+                # message is a sentence, not an entry.
+                [[ -z "$line" || "$line" == "no TTS playback streams" ]] && continue
+                echo "  stream ${line}"
+                found=1
+            done < <(printf '%s\n' "$helper_out" | sed 's/^ *//')
+        fi
+    else
+        echo "  helper tts_control.py is MISSING — stream status unavailable"
+        found=1
+    fi
     while read -r pid; do
         [[ -z "$pid" ]] && continue
         echo "  PID $pid  $(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-80)"
@@ -88,6 +128,28 @@ if [[ "${1:-}" == "--status" ]]; then
     done < <(speaking_pids)
     [[ "$found" -eq 0 ]] && echo "  (silent)"
     exit 0
+fi
+
+# 2026-09-30: the primary stop is now the same stream-level silence the RT
+# barge-in uses, so this script and the trigger cannot disagree about what
+# counts as speech. It is the only mechanism that catches Hermes' in-process
+# playback; the process scan below remains for tagged players writing straight
+# to ALSA, which never become a stream.
+stream_stopped=0
+stream_state="ok"
+if [[ -f "$TTS_CONTROL" ]]; then
+    helper_out="$("$PYTHON_BIN" "$TTS_CONTROL" mute-streams 2>&1)"
+    helper_rc=$?
+    [[ -n "${TTS_LOG:-}" ]] && printf '%s\n' "$helper_out" >> "$TTS_LOG" 2>/dev/null
+    stream_stopped="$(printf '%s\n' "$helper_out" | head -1)"
+    if [[ "$helper_rc" -ne 0 ]]; then
+        stream_state="exited rc=$helper_rc"
+    elif ! [[ "$stream_stopped" =~ ^[0-9]+$ ]]; then
+        stream_state="gave no usable output"
+    fi
+    [[ "$stream_stopped" =~ ^[0-9]+$ ]] || stream_stopped=0
+else
+    stream_state="is missing"
 fi
 
 killed=0
@@ -108,9 +170,24 @@ if [[ "$killed" -gt 0 ]]; then
     done
 fi
 
-if [[ "$killed" -gt 0 ]]; then
-    echo "TTS stopped ($killed player(s))."
-else
+if [[ "$killed" -gt 0 || "$stream_stopped" -gt 0 ]]; then
+    echo "TTS stopped (${stream_stopped} stream(s), ${killed} player(s))."
+elif [[ "$stream_state" == "ok" ]]; then
     echo "Nothing was speaking."
+else
+    echo "Nothing was stopped."
+fi
+
+# A failed helper must never be reported as success: stream-level silence is
+# the ONLY mechanism that reaches Hermes' in-process playback, so when the
+# helper is down the process scan below cannot do the job and the user has to
+# know that rather than see a reassuring "0 streams".
+if [[ "$stream_state" != "ok" ]]; then
+    echo "  WARNING: tts_control.py $stream_state." >&2
+    echo "  Stream-level silence did NOT happen. Only process-kill ran, which" >&2
+    echo "  cannot reach Hermes' in-process sounddevice playback." >&2
+    if [[ -n "${TTS_LOG:-}" ]]; then
+        echo "  Details: $TTS_LOG" >&2
+    fi
 fi
 exit 0

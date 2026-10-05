@@ -50,6 +50,11 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from ai_controller_paths import config_dir, ensure_config_dir, load_env
 
+# Shared TTS control: stream-level barge-in, driver selection, and the wedge
+# check that decides whether a card profile cycle is warranted. Imported after
+# SCRIPT_DIR is on sys.path (above) since it lives alongside this file.
+import tts_control  # noqa: E402
+
 endpoint = "http://localhost:8002/voice"
 
 # Audio input source is configurable so the installer works on any machine.
@@ -795,108 +800,68 @@ def _build_wav(raw_path: str, wav_path: str):
 
 
 def _mute_tts():
-    """Kill any playing TTS audio so the mic doesn't capture it.
+    """Stop agent speech the instant the trigger is pressed (barge-in).
 
-    Controller voice stack (voice_bridge / hermes_tts_play.sh) tags its mpv
-    player with --force-media-title=AI_TTS_BARGE. Legacy Piper dictation plays
-    /tmp/ai_controller_tts.wav. Hermes' built-in TTS (provider: piper) writes
-    MP3s under /tmp/hermes_voice/ and plays them through ffplay (preferred) or
-    aplay (Linux fallback). All of those are killed here so RT -> F13 always
-    barges in on agent speech.
+    2026-09-30 rewrite. The previous implementation killed *processes*: it
+    walked /proc for anything named mpv/ffplay/aplay/paplay and fired seven
+    `pkill -f` regexes at command lines it hoped held a temp filename. That
+    only ever worked while every player was a separate process with a
+    recognisable argv.
+
+    Hermes no longer is one. `tools/tts_tool_speaker.py` plays TTS through a
+    sounddevice OutputStream opened *inside the Hermes python process*, so
+    there is no ffplay and no child process to kill -- every pattern matched
+    nothing and the trigger silently did nothing. Four earlier fix attempts
+    (see references/tts-barge-in-static-investigation-2026-07-29.md) failed
+    for the same reason: they patched a list aimed at a process model that no
+    longer existed.
+
+    PulseAudio tracks every playback stream regardless of which program opened
+    it, so the interrupt now silences the *stream* instead of guessing at a
+    process. See scripts/tts_control.py.
+
+    The tombstone file is unchanged and still needed: edge_tts generation takes
+    ~4s, so a press inside that window has no stream to silence and the speech
+    would start after the user asked for silence. voice_bridge compares this
+    file's mtime against the time its request began and skips playback.
     """
-    # Tombstone for playback that does not exist yet. edge_tts generation is a
-    # ~4s network round-trip; a press during that window finds no player to
-    # kill, and speech starts AFTER the press — "I pressed RT and it kept
-    # talking". voice_bridge._speak() compares this file's mtime against the
-    # time its TTS request started and skips playback if the press came later.
     try:
         with open('/tmp/ai_tts_barge', 'w') as _f:
             _f.write(str(time.time()))
     except OSError:
         pass
-    # NOTE: The old `pkill -SIGUSR2 -f tui_gateway.entry` was removed because
-    # the Node.js TUI parent (signal-exit) treats SIGUSR2 as a termination
-    # signal — every RT press killed the TUI. Hermes handles TTS barge-in
-    # internally via the /tmp/ai_tts_barge tombstone + streaming abort events.
-    # Controller voice stack: tagged mpv.
-    #
-    # NOT `pkill -f AI_TTS_BARGE`. That matches any process whose command line
-    # merely mentions the tag — a shell running a script that greps for it, an
-    # editor with the file open — and kills it. Observed killing live terminals
-    # twice on 2026-07-30. Instead: only consider processes that ARE players
-    # (by exact binary name), then check the tag in their cmdline. A shell is
-    # never named `mpv`, so it can never be caught. Same contract as
-    # tts_stop.sh; keep the two in sync.
-    for _pid in os.listdir('/proc'):
-        if not _pid.isdigit():
-            continue
-        try:
-            with open(f'/proc/{_pid}/comm', 'r') as _f:
-                if _f.read().strip() not in ('mpv', 'ffplay', 'aplay', 'paplay'):
-                    continue
-            with open(f'/proc/{_pid}/cmdline', 'rb') as _f:
-                if b'AI_TTS_BARGE' not in _f.read():
-                    continue
-            os.kill(int(_pid), signal.SIGTERM)
-        except (OSError, ValueError):
-            continue
-    # Legacy Piper /tmp/ai_controller_tts.wav playback.
-    r1 = subprocess.run(['pkill', '-f', 'ai_controller_tts'],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Hermes built-in TTS: ffplay / aplay playing /tmp/hermes_voice/*.mp3.
-    # The leading bracket pattern prevents pkill from matching its own argv.
-    r2 = subprocess.run(['pkill', '-f', '[f]fplay.*hermes_voice'],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    r3 = subprocess.run(['pkill', '-f', '[a]play.*hermes_voice'],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Hermes also uses /tmp/tmp*.mp3 for TTS — catch those too.
-    r5 = subprocess.run(['pkill', '-f', '[f]fplay.*/tmp/tmp.*\\.mp3'],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    r6 = subprocess.run(['pkill', '-f', '[a]play.*/tmp/tmp.*\\.mp3'],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Hermes Edge TTS writes to ~/.hermes/cache/audio/*.mp3 — kill any ffplay playing mp3s.
-    r7 = subprocess.run(['pkill', '-f', '[f]fplay.*\\.mp3'],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    r8 = subprocess.run(['pkill', '-f', '[a]play.*\\.mp3'],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # voice_bridge's last-resort path uses speech-dispatcher. Do NOT pkill -f
-    # 'spd-say' here: that pattern matches any command line merely mentioning
-    # the string (a shell running a script that contains it, for instance) and
-    # will kill unrelated processes. speech-dispatcher is a daemon that holds
-    # the queued audio anyway, so cancelling the queue is both safer and the
-    # only thing that actually stops the sound.
-    r4 = subprocess.run(['spd-say', '-C'],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    del r4  # exit code not actionable; call is for cancelling current speech
 
-    # If we killed a live TTS player, reset the xone-gip audio to clear any wedge.
+    global _pending_audio_reset
+    try:
+        silenced, players = tts_control.mute_tts()
+    except Exception as exc:  # never let a barge-in failure break dictation
+        log.warning("tts interrupt failed: %s", exc)
+        return
+
+    if not silenced and not players:
+        log.debug("barge-in: nothing was playing")
+        return
+
+    log.info(
+        "barge-in: silenced %d TTS stream(s), signalled %d player(s)",
+        silenced, len(players),
+    )
+
+    # 2026-09-30: the card profile cycle used to fire here, on the strength of
+    # "a TTS process was killed". Those are unrelated events. Cycling the
+    # profile rips the controller mic out of PulseAudio for 0.7s and replugs
+    # it, and it fired 728 times in the PTT log -- putting the front of the
+    # user's take at risk every single time they interrupted the agent.
     #
-    # r4 (`spd-say -C`) is DELIBERATELY excluded. It is a queue-cancel, not a
-    # kill, and exits 0 whether or not anything was speaking — including on a
-    # completely silent system. Including it made `killed` unconditionally True,
-    # so every single F13 press launched reset-controller-audio.sh, which cycles
-    # the PulseAudio card profile off -> (0.7s) -> on. Recording opened parec
-    # ~0.34s later, i.e. while the card was still `off`, so parec attached to a
-    # source that did not exist and captured zero bytes. Every take then failed
-    # the <16000-byte check as "Too short — skipped", including 9-second holds.
-    # STT was dead for every press. Found 2026-08-06.
-    #
-    # Only the pkill results (r1-r3, r5-r8) are honest here: pkill exits 0 only when it
-    # actually matched a process.
-    killed = any(r.returncode == 0 for r in [r1, r2, r3, r5, r6, r7, r8])
-    if killed:
-        # DEFERRED, never fired here. The reset cycles the card profile
-        # off -> 0.7s -> on, and start_recording() spawns parec ~0.3s after this
-        # returns — i.e. while the capture source does not exist. Firing it in
-        # the press path silently emptied the take on exactly the presses where
-        # you barged in on the agent to say something.
-        #
-        # Instead: flag it, run it in _fire_deferred_audio_reset() once the mic
-        # is closed, and have the next press block in _await_audio_reset() if
-        # the cycle is still in flight.
-        global _pending_audio_reset
-        _pending_audio_reset = True
-        log.info("killed a live TTS process; xone-gip reset deferred until mic closes")
+    # The cycle is a RECOVERY for a driver wedge, so it now runs only when the
+    # kernel is actually reporting the buffer failures that define one. TTS
+    # barge-in no longer implies a wedged mic.
+    try:
+        if tts_control.controller_audio_wedged():
+            _pending_audio_reset = True
+            log.info("barge-in during a real audio wedge; reset deferred until mic closes")
+    except Exception as exc:
+        log.warning("wedge check failed: %s", exc)
 
 
 def _fire_deferred_audio_reset():

@@ -778,7 +778,10 @@ class SlideKeyboard(Gtk.Window):
     def _load_pins(self):
         try:
             with open(PINS_FILE, "r", encoding="utf-8") as f:
-                pins = json.load(f)
+                raw = f.read().strip()
+                if not raw:
+                    return list(DEFAULT_PINS)
+                pins = json.loads(raw)
             if isinstance(pins, list):
                 return pins
         except FileNotFoundError:
@@ -859,7 +862,8 @@ class SlideKeyboard(Gtk.Window):
             return False
 
         variants = pin.get("variants")
-        browsing = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
+        ctrl, alt, shift = _modifier_state()
+        browsing = shift
         if variants and browsing:
             pin["variant_index"] = (pin.get("variant_index", 0) + 1) % len(variants)
             pin["text"] = variants[pin["variant_index"]].get("text", "")

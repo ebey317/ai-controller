@@ -9,6 +9,7 @@ import asyncio
 import logging
 import logging.handlers
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,12 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from ai_controller_paths import ai_controller_dir, load_env
+
+# Shared TTS control (scripts/tts_control.py): driver selection, the
+# live sink format, and the stream-level barge-in used by ptt_pynput.
+# One implementation, so the bridge and the CLI cannot disagree about
+# which device is playing or what rate it wants.
+import tts_control  # noqa: E402
 
 # -----------------------------------------------------------------------------
 # Logging setup — vocal debug output
@@ -96,7 +103,6 @@ HERMES_TTS_PLAY = os.path.join(AI_DIR, "scripts", "hermes_tts_play.sh")
 EDGE_VOICE = "en-US-AriaNeural"
 EDGE_PITCH = "-22Hz"
 EDGE_RATE = "+18%"
-
 
 # Strong refs to in-flight background TTS tasks. asyncio only holds weak refs to
 # tasks, so without this a speak task can be garbage-collected mid-generation.
@@ -171,13 +177,23 @@ def _speak(text: str) -> None:
                 stderr=subprocess.DEVNULL,
             )
         else:
-            # Fallback: direct mpv. Every TTS player MUST carry
-            # --force-media-title=AI_TTS_BARGE or barge-in cannot find it and
-            # the speech becomes unstoppable. Matching the sink's 48k/stereo
-            # here also keeps PulseAudio from falling back to speex-float-1.
+            # Fallback: direct mpv, used only when hermes_tts_play.sh is
+            # missing. Every TTS player MUST carry --force-media-title=
+            # AI_TTS_BARGE or barge-in cannot find it and the speech becomes
+            # unstoppable.
+            #
+            # The rate must match the sink that is actually live. Hardcoding
+            # 48k (as this did until 2026-09-29) was correct only for the
+            # controller headset; on a split mic-controller/HDMI-headphones
+            # setup the sink is 44.1k, and the mismatch forced a second
+            # resample in PulseAudio that audibly crackled.
+            # apply_driver() also brings the controller's output profile up
+            # when the user has selected headphones, so the sink exists to be
+            # targeted at all.
+            rate, channels = tts_control.sink_spec(tts_control.apply_driver())
             subprocess.Popen(
                 ["mpv", "--no-video", "--force-media-title=AI_TTS_BARGE",
-                 "--audio-samplerate=48000", "--audio-channels=stereo",
+                 f"--audio-samplerate={rate}", f"--audio-channels={channels}",
                  "--audio-format=s16", mp3_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -319,11 +335,35 @@ async def voice(
         logger.debug("Transcribe-only mode, returning transcript")
         return JSONResponse({"text": transcript, "transcript": transcript})
 
+    # ── Local device commands ────────────────────────────────────────────────
+    # "use headphones" / "switch to hdmi" / "what audio am I using" are
+    # handled HERE rather than being sent to the LLM. Three reasons: the answer
+    # is a fact about this machine, not something to reason about; it must work
+    # the same whichever agent happens to be running (Hermes, Master AI,
+    # Claude); and a device change must not depend on a model call succeeding.
+    # The reply is spoken, so you get confirmation without looking.
+    local = tts_control.handle_driver_command(transcript)
+    if local is not None:
+        logger.info("Local device command: %r", transcript[:80])
+        _speak_bg(local)
+        return JSONResponse(
+            {"transcript": transcript, "response": local, "local": True}
+        )
+
     # ── LLM — route voice commands through Groq free tier ───────────────────
     # Direct Groq call instead of CLAF local Ollama for speed.
-    # Free models: llama-3.3-70b-versatile, llama-3.1-8b-instant, qwen3-32b
+    #
+    # 2026-09-30: the default was llama-3.3-70b-versatile, which now returns
+    # HTTP 404 -- that model has been decommissioned on this Groq account, as
+    # have llama-3.1-8b-instant, llama-3.2-3b-instant, qwen3-32b and the
+    # llama-4 line. Every dictated request was failing here, so the bridge was
+    # returning an error instead of speaking a reply, and it had been doing so
+    # quietly. Verified reachable on this key: openai/gpt-oss-20b and
+    # openai/gpt-oss-120b. Using the 20b: it is the smaller of the two, and
+    # latency is what matters for a spoken answer.
+    # Still overridable, and worth overriding if a cheaper model appears.
     GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-    GROQ_LLM_MODEL = os.environ.get("VOICE_BRIDGE_LLM_MODEL", "llama-3.3-70b-versatile")
+    GROQ_LLM_MODEL = os.environ.get("VOICE_BRIDGE_LLM_MODEL", "openai/gpt-oss-20b")
     payload = {
         "model": GROQ_LLM_MODEL,
         "messages": [{"role": "user", "content": transcript}],

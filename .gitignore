@@ -6,6 +6,7 @@ voices/*/en_US-*.onnx.json
 
 .venv/
 logs/*.log
+logs/*.log.*
 *.tar.gz
 *.tar
 *.bak.*
