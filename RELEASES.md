@@ -48,6 +48,36 @@ sha256sum ai-controller-latest.tar.gz > ai-controller-latest.tar.gz.sha256
 
 Then upload `VERSION`, `ai-controller-latest.tar.gz`, and `ai-controller-latest.tar.gz.sha256` to your public release host. The `.sha256` file is required: `update.sh` will refuse to install a packaged update whose hash cannot be verified.
 
+## Signing releases (required once the pinned key ships)
+
+A checksum fetched from the same host does not stop an attacker who controls
+that host. When `scripts/update_pubkey.pem` exists in the installed build,
+`update.sh` requires and verifies a detached Ed25519 signature for every
+release. One-time key setup (keep the private key offline, never on the
+release host):
+
+```bash
+openssl genpkey -algorithm ed25519 -out release_priv.pem
+openssl pkey -in release_priv.pem -pubout -out scripts/update_pubkey.pem
+git add scripts/update_pubkey.pem   # the PUBLIC half ships with the product
+```
+
+Every release, after building the tarball:
+
+```bash
+openssl pkeyutl -sign -inkey release_priv.pem -rawin \
+    -in ai-controller-latest.tar.gz -out ai-controller-latest.tar.gz.sig
+```
+
+Upload the `.sig` next to the tarball. To rotate the signing key: sign the
+next release with the new key and ship its new `scripts/update_pubkey.pem`
+inside that release (verification always uses the pubkey of the *installed*
+build, so trust chains release-by-release).
+
+Update URLs must be `https://` (or `file://` for local testing); plain HTTP
+is refused unless `AI_CONTROLLER_ALLOW_INSECURE_URL=1` is set on a trusted
+local network.
+
 ## Buyer update flow
 
 After the buyer installs the archive, they run:
@@ -59,12 +89,14 @@ bash "$HOME/ai-controller/scripts/update.sh"
 Or bind it to a controller button in AntiMicroX.
 
 The script:
-1. Reads `~/.config/ai-controller/update_url`.
+1. Reads `~/.config/ai-controller/update_url` (https required).
 2. Fetches the remote `VERSION` file and compares it to the local `VERSION`.
 3. Downloads `ai-controller-latest.tar.gz` plus its `.sha256` manifest.
 4. Verifies the tarball's SHA256 hash before extracting. If the manifest is missing or the hash does not match, the update aborts.
-5. Preserves buyer state (`ptt_mode`, vocabulary, voice unlocks).
-6. Restarts systemd services.
+5. If `scripts/update_pubkey.pem` is present, verifies the release's Ed25519 `.sig`. Missing or invalid signatures abort.
+6. Refuses archives containing absolute or `..` path members (path traversal).
+7. Preserves buyer state (`ptt_mode`, vocabulary, voice unlocks).
+8. Restarts systemd services.
 
 ## Versioning
 
