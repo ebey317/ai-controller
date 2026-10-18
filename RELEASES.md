@@ -22,6 +22,7 @@ If this repo is public, anyone can clone it for free. That breaks the $30 paid-p
 2. Push only these files to it:
    - `VERSION`
    - `ai-controller-latest.tar.gz`
+   - `ai-controller-latest.tar.gz.sha256`
 3. Set the buyer's update URL:
    ```bash
    echo 'https://raw.githubusercontent.com/ebey317/ai-controller-releases/main' > ~/.config/ai-controller/update_url
@@ -33,7 +34,7 @@ If this repo is public, anyone can clone it for free. That breaks the $30 paid-p
 - **AWS S3** — standard object storage.
 - **Backblaze B2** — cheap storage, free egress up to a limit.
 
-Upload `VERSION` and `ai-controller-latest.tar.gz` to a public bucket and point `~/.config/ai-controller/update_url` at the bucket URL.
+Upload `VERSION`, `ai-controller-latest.tar.gz`, and `ai-controller-latest.tar.gz.sha256` to a public bucket and point `~/.config/ai-controller/update_url` at the bucket URL.
 
 ## Building a release archive
 
@@ -42,9 +43,10 @@ cd /path/to/ai-controller
 VERSION=$(cat VERSION)
 tar --exclude='.git' --exclude='.github' -czf "ai-controller-${VERSION}.tar.gz" .
 cp "ai-controller-${VERSION}.tar.gz" ai-controller-latest.tar.gz
+sha256sum ai-controller-latest.tar.gz > ai-controller-latest.tar.gz.sha256
 ```
 
-Then upload `VERSION` and `ai-controller-latest.tar.gz` to your public release host.
+Then upload `VERSION`, `ai-controller-latest.tar.gz`, and `ai-controller-latest.tar.gz.sha256` to your public release host. The `.sha256` file is required: `update.sh` will refuse to install a packaged update whose hash cannot be verified.
 
 ## Buyer update flow
 
@@ -57,10 +59,10 @@ bash "$HOME/ai-controller/scripts/update.sh"
 Or bind it to a controller button in AntiMicroX.
 
 The script:
-1. Reads `~/.config/ai_controller_update_url`.
-2. Fetches the remote `VERSION` file.
-3. Compares it to the local `VERSION`.
-4. Downloads and extracts `ai-controller-latest.tar.gz` if newer.
+1. Reads `~/.config/ai-controller/update_url`.
+2. Fetches the remote `VERSION` file and compares it to the local `VERSION`.
+3. Downloads `ai-controller-latest.tar.gz` plus its `.sha256` manifest.
+4. Verifies the tarball's SHA256 hash before extracting. If the manifest is missing or the hash does not match, the update aborts.
 5. Preserves buyer state (`ptt_mode`, vocabulary, voice unlocks).
 6. Restarts systemd services.
 
@@ -79,7 +81,7 @@ Bump appropriately:
 
 ## Gumroad workflow
 
-1. Build `ai-controller-1.0.0.tar.gz`.
-2. Upload it as the Gumroad product file.
-3. Upload the same file as `ai-controller-latest.tar.gz` to your public release host.
-4. When you ship an update, bump `VERSION`, rebuild, upload new `ai-controller-latest.tar.gz`, and buyers run `update.sh`.
+1. Build `ai-controller-1.0.0.tar.gz` and `ai-controller-latest.tar.gz.sha256`.
+2. Upload the archive as the Gumroad product file.
+3. Upload the same archive and its `.sha256` file as `ai-controller-latest.tar.gz` and `ai-controller-latest.tar.gz.sha256` to your public release host.
+4. When you ship an update, bump `VERSION`, rebuild, upload the new archive and checksum, and buyers run `update.sh`.
