@@ -13,11 +13,20 @@
 # with the repo). It never writes to ~/.config/antimicrox/*.amgp — those are
 # live, per-machine runtime state, not something an update should silently
 # overwrite.
+#
+# SECURITY: packaged updates REQUIRE a SHA256 checksum manifest served from
+# the same update host. If the manifest is missing or the tarball hash does
+# not match, the update is aborted. For sold/published builds, also sign the
+# manifest (e.g. with GPG/minisign) and verify the signature here.
 
 set -euo pipefail
 
 INSTALL_DIR="${AI_CONTROLLER_DIR:-$HOME/ai-controller}"
 CONTROLLER_SERVICES=(voice-bridge.service ptt-pynput.service controller-legend.service antimicrox-autoload.service ai-slide-keyboard.service)
+
+# Set to 1 to allow packaged updates without a checksum manifest.
+# DO NOT enable this for builds you ship to other people.
+AI_CONTROLLER_SKIP_CHECKSUM="${AI_CONTROLLER_SKIP_CHECKSUM:-0}"
 
 git_update() {
     echo "Checking for updates in $INSTALL_DIR (git) ..."
@@ -70,6 +79,7 @@ url_update() {
 
     local VERSION_URL="$UPDATE_URL/VERSION"
     local ARCHIVE_URL="$UPDATE_URL/ai-controller-latest.tar.gz"
+    local CHECKSUM_URL="$ARCHIVE_URL.sha256"
 
     echo "Checking for updates from $VERSION_URL ..."
 
@@ -99,8 +109,53 @@ url_update() {
     TMP_DIR=$(mktemp -d)
     trap 'rm -rf "$TMP_DIR"' EXIT
 
+    local ARCHIVE_FILE="$TMP_DIR/ai-controller-$REMOTE_VERSION.tar.gz"
+    local CHECKSUM_FILE="$TMP_DIR/ai-controller-$REMOTE_VERSION.tar.gz.sha256"
+
     echo "Downloading $ARCHIVE_URL ..."
-    curl -fsSL "$ARCHIVE_URL" -o "$TMP_DIR/ai-controller-$REMOTE_VERSION.tar.gz"
+    curl -fsSL "$ARCHIVE_URL" -o "$ARCHIVE_FILE"
+
+    echo "Downloading checksum manifest $CHECKSUM_URL ..."
+    local checksum_ok=0
+    if curl -fsSL "$CHECKSUM_URL" -o "$CHECKSUM_FILE" 2>/dev/null; then
+        local expected_hash
+        expected_hash=$(awk '{print $1}' "$CHECKSUM_FILE" | tr -d '[:space:]' | head -n1)
+        if [ -n "$expected_hash" ]; then
+            local actual_hash
+            actual_hash=$(sha256sum "$ARCHIVE_FILE" | awk '{print $1}')
+            if [ "$expected_hash" = "$actual_hash" ]; then
+                echo "Checksum verified: $actual_hash"
+                checksum_ok=1
+            else
+                echo "ERROR: checksum mismatch."
+                echo "  Expected: $expected_hash"
+                echo "  Actual:   $actual_hash"
+                echo "  The tarball has NOT been extracted. Your install is unchanged."
+                exit 1
+            fi
+        else
+            echo "WARNING: checksum manifest is empty."
+        fi
+    else
+        echo "WARNING: no checksum manifest found at $CHECKSUM_URL"
+    fi
+
+    if [ "$checksum_ok" = "0" ]; then
+        if [ "$AI_CONTROLLER_SKIP_CHECKSUM" = "1" ]; then
+            echo "WARNING: AI_CONTROLLER_SKIP_CHECKSUM=1 — continuing without checksum verification."
+            echo "This is unsafe for builds distributed to other people."
+        else
+            echo "ERROR: cannot verify update integrity."
+            echo "For a packaged update to install, the update server must provide"
+            echo "a SHA256 checksum file at:"
+            echo "  $CHECKSUM_URL"
+            echo ""
+            echo "To bypass this check on your own machine (NOT recommended for shipped"
+            echo "builds), set AI_CONTROLLER_SKIP_CHECKSUM=1."
+            echo "The tarball has NOT been extracted. Your install is unchanged."
+            exit 1
+        fi
+    fi
 
     echo "Installing update ..."
     local BACKUP_DIR
@@ -108,7 +163,7 @@ url_update() {
     local NEW_DIR="$INSTALL_DIR.new"
     rm -rf "$NEW_DIR"
     mkdir -p "$NEW_DIR"
-    tar -xzf "$TMP_DIR/ai-controller-$REMOTE_VERSION.tar.gz" -C "$NEW_DIR" --strip-components=1
+    tar -xzf "$ARCHIVE_FILE" -C "$NEW_DIR" --strip-components=1
 
     mv "$INSTALL_DIR" "$BACKUP_DIR"
     mv "$NEW_DIR" "$INSTALL_DIR"
