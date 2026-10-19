@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 
 # Profile path (locked/active profile from AntiMicroX)
 LOCKED_PROFILE_PATH = os.path.join(
-    os.path.expanduser("~/.config/antimicrox"), 
+    os.path.expanduser("~/.config/antimicrox"),
     "dont delete .gamecontroller.amgp"
 )
 
@@ -22,7 +22,7 @@ LOCKED_PROFILE_PATH = os.path.join(
 # always show the physical button name for a teaching/reference diagram
 _BUTTON_LABELS = {
     'A': 'A',
-    'B': 'B', 
+    'B': 'B',
     'X': 'X',
     'Y': 'Y',
     'LB': 'LB',
@@ -66,7 +66,7 @@ LEGEND_SLOT_ORDER = [
 
 def _first_label(container_el):
     """Extract human-readable label from a button XML element's first slot.
-    
+
     Note: This returns the KEY BINDING (what the button sends), which we then
     DISCARD for display purposes. We want the physical button name.
     """
@@ -121,19 +121,19 @@ def get_key_binding(button_name: str, live_layout: dict) -> str | None:
 
 def load_desktop_layout(path=LOCKED_PROFILE_PATH):
     """Parse the AntiMicroX profile and return button info.
-    
+
     Returns a dict mapping button position names to their key bindings.
     """
     try:
         root = ET.parse(path).getroot()
     except Exception:
         return {}
-    
+
     set_el = root.find("./sets/set")
     if set_el is None:
         return {}
 
-    buttons = {int(b.get("index", "0")): _first_label(b) 
+    buttons = {int(b.get("index", "0")): _first_label(b)
                for b in set_el.findall("button")}
     triggers = {}
     for trig in set_el.findall("trigger"):
@@ -154,7 +154,7 @@ def get_current_layout() -> dict:
 
 def render_svg(width=520, height=380):
     """Render the controller legend as an SVG string.
-    
+
     Uses an Xbox-style controller outline with buttons labeled by their
     conventional physical names. Works for any standard controller layout.
     """
@@ -178,10 +178,10 @@ def render_svg(width=520, height=380):
     parts.append('    .footnote { font-size: 8px; fill: #888888; text-anchor: middle; }')
     parts.append('  </style>')
     parts.append(f'  <rect width="{width}" height="{height}" fill="#fafafa"/>')
-    
+
     # Title bar
     parts.append(f'  <text x="{width/2}" y="20" class="title" text-anchor="middle">Controller Legend</text>')
-    
+
     # Xbox-style controller body: one continuous silhouette (wide top lobe
     # tapering into two rounded grip horns) instead of a separate body path
     # + two disconnected grip shapes, which is what made the first version
@@ -249,7 +249,7 @@ def render_svg(width=520, height=380):
             )
             parts.append(f'  <text x="{x}" y="{y}" class="btn-label"{font_style}>{label}</text>')
     parts.append(f'  <text x="150" y="{255 + 34}" class="subtitle" text-anchor="middle">D-Pad</text>')
-    
+
     # Footnote - explain that button names are conventional, not key bindings.
     # View/Back and Menu are the two buttons whose physical name and current
     # sent key actually diverge (e.g. Menu currently sends Tab) -- read live
@@ -277,7 +277,7 @@ def render_svg(width=520, height=380):
 
 def main():
     svg = render_svg()
-    
+
     # Output: SVG by default, PNG if --png flag given
     if len(sys.argv) >= 3 and sys.argv[1] == '--png':
         png_path = sys.argv[2]
