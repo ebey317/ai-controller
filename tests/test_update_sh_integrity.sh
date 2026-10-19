@@ -69,7 +69,7 @@ mkdir -p "$S2"
 cp "$SRC" "$S2/update.sh"
 
 echo "== bash -n"
-bash -n "$SRC" && ok "syntax" || bad "syntax"
+if bash -n "$SRC"; then ok "syntax"; else bad "syntax"; fi
 
 echo "== 1: good checksum, no pubkey -> applies"
 C=$(make_case c1 2.0.0)
