@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 os.environ.setdefault("VOICE_BRIDGE_API_KEY", "")
 
-import voice_bridge as vb
-from fastapi.testclient import TestClient
+import voice_bridge as vb  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 
 class _FakeResponse:

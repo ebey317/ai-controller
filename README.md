@@ -274,8 +274,8 @@ For screenshots, demo GIFs, and a polished product overview, visit:
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Format Python: `black scripts/ tests/`
-4. Run linters: `ruff check . && black --check . && shellcheck *.sh`
+3. Format Python: `black scripts/ tests/ && isort scripts/ tests/`
+4. Run the lint/format gate: `pre-commit run --all-files` (black, isort, ruff, markdownlint, shellcheck with `bash` over `scripts/*.sh`, `tests/*.sh` and root `*.sh`, and mypy).
 5. Commit, push, and open a Pull Request
 
 ---

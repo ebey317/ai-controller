@@ -42,7 +42,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Iterable, NamedTuple, Optional
+from typing import NamedTuple, Optional
 
 # The kernel message the xone-gip driver emits when its audio output buffers
 # wedge. This is the ONLY justification for cycling a card profile -- see
