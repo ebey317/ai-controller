@@ -1393,9 +1393,22 @@ def _run_evdev_listener():
                 pass
             time.sleep(0.3)
 
+# Both overlaid to the F13 keysym by fix-f13-keymap.sh / controller-profile-switcher.sh
+# (`xmodmap -e "keycode 191 = F13"` and `... 202 = F13`). Two raw X11 keycodes carry
+# F13 here because antimicrox's uinput backend can synthesize this trigger as either
+# kernel KEY_F13 (evdev 183 -> X11 keycode 191) or KEY_F24 (evdev 194 -> X11 keycode
+# 202) depending on which slot/profile state fired — see trigger index="6" vs "5" in
+# the loaded .amgp. keysym_to_keycode() only ever resolves ONE of the two (2026-10-06:
+# confirmed it picked 191), so a grab built from it silently left the other keycode
+# ungrabbed and X11 kept delivering literal "F13" to whatever window had focus every
+# time the trigger happened to fire through that second path. Grab both, unconditionally.
+_F13_KEYCODES = (191, 202)
+
+
 def _run_x11_f13_grab():
-    """Globally grab the F13 KEYSYM (not the device) so X11 stops delivering
-    it to whatever window has focus.
+    """Globally grab both F13-overlaid KEYCODES (not the device, not just one
+    keysym resolution) so X11 stops delivering either of them to whatever
+    window has focus.
 
     2026-09-08: reproduced live — F13 presses were landing as literal "F13"
     text in the focused window (a terminal with no F13 binding), because the
@@ -1403,13 +1416,18 @@ def _run_x11_f13_grab():
     every OTHER AntiMicroX-mapped key keeps flowing to X11 normally. An
     exclusive EVIOCGRAB on the device was tried before and reverted for
     exactly that reason — it would silence every button on this device, not
-    just F13. XGrabKey is the selective tool: it grabs one keysym server-wide
+    just F13. XGrabKey is the selective tool: it grabs a keycode server-wide
     regardless of which device injects it, and leaves everything else alone.
     The actual PTT start/stop logic still comes entirely from the evdev
     listener above — this thread only has to keep draining the grabbed
-    key's events off this connection so they never escape to focus."""
+    keys' events off this connection so they never escape to focus.
+
+    Grabbing by raw keycode (not a keysym lookup) also means this no longer
+    needs to wait for the xmodmap overlay to land first: XGrabKey operates
+    on the keycode itself, independent of whatever symbol X11 currently
+    maps it to."""
     try:
-        from Xlib import XK, X
+        from Xlib import X
         from Xlib import display as _xdisplay
     except ImportError:
         log.warning("python-xlib not available — F13 will keep leaking to focused windows")
@@ -1419,14 +1437,21 @@ def _run_x11_f13_grab():
         try:
             disp = _xdisplay.Display()
             root = disp.screen().root
-            keysym = XK.string_to_keysym("F13")
-            keycode = disp.keysym_to_keycode(keysym)
-            if not keycode:
-                log.warning("X11 has no keycode mapped for F13 keysym — nothing to grab")
-                return
-            root.grab_key(keycode, X.AnyModifier, True, X.GrabModeAsync, X.GrabModeAsync)
+            grabbed = []
+            for keycode in _F13_KEYCODES:
+                try:
+                    root.grab_key(keycode, X.AnyModifier, True, X.GrabModeAsync, X.GrabModeAsync)
+                    grabbed.append(keycode)
+                except Exception as e:
+                    log.warning("X11 F13 grab failed for keycode=%s (%s)", keycode, e)
+            if not grabbed:
+                log.warning("Could not grab any F13 keycode %s — retrying in %.1fs", _F13_KEYCODES, backoff)
+                disp.close()
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 10.0)
+                continue
             disp.sync()
-            log.info("X11 F13 grab active (keycode=%s) — F13 will no longer reach focused windows", keycode)
+            log.info("X11 F13 grab active (keycodes=%s) — F13 will no longer reach focused windows", grabbed)
             backoff = 1.0
             while True:
                 disp.next_event()  # drain grabbed KeyPress/KeyRelease; PTT logic lives in the evdev thread

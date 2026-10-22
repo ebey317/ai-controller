@@ -67,10 +67,10 @@ DEFAULT_PINS = [
     {"label": "hermes", "text": "hermes --tui"},
     {"label": "claude", "text": "claude"},
     {"label": "desktop", "text": "hermes desktop"},
-    {"label": "dashboard", "text": "python3 /home/elijah/generate_dashboard.py && xdg-open /home/elijah/dashboard_demo.html"},
+    {"label": "sensei", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
     {"label": "qwen", "text": "qwen"},
-    {"label": "dashboard", "text": "xdg-open /home/elijah/dashboard_live.html", "exec": True},
-    {"label": "sensei", "text": "~/scripts/update_master_ai.sh", "exec": True},
+    {"label": "dashboard", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
+    {"label": "update", "text": "~/scripts/update_master_ai.sh", "exec": True},
 ]
 
 # 2026-09-24: automatic per-pin variant discovery (Elijah: "we don't want to
