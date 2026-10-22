@@ -169,6 +169,10 @@ def test_screenshot_returns_an_image_block(gate, monkeypatch, tmp_path):
 
         return R()
 
+    # CI has no scrot (and no X server). Stub the binary lookup as well
+    # as the call itself -- otherwise the test fails on the environment
+    # rather than on the behaviour it is meant to pin.
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(desktop.subprocess, "run", fake_run)
     shot = desktop.screenshot()
     assert shot["type"] == "image"
@@ -194,9 +198,19 @@ def test_screenshot_deletes_its_temp_file(gate, monkeypatch):
 
         return R()
 
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(desktop.subprocess, "run", fake_run)
     desktop.screenshot()
     assert not captured["path"].exists()
+
+
+def test_screenshot_reports_a_missing_scrot_clearly(gate, monkeypatch):
+    """A missing capture tool must be an explicit, actionable error --
+    not a crash and not a silent empty image."""
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: None)
+    with pytest.raises(desktop.DesktopUnavailable) as exc:
+        desktop.screenshot()
+    assert "scrot" in str(exc.value)
 
 
 # ──────────────────────────────────────────────────────────────────────
