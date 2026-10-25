@@ -62,6 +62,19 @@ def save_theme(name: str) -> None:
     THEME_FILE.write_text(name.strip().lower() + "\n")
 
 
+_BELT_ORDER = ("white-belt", "yellow-belt", "blue-belt", "green-belt",
+               "purple-belt", "brown-belt", "black-belt")
+
+
+def next_theme(current: Theme) -> Theme:
+    """Cycle to the next belt in rank order (white → … → black → white)."""
+    try:
+        idx = _BELT_ORDER.index(current.name)
+    except ValueError:
+        return DEFAULT
+    return THEMES[_BELT_ORDER[(idx + 1) % len(_BELT_ORDER)]]
+
+
 def css(theme: Theme) -> str:
     """CSS block shared by the GTK overlays (slide keyboard / launcher)."""
     return (

@@ -48,7 +48,7 @@ import focus_guard
 import voice_toggle
 from ai_controller_paths import config_dir, ensure_config_dir
 from text_styles import to_bold, to_cursive, to_old_english
-from theme import load_theme
+from theme import load_theme, next_theme, save_theme
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()
@@ -147,31 +147,33 @@ def _modifier_state():
         return False, False, False
 
 
-_THEME = load_theme()
-HUD_ORANGE = _THEME.accent
+HUD_ORANGE = load_theme().accent  # used by the "Typing…" markup strings
 
-CSS = f"""
+
+def _build_css(theme):
+    hud = theme.accent
+    return f"""
 window {{ background-color: transparent; }}
 #panel {{
-    background-color: {_THEME.background};
-    border: 2px solid {HUD_ORANGE};
+    background-color: {theme.background};
+    border: 2px solid {hud};
     border-radius: 16px;
 }}
 #drag-handle {{
-    background-color: {_THEME.surface};
-    border: 1px solid {_THEME.border};
+    background-color: {theme.surface};
+    border: 1px solid {theme.border};
     border-radius: 8px;
 }}
 .handle-label {{
-    color: {_THEME.text_secondary};
+    color: {theme.text_secondary};
     font-family: monospace;
     font-size: 9px;
 }}
 button {{
     background-image: none;
-    background-color: {_THEME.surface};
-    color: {_THEME.text};
-    border: 1px solid {_THEME.border};
+    background-color: {theme.surface};
+    color: {theme.text};
+    border: 1px solid {theme.border};
     border-radius: 5px;
     font-family: monospace;
     font-size: 11px;
@@ -179,17 +181,20 @@ button {{
     min-height: 26px;
     padding: 2px;
 }}
-button:hover {{ background-color: {_THEME.border}; }}
-button.special {{ background-color: {_THEME.surface}; color: {HUD_ORANGE}; border-color: {HUD_ORANGE}; }}
-button.mode {{ background-color: {_THEME.surface}; color: {HUD_ORANGE}; border-color: {HUD_ORANGE}; font-weight: bold; padding: 1px 7px; }}
-button.mode-active {{ background-color: {HUD_ORANGE}; color: {_THEME.surface}; border-color: {HUD_ORANGE}; font-weight: bold; padding: 1px 7px; }}
-button.mode-toggle {{ background-color: {_THEME.surface}; color: {HUD_ORANGE}; border-color: {HUD_ORANGE}; font-weight: bold; font-size: 20px; letter-spacing: 2px; min-width: 100px; min-height: 34px; padding: 3px 10px; }}
-.shelf-title {{ color: {HUD_ORANGE}; font-weight: bold; font-size: 9px; margin-bottom: 3px; }}
-button.pin {{ background-color: {_THEME.surface}; color: {_THEME.pin}; border-color: {_THEME.border}; font-size: 9px; }}
-button.pin:hover {{ background-color: {_THEME.border}; }}
-button.pin-add {{ background-color: {_THEME.surface}; color: {_THEME.text_secondary}; border-color: {_THEME.border}; }}
-button.pin-add:hover {{ background-color: {_THEME.border}; color: {_THEME.pin}; }}
+button:hover {{ background-color: {theme.border}; }}
+button.special {{ background-color: {theme.surface}; color: {hud}; border-color: {hud}; }}
+button.mode {{ background-color: {theme.surface}; color: {hud}; border-color: {hud}; font-weight: bold; padding: 1px 7px; }}
+button.mode-active {{ background-color: {hud}; color: {theme.surface}; border-color: {hud}; font-weight: bold; padding: 1px 7px; }}
+button.mode-toggle {{ background-color: {theme.surface}; color: {hud}; border-color: {hud}; font-weight: bold; font-size: 20px; letter-spacing: 2px; min-width: 100px; min-height: 34px; padding: 3px 10px; }}
+.shelf-title {{ color: {hud}; font-weight: bold; font-size: 9px; margin-bottom: 3px; }}
+button.pin {{ background-color: {theme.surface}; color: {theme.pin}; border-color: {theme.border}; font-size: 9px; }}
+button.pin:hover {{ background-color: {theme.border}; }}
+button.pin-add {{ background-color: {theme.surface}; color: {theme.text_secondary}; border-color: {theme.border}; }}
+button.pin-add:hover {{ background-color: {theme.border}; color: {theme.pin}; }}
 """.encode()
+
+
+CSS = _build_css(load_theme())
 
 
 _AUTH_PROMPT_CLASSES = {"gcr-prompter", "polkit-gnome-authentication-agent-1"}
@@ -412,10 +417,10 @@ class SlideKeyboard(Gtk.Window):
         if visual:
             self.set_visual(visual)
 
-        css = Gtk.CssProvider()
-        css.load_from_data(CSS)
+        self.css_provider = Gtk.CssProvider()
+        self.css_provider.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(
-            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            screen, self.css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         self.shift_on = False
 
@@ -490,6 +495,12 @@ class SlideKeyboard(Gtk.Window):
         self.target_btn.get_style_context().add_class("mode")
         self.target_btn.connect("clicked", self._on_target_toggle)
         self.mode_bar.pack_end(self.target_btn, False, False, 0)
+
+        # Theme toggle: cycles through the 7 belts live (no restart).
+        self.theme_btn = Gtk.Button(label="🎨 " + load_theme().name)
+        self.theme_btn.get_style_context().add_class("mode")
+        self.theme_btn.connect("clicked", self._on_theme_toggle)
+        self.mode_bar.pack_end(self.theme_btn, False, False, 0)
 
         self.grid = Gtk.Grid(column_spacing=4, row_spacing=4)
         self.grid.set_margin_start(6)
@@ -707,6 +718,13 @@ class SlideKeyboard(Gtk.Window):
         new_target = "clipboard" if self._load_input_target() == "type" else "type"
         self._save_input_target(new_target)
         self.target_btn.set_label(self._target_label())
+
+    def _on_theme_toggle(self, _widget):
+        """Cycle to the next belt and re-apply the CSS live (no restart)."""
+        nxt = next_theme(load_theme())
+        save_theme(nxt.name)
+        self.css_provider.load_from_data(_build_css(nxt))
+        self.theme_btn.set_label("🎨 " + nxt.name)
 
     def _voice_label(self) -> str:
         """Show the active voice name with a speaker icon."""
