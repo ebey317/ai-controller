@@ -720,11 +720,17 @@ class SlideKeyboard(Gtk.Window):
         self.target_btn.set_label(self._target_label())
 
     def _on_theme_toggle(self, _widget):
-        """Cycle to the next belt and re-apply the CSS live (no restart)."""
+        """Cycle to the next belt, re-apply the keyboard CSS live, and sync the legend."""
         nxt = next_theme(load_theme())
         save_theme(nxt.name)
         self.css_provider.load_from_data(_build_css(nxt))
         self.theme_btn.set_label("🎨 " + nxt.name)
+        # The legend HUD is a separate process that resolves its colors at
+        # startup — restart it so it picks up the same belt (brief flicker).
+        try:
+            subprocess.Popen(["systemctl", "--user", "restart", "controller-legend.service"])
+        except Exception as exc:
+            logging.warning("legend theme sync failed: %s", exc)
 
     def _voice_label(self) -> str:
         """Show the active voice name with a speaker icon."""
