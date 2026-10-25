@@ -110,3 +110,13 @@ def css(theme: Theme) -> str:
         theme.surface, theme.pin, theme.border,
         theme.accent,
     )
+
+
+def hex_to_rgb(hex_color: str):
+    """Return an (r, g, b) float tuple (0.0–1.0) from a '#RRGGBB' hex string.
+
+    Used by controller-legend.py to convert theme colors into cairo
+    set_source_rgba() arguments.
+    """
+    h = hex_color.lstrip('#')
+    return tuple(int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))

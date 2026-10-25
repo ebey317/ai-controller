@@ -36,32 +36,33 @@ SERVICES = [
     "ai-slide-keyboard.service",
 ]
 
-HUD_ORANGE = load_theme().accent
+_THEME = load_theme()
+HUD_ORANGE = _THEME.accent
 
-CSS = b"""
-window { background-color: rgba(13,13,18,0.94); }
-#panel {
-    background-color: rgba(13,13,18,0.94);
-    border: 2px solid #FF6A00;
+CSS = f"""
+window {{ background-color: {_THEME.background}; }}
+#panel {{
+    background-color: {_THEME.background};
+    border: 2px solid {HUD_ORANGE};
     border-radius: 16px;
     padding: 16px;
-}
-button {
+}}
+button {{
     background-image: none;
-    background-color: #23232b;
-    color: #e8e8e8;
-    border: 1px solid #3a3a44;
+    background-color: {_THEME.surface};
+    color: {_THEME.text};
+    border: 1px solid {_THEME.border};
     border-radius: 8px;
     font-size: 14px;
     padding: 10px 16px;
-}
-button:hover { background-color: #2f2f3a; }
-button.action { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; }
-button.danger { background-color: #2a0a0a; color: #ff4a4a; border-color: #ff4a4a; font-weight: bold; }
-label { color: #e8e8e8; font-size: 13px; }
-label.title { color: #FF6A00; font-size: 18px; font-weight: bold; }
-label.status { color: #a0a0a8; font-size: 12px; }
-"""
+}}
+button:hover {{ background-color: {_THEME.border}; }}
+button.action {{ background-color: {_THEME.surface}; color: {HUD_ORANGE}; border-color: {HUD_ORANGE}; font-weight: bold; }}
+button.danger {{ background-color: #2a0a0a; color: #ff4a4a; border-color: #ff4a4a; font-weight: bold; }}
+label {{ color: {_THEME.text}; font-size: 13px; }}
+label.title {{ color: {HUD_ORANGE}; font-size: 18px; font-weight: bold; }}
+label.status {{ color: {_THEME.text_secondary}; font-size: 12px; }}
+""".encode()
 
 
 class Launcher(Gtk.Window):

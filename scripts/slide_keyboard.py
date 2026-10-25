@@ -147,48 +147,49 @@ def _modifier_state():
         return False, False, False
 
 
-HUD_ORANGE = load_theme().accent
+_THEME = load_theme()
+HUD_ORANGE = _THEME.accent
 
-CSS = b"""
-window { background-color: transparent; }
-#panel {
-    background-color: rgba(13,13,18,0.94);
-    border: 2px solid #FF6A00;
+CSS = f"""
+window {{ background-color: transparent; }}
+#panel {{
+    background-color: {_THEME.background};
+    border: 2px solid {HUD_ORANGE};
     border-radius: 16px;
-}
-#drag-handle {
-    background-color: rgba(26,26,32,0.85);
-    border: 1px solid #3a3a44;
+}}
+#drag-handle {{
+    background-color: {_THEME.surface};
+    border: 1px solid {_THEME.border};
     border-radius: 8px;
-}
-.handle-label {
-    color: #8a8a92;
+}}
+.handle-label {{
+    color: {_THEME.text_secondary};
     font-family: monospace;
     font-size: 9px;
-}
-button {
+}}
+button {{
     background-image: none;
-    background-color: #23232b;
-    color: #e8e8e8;
-    border: 1px solid #3a3a44;
+    background-color: {_THEME.surface};
+    color: {_THEME.text};
+    border: 1px solid {_THEME.border};
     border-radius: 5px;
     font-family: monospace;
     font-size: 11px;
     min-width: 26px;
     min-height: 26px;
     padding: 2px;
-}
-button:hover { background-color: #2f2f3a; }
-button.special { background-color: #1a2226; color: #FF6A00; border-color: #4a3318; }
-button.mode { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; padding: 1px 7px; }
-button.mode-active { background-color: #FF6A00; color: #0d0d12; border-color: #FF6A00; font-weight: bold; padding: 1px 7px; }
-button.mode-toggle { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; font-size: 20px; letter-spacing: 2px; min-width: 100px; min-height: 34px; padding: 3px 10px; }
-.shelf-title { color: #FF6A00; font-weight: bold; font-size: 9px; margin-bottom: 3px; }
-button.pin { background-color: #0f2a24; color: #3ddc97; border-color: #1f5c4a; font-size: 9px; }
-button.pin:hover { background-color: #163a30; }
-button.pin-add { background-color: #23232b; color: #6a6a72; border-color: #3a3a44; }
-button.pin-add:hover { background-color: #2f2f3a; color: #3ddc97; }
-"""
+}}
+button:hover {{ background-color: {_THEME.border}; }}
+button.special {{ background-color: {_THEME.surface}; color: {HUD_ORANGE}; border-color: {HUD_ORANGE}; }}
+button.mode {{ background-color: {_THEME.surface}; color: {HUD_ORANGE}; border-color: {HUD_ORANGE}; font-weight: bold; padding: 1px 7px; }}
+button.mode-active {{ background-color: {HUD_ORANGE}; color: {_THEME.surface}; border-color: {HUD_ORANGE}; font-weight: bold; padding: 1px 7px; }}
+button.mode-toggle {{ background-color: {_THEME.surface}; color: {HUD_ORANGE}; border-color: {HUD_ORANGE}; font-weight: bold; font-size: 20px; letter-spacing: 2px; min-width: 100px; min-height: 34px; padding: 3px 10px; }}
+.shelf-title {{ color: {HUD_ORANGE}; font-weight: bold; font-size: 9px; margin-bottom: 3px; }}
+button.pin {{ background-color: {_THEME.surface}; color: {_THEME.pin}; border-color: {_THEME.border}; font-size: 9px; }}
+button.pin:hover {{ background-color: {_THEME.border}; }}
+button.pin-add {{ background-color: {_THEME.surface}; color: {_THEME.text_secondary}; border-color: {_THEME.border}; }}
+button.pin-add:hover {{ background-color: {_THEME.border}; color: {_THEME.pin}; }}
+""".encode()
 
 
 _AUTH_PROMPT_CLASSES = {"gcr-prompter", "polkit-gnome-authentication-agent-1"}
