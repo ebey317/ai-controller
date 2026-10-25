@@ -48,12 +48,11 @@ except BlockingIOError:
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
-from ai_controller_paths import config_dir, ensure_config_dir, load_env
-
 # Shared TTS control: stream-level barge-in, driver selection, and the wedge
 # check that decides whether a card profile cycle is warranted. Imported after
 # SCRIPT_DIR is on sys.path (above) since it lives alongside this file.
 import tts_control  # noqa: E402
+from ai_controller_paths import config_dir, ensure_config_dir, load_env
 
 endpoint = "http://localhost:8002/voice"
 
@@ -82,8 +81,6 @@ TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 # this file (`_notify_hermex(...)`) keeps working unchanged.
 from ptt_notify import notify_hermex as _notify_hermex
 from ptt_notify import sanitize_for_notify as _sanitize_for_notify
-
-
 
 # Unicode font maps (standalone, no dependencies)
 _CURSIVE_LOWER = "𝓪𝓫𝓬𝓭𝓮𝓯𝓰𝓱𝓲𝓳𝓴𝓵𝓶𝓷𝓸𝓹𝓺𝓻𝓼𝓽𝓾𝓿𝔀𝔁𝔂𝔃"

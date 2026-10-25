@@ -9,7 +9,6 @@ import asyncio
 import logging
 import logging.handlers
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -25,13 +24,12 @@ from fastapi.responses import JSONResponse
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
-from ai_controller_paths import ai_controller_dir, load_env
-
 # Shared TTS control (scripts/tts_control.py): driver selection, the
 # live sink format, and the stream-level barge-in used by ptt_pynput.
 # One implementation, so the bridge and the CLI cannot disagree about
 # which device is playing or what rate it wants.
 import tts_control  # noqa: E402
+from ai_controller_paths import ai_controller_dir, load_env
 
 # -----------------------------------------------------------------------------
 # Logging setup — vocal debug output
