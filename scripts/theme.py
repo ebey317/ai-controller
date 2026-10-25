@@ -1,10 +1,10 @@
 """Shared theming for the AI Controller UI overlays.
 
-Centralizes the hardcoded palette (dark background + HUD-orange accent, formerly
-scattered across controller-legend.py / slide_keyboard.py /
-ai-controller-launcher.py) into named themes, so a single config value switches
-the whole desktop UI. Mirrors the Android app's AppTheme, but for the Python
-GTK overlays. Selected theme persists at ~/.config/ai-controller/theme.
+Ported 1:1 from Pupil IDE's martial-arts belt system (the Master AI stack's
+canonical 7 themes, /pupil.html) so the desktop app and the web GUI share one
+palette. Each belt is a full bg/surface/text/accent set, switchable by writing
+the belt name to ~/.config/ai-controller/theme. Default = black-belt (Pupil's
+default).
 """
 
 from dataclasses import dataclass
@@ -17,68 +17,44 @@ THEME_FILE = CONFIG_DIR / "theme"
 @dataclass(frozen=True)
 class Theme:
     name: str
-    background: str  # window background (rgba())
-    surface: str     # keys / surfaces
-    text: str        # primary text
-    text_secondary: str
-    accent: str      # HUD accent (was #FF6A00)
-    pin: str         # pin-snippet green (was #3ddc97)
-    border: str
+    background: str      # Pupil --bg
+    surface: str         # Pupil --surface
+    text: str            # Pupil --text
+    text_secondary: str  # Pupil --text3
+    accent: str          # Pupil --accent
+    pin: str             # Pupil --ok (success green)
+    border: str          # Pupil --line
 
 
-SIGNATURE = Theme(
-    name="signature",
-    background="rgba(13,13,18,0.94)",
-    surface="#23232b",
-    text="#e8e8e8",
-    text_secondary="#8a8a92",
-    accent="#FF6A00",
-    pin="#3ddc97",
-    border="#3a3a44",
-)
+WHITE_BELT = Theme("white-belt", "#f7f8fa", "#f1f3f6", "#15171c", "#5d6572",
+                   "#5b6472", "#16a34a", "rgba(21,23,28,0.14)")
+YELLOW_BELT = Theme("yellow-belt", "#131208", "#262213", "#faf7e8", "#a89f7d",
+                    "#eab308", "#a3e635", "rgba(250,247,232,0.10)")
+BLUE_BELT = Theme("blue-belt", "#090f19", "#18243a", "#eaf1fb", "#8ea3c0",
+                  "#3b82f6", "#4ade80", "rgba(234,241,251,0.10)")
+GREEN_BELT = Theme("green-belt", "#081209", "#152518", "#ecf7ee", "#93b39b",
+                   "#22c55e", "#34d399", "rgba(236,247,238,0.10)")
+PURPLE_BELT = Theme("purple-belt", "#0f0a17", "#221738", "#f3ecfd", "#a491c4",
+                    "#a855f7", "#4ade80", "rgba(243,236,253,0.10)")
+BROWN_BELT = Theme("brown-belt", "#14100b", "#2a2219", "#f0e7d8", "#a99880",
+                   "#b45309", "#84cc16", "rgba(240,231,216,0.10)")
+BLACK_BELT = Theme("black-belt", "#000000", "#141416", "#fafafa", "#8e8e96",
+                   "#ff3b30", "#32d74b", "rgba(255,255,255,0.10)")
 
-LIGHT = Theme(
-    name="light",
-    background="rgba(250,250,250,0.96)",
-    surface="#ffffff",
-    text="#1a1a1a",
-    text_secondary="#5a5a5a",
-    accent="#FF6A00",
-    pin="#00a06a",
-    border="#e0e0e0",
-)
+THEMES = {t.name: t for t in (
+    WHITE_BELT, YELLOW_BELT, BLUE_BELT, GREEN_BELT,
+    PURPLE_BELT, BROWN_BELT, BLACK_BELT,
+)}
 
-HIGH_CONTRAST = Theme(
-    name="high-contrast",
-    background="rgba(0,0,0,0.98)",
-    surface="#000000",
-    text="#ffff00",
-    text_secondary="#ffffff",
-    accent="#ffff00",
-    pin="#ffff00",
-    border="#ffff00",
-)
-
-GREEN_ON_BLACK = Theme(  # Master AI brand signature
-    name="green-on-black",
-    background="rgba(0,0,0,0.96)",
-    surface="#0f1f0f",
-    text="#e8e8e8",
-    text_secondary="#6a8a6a",
-    accent="#00E5A0",
-    pin="#00E5A0",
-    border="#1f3a1f",
-)
-
-THEMES = {t.name: t for t in (SIGNATURE, LIGHT, HIGH_CONTRAST, GREEN_ON_BLACK)}
+DEFAULT = BLACK_BELT
 
 
 def load_theme() -> Theme:
     try:
         name = THEME_FILE.read_text().strip().lower()
     except OSError:
-        return SIGNATURE
-    return THEMES.get(name, SIGNATURE)
+        return DEFAULT
+    return THEMES.get(name, DEFAULT)
 
 
 def save_theme(name: str) -> None:
