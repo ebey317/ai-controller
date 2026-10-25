@@ -18,6 +18,7 @@ import gi
 
 gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gtk
+from theme import load_theme
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTALL_DIR = os.path.dirname(SCRIPT_DIR)
@@ -35,7 +36,7 @@ SERVICES = [
     "ai-slide-keyboard.service",
 ]
 
-HUD_ORANGE = "#FF6A00"
+HUD_ORANGE = load_theme().accent
 
 CSS = b"""
 window { background-color: rgba(13,13,18,0.94); }

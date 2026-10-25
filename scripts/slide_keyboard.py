@@ -48,6 +48,7 @@ import focus_guard
 import voice_toggle
 from ai_controller_paths import config_dir, ensure_config_dir
 from text_styles import to_bold, to_cursive, to_old_english
+from theme import load_theme
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()
@@ -146,7 +147,7 @@ def _modifier_state():
         return False, False, False
 
 
-HUD_ORANGE = "#FF6A00"
+HUD_ORANGE = load_theme().accent
 
 CSS = b"""
 window { background-color: transparent; }
