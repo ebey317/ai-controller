@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 import urllib.error
 import urllib.request
 import wave
@@ -61,6 +62,11 @@ _AUDIO_INPUT = load_env().get("AUDIO_INPUT", "")
 _PAREC_DEVICE_ARGS = ["--device", _AUDIO_INPUT] if _AUDIO_INPUT else []
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8002")
 SENSEI_SESSION = os.environ.get("SENSEI_SESSION", "focus-engine")
+
+# Tahuti goal fork: default OFF. When TAHUTI_GOALS=1 and Ctrl is held during an
+# F13 take, the transcript is written to ~/.tahuti/goals/ instead of typed.
+TAHUTI_GOALS = os.environ.get("TAHUTI_GOALS", "") == "1"
+GOALS_DIR = os.path.expanduser("~/.tahuti/goals")
 
 # ---------------------------------------------------------------------------
 # Transcription style toggle (controlled by slide_keyboard.py mode button)
@@ -654,6 +660,35 @@ def _send_browser_text(text):
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
+
+def _write_goal(text: str) -> None:
+    """Write a Tahuti goal JSON file from a Ctrl+F13 take.
+
+    The file is written atomically (temp + rename) to the queue directory the
+    Tahuti headless runner watches."""
+    try:
+        os.makedirs(GOALS_DIR, exist_ok=True)
+        goal_id = str(uuid.uuid4())
+        ts = datetime.now().isoformat()
+        path = os.path.join(GOALS_DIR, f"{goal_id}.json")
+        tmp_path = f"{path}.tmp"
+        payload = {
+            "id": goal_id,
+            "transcript": text,
+            "timestamp": ts,
+            "source": "ptt_pynput",
+        }
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp_path, path)
+        log.info(f"Goal written: {path}")
+        _notify_hermex("Goal captured", text[:120], urgency="normal")
+    except Exception as exc:
+        log.error(f"Failed to write goal: {exc}")
+        _notify_hermex("Goal failed", str(exc)[:120], urgency="high", sound=True)
+
+
 # Controller headset mic is 24000 Hz mono s16le. Capture at native rate
 # through PulseAudio (parec) to avoid ALSA resampling artifacts.
 SAMPLE_RATE = 24000
@@ -704,6 +739,11 @@ _SHORT_HALLUCINATIONS = {
     "thank you", "thanks", "thank", "check", "yellow", "yep", "yup",
     "mm", "hmm", "um", "uh", "mhm", "okay", "ok",
 }
+
+# Modifier / goal-fork state. Ctrl is tracked both by pynput (X11) and the
+# evdev fallback so Ctrl+F13 works whichever path delivers F13.
+_ctrl_held = False
+_goal_take = False
 
 
 def _active_window():
@@ -944,10 +984,13 @@ def start_recording():
             # 2026-09-07: removed TUI skip. Hermes, Anthropic, and Sensei all benefit
             # from a leading space; the previous title-based TUI detection was
             # suppressing the space in Hermes and breaking the user's muscle memory.
-            if _focus_window is not None:
+            # Goal takes skip the auto-space because nothing is typed.
+            if _focus_window is not None and not _goal_take:
                 subprocess.run(['xdotool', 'key', 'space'],
                                env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+            elif _goal_take:
+                log.info("skipping auto-space (goal take)")
             else:
                 log.info("skipping auto-space (no focus window)")
             fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
@@ -1093,7 +1136,7 @@ def _reap_orphan_recorders():
 
 
 def stop_and_send():
-    global recording, rec_proc, rawfile, wavfile, _last_f13_time
+    global recording, rec_proc, rawfile, wavfile, _last_f13_time, _goal_take
     _processing_lock.acquire()
     try:
         with lock:
@@ -1188,51 +1231,62 @@ def stop_and_send():
             # Fast personal-vocabulary autocorrect (applies to PRO and BUBBLY)
             transcript = _apply_vocabulary(transcript)
 
+            # Goal fork: preserve the vocab-corrected transcript before style
+            # transforms (bubbly/bold/etc.) so goals get content, not formatting.
+            goal_text = transcript if (_goal_take and transcript) else None
+
             # Apply PRO / BUBBLY / CASUAL / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
             if mode in ("bubbly", "casual", "bold", "big") and transcript:
                 transcript = _transform_text(transcript, mode)
 
             if response:
                 log.info(f"Response: {response}")
+                _goal_take = False
             elif transcript:
-                target = _load_input_target()
-
-                # Only explicit clipboard target skips typing. Everything else goes
-                # through xdotool type — clipboard auto-paste proved unreliable in
-                # the operator's target windows.
-                use_clipboard = (target == "clipboard")
-
-                log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
-                _notify_hermex("Transcript ready", transcript[:120], urgency="normal")
-                time.sleep(_TYPE_SETTLE_MS / 1000.0)
-
-                if use_clipboard:
-                    _set_clipboard_text(transcript)
-                elif _is_browser_window():
-                    result = _send_browser_text(transcript)
-                    if not result.get("ok"):
-                        log.warning(f"Browser inject failed: {result.get('error')}")
+                if _goal_take:
+                    if goal_text is not None:
+                        _write_goal(goal_text)
+                    _goal_take = False
                 else:
-                    # Type into the window that was active when recording started.
-                    # AntiMicroX or other overlays may have moved focus since then,
-                    # so we restore it explicitly before typing. We do NOT search
-                    # for the Hermes TUI — if the user clicked a different window,
-                    # their voice goes there, not here.
-                    global _focus_window
-                    target_window = _resolve_type_target(_focus_window)
-                    if target_window:
-                        try:
-                            subprocess.run(
-                                ['xdotool', 'windowfocus', '--sync', target_window],
-                                env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-                        except Exception:
-                            pass
+                    target = _load_input_target()
 
-                    # Leading space was already decided before capture started.
-                    _type_text_fast(transcript, mode, target_window=target_window)
+                    # Only explicit clipboard target skips typing. Everything else goes
+                    # through xdotool type — clipboard auto-paste proved unreliable in
+                    # the operator's target windows.
+                    use_clipboard = (target == "clipboard")
+
+                    log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
+                    _notify_hermex("Transcript ready", transcript[:120], urgency="normal")
+                    time.sleep(_TYPE_SETTLE_MS / 1000.0)
+
+                    if use_clipboard:
+                        _set_clipboard_text(transcript)
+                    elif _is_browser_window():
+                        result = _send_browser_text(transcript)
+                        if not result.get("ok"):
+                            log.warning(f"Browser inject failed: {result.get('error')}")
+                    else:
+                        # Type into the window that was active when recording started.
+                        # AntiMicroX or other overlays may have moved focus since then,
+                        # so we restore it explicitly before typing. We do NOT search
+                        # for the Hermes TUI — if the user clicked a different window,
+                        # their voice goes there, not here.
+                        global _focus_window
+                        target_window = _resolve_type_target(_focus_window)
+                        if target_window:
+                            try:
+                                subprocess.run(
+                                    ['xdotool', 'windowfocus', '--sync', target_window],
+                                    env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+                            except Exception:
+                                pass
+
+                        # Leading space was already decided before capture started.
+                        _type_text_fast(transcript, mode, target_window=target_window)
             else:
                 log.info("(nothing heard)")
+                _goal_take = False
         except Exception as ex:
             log.error(f"Error: {ex}")
             # Strip the home directory before this goes into a phone push
@@ -1263,7 +1317,11 @@ def stop_and_send():
 
 
 def on_press(key):
+    global _ctrl_held, _goal_take
     log.debug("Key pressed: %s (vk=%s)", key, getattr(key, 'vk', None))
+    if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+        _ctrl_held = True
+        return
     if key == keyboard.Key.f13:
         # 2026-09-15: reproduced live -- X11/antimicrox key-repeat fires
         # on_press() repeatedly for a single physical hold (observed: 11
@@ -1278,7 +1336,13 @@ def on_press(key):
         # key-repeat flood from doing anything at all past the first press.
         if (time.time() - _last_f13_time) * 1000 < _DEBOUNCE_MS:
             return
-        log.info("F13 PRESSED — starting recording")
+        # Goal fork: if TAHUTI_GOALS is enabled and Ctrl is held, this take
+        # writes the transcript to ~/.tahuti/goals/ instead of typing it.
+        _goal_take = TAHUTI_GOALS and _ctrl_held
+        if _goal_take:
+            log.info("Ctrl+F13 PRESSED — goal take")
+        else:
+            log.info("F13 PRESSED — starting recording")
         # Mute TTS IMMEDIATELY on press — do not wait for the recording thread.
         # This is the barge-in interrupt: RT press should stop agent speech instantly.
         _mute_tts()
@@ -1289,7 +1353,11 @@ def on_press(key):
 
 
 def on_release(key):
+    global _ctrl_held
     log.debug("Key released: %s (vk=%s)", key, getattr(key, 'vk', None))
+    if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+        _ctrl_held = False
+        return
     if key == keyboard.Key.f13:
         log.info("F13 RELEASED — stopping and sending")
         threading.Thread(target=stop_and_send, daemon=True).start()
@@ -1373,6 +1441,11 @@ def _run_evdev_listener():
                 # struct input_event { long tv_sec; long tv_usec; __u16 type; __u16 code; __s32 value; }
                 _, _, ev_type, ev_code, ev_value = _struct.unpack("llHHi", buf)
                 # EV_KEY = 1, KEY_F13 = 0xb7 (183)
+                # Track Ctrl on the antimicrox device so Ctrl+F13 can be detected
+                # as a goal take regardless of whether X11/pynput saw the modifier.
+                if ev_type == 1 and ev_code in (29, 97):  # KEY_LEFTCTRL, KEY_RIGHTCTRL
+                    _ctrl_held = ev_value in (1, 2)
+                    continue
                 # Only handle F13 — let all other keys pass through to X11
                 if ev_type == 1 and ev_code == 0xb7:
                     if ev_value == 1:
