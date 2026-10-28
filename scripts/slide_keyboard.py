@@ -54,6 +54,7 @@ from theme import load_theme, next_theme, save_theme
 ensure_config_dir()
 PTT_MODE_FILE = os.path.join(config_dir(), "ptt_mode")
 INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
+DICTATION_TARGET_FILE = os.path.join(config_dir(), "ai_controller_dictation_target")
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
 # Persistent snippet pins — separate from the OS clipboard (which a single
@@ -711,12 +712,40 @@ class SlideKeyboard(Gtk.Window):
         with open(INPUT_TARGET_FILE, "w", encoding="utf-8") as f:
             f.write(target)
 
+    def _load_dictation_target(self) -> str:
+        # Shared with ptt_pynput.py: 'agent' routes takes to the agent
+        # (bridge execute + spoken response); anything else types.
+        try:
+            with open(DICTATION_TARGET_FILE, "r", encoding="utf-8") as f:
+                t = f.read().strip().lower()
+                if t in ("type", "agent"):
+                    return t
+        except Exception:
+            pass
+        return "type"
+
+    def _save_dictation_target(self, target: str) -> None:
+        os.makedirs(os.path.dirname(DICTATION_TARGET_FILE), exist_ok=True)
+        with open(DICTATION_TARGET_FILE, "w", encoding="utf-8") as f:
+            f.write(target)
+
     def _target_label(self) -> str:
+        if self._load_dictation_target() == "agent":
+            return "AGENT"
         return "CLIPBOARD" if self._load_input_target() == "clipboard" else "TYPE"
 
     def _on_target_toggle(self, _widget):
-        new_target = "clipboard" if self._load_input_target() == "type" else "type"
-        self._save_input_target(new_target)
+        # 3-state cycle: TYPE → CLIPBOARD → AGENT → TYPE. AGENT persists
+        # ai_controller_dictation_target (ptt_pynput.py routes takes to the
+        # agent); TYPE/CLIPBOARD persist ai_controller_input_target and clear
+        # the dictation file back to type.
+        if self._load_dictation_target() == "agent":
+            self._save_dictation_target("type")
+            self._save_input_target("type")
+        elif self._load_input_target() == "clipboard":
+            self._save_dictation_target("agent")
+        else:
+            self._save_input_target("clipboard")
         self.target_btn.set_label(self._target_label())
 
     def _on_theme_toggle(self, _widget):

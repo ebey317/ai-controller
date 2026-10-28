@@ -1,0 +1,34 @@
+[Unit]
+Description=Push-to-Talk Dictation Listener — headless (evdev only, spoken output)
+# Headless twin of ptt-pynput.service. Same trigger via antimicrox's uinput
+# evdev device, same parec capture, same STT — but output is spoken through
+# the voice bridge /speak endpoint instead of typed into a focused window.
+# No DISPLAY/XAUTHORITY and no graphical-session dependency on purpose.
+# Enable EXCLUSIVELY vs ptt-pynput.service (singleton /tmp/ptt_pynput.lock):
+# Conflicts= stops the GUI twin if both are started together.
+After=default.target voice-bridge-headless.service
+Wants=default.target voice-bridge-headless.service
+Conflicts=ptt-pynput.service
+
+[Service]
+Type=simple
+# Same rationale as ptt-pynput.service: `sg input -c` activates the `input`
+# supplementary group for this exec directly, so PTT can read antimicrox's
+# virtual keyboard regardless of seat/session state, with no logout required.
+# NOTE: deliberately NO ExecStartPre resetting ai_controller_input_target to
+# `type` here — headless takes never consult that file (they speak instead),
+# and resetting it would clobber the GUI default behind the operator's back.
+ExecStart=/bin/sh -c 'sg input -c "%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/ptt_pynput.py"'
+WorkingDirectory=%h/ai-controller/scripts
+Restart=on-failure
+RestartSec=3
+# Same as ptt-pynput.service: mixed signals only the main process first, so
+# an in-flight `parec` recording can finish; systemd still SIGKILLs anything
+# left in the cgroup after TimeoutStopSec so nothing orphans forever.
+KillMode=mixed
+Environment=AI_CONTROLLER_HEADLESS=1
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=BRIDGE_URL=http://127.0.0.1:8002
+
+[Install]
+WantedBy=default.target

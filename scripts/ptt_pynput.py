@@ -20,7 +20,29 @@ import wave
 from datetime import datetime
 from typing import Dict, Optional
 
-from pynput import keyboard
+# Headless mode (opt-in): AI_CONTROLLER_HEADLESS=1 keeps audio capture, STT,
+# the evdev trigger path, goal takes, and TTS — but skips everything that
+# needs X11 (pynput listener, X11 F13 grab, focus snapshot, xdotool typing).
+# Unset (default) = current GUI behavior, byte-for-byte.
+HEADLESS = os.environ.get("AI_CONTROLLER_HEADLESS", "").strip().lower() in ("1", "true", "yes", "on")
+
+try:
+    if HEADLESS:
+        raise ImportError("headless: pynput X11 listener disabled")
+    from pynput import keyboard
+except Exception:
+    # Minimal stub so the evdev path (which synthesizes its own F13 key
+    # object via _make_fake_key) keeps working without the X11 client
+    # library. Only used when HEADLESS is set or pynput is uninstallable.
+    class _HeadlessKey:
+        ctrl_l = "ctrl_l"
+        ctrl_r = "ctrl_r"
+        f13 = "f13"
+
+    class _HeadlessKeyboard:
+        Key = _HeadlessKey
+
+    keyboard = _HeadlessKeyboard()  # type: ignore
 
 # Persistent file log for dictation pipeline debugging. Rotated -- this
 # process runs for days at a time and an unbounded FileHandler here grows
@@ -75,6 +97,7 @@ ensure_config_dir()
 MODE_FILE = os.path.join(config_dir(), "ptt_mode")
 VOCAB_FILE = os.path.join(config_dir(), "ptt_vocabulary.json")
 INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
+DICTATION_TARGET_FILE = os.path.join(config_dir(), "ai_controller_dictation_target")
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
 # ---------------------------------------------------------------------------
@@ -189,6 +212,23 @@ def _load_input_target() -> str:
         with open(INPUT_TARGET_FILE, "r", encoding="utf-8") as f:
             target = f.read().strip().lower()
             if target in ("type", "clipboard"):
+                return target
+    except Exception:
+        pass
+    return "type"
+
+
+def _load_dictation_target() -> str:
+    """Return dictation target: 'type' (default) or 'agent' (execute mode).
+
+    Shared with slide_keyboard.py's mode-bar toggle, which persists the same
+    file. The L+R trigger (Ctrl held) promotes a single take to agent
+    regardless of this file; the file persists the button state.
+    """
+    try:
+        with open(DICTATION_TARGET_FILE, "r", encoding="utf-8") as f:
+            target = f.read().strip().lower()
+            if target in ("type", "agent"):
                 return target
     except Exception:
         pass
@@ -661,6 +701,28 @@ def _send_browser_text(text):
         return {"ok": False, "error": str(exc)}
 
 
+def _speak_headless(text: str) -> None:
+    """Speak text through the voice bridge /speak endpoint (headless output path).
+
+    GUI takes type into the focused window; headless has no window, so the
+    transcript is spoken back instead. Failures only warn — the transcript is
+    already logged by the caller, so a dead bridge must not fail the take.
+    The x-api-key header is sent only when VOICE_BRIDGE_API_KEY is set
+    (unset today; added so a future 401 is a one-line diagnosis, not a bug).
+    """
+    if not text:
+        return
+    cmd = ['curl', '-s', '-X', 'POST', f'{BRIDGE_URL}/speak',
+           '-F', f'text={text[:500]}']
+    api_key = os.environ.get("VOICE_BRIDGE_API_KEY", "")
+    if api_key:
+        cmd += ['-H', f'x-api-key: {api_key}']
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except Exception as exc:
+        log.warning(f"Headless /speak POST failed: {exc}")
+
+
 def _write_goal(text: str) -> None:
     """Write a Tahuti goal JSON file from a Ctrl+F13 take.
 
@@ -979,13 +1041,21 @@ def start_recording():
             _warmup_mic()
             # Save the currently focused window so we can restore focus before typing.
             # AntiMicroX or other apps may steal focus during recording.
-            _focus_window = _active_window()
+            # Headless: no window to snapshot and no xdotool to send with —
+            # takes are spoken, never typed.
+            if HEADLESS:
+                _focus_window = None
+                log.info("skipping focus snapshot + auto-space (headless)")
+            else:
+                _focus_window = _active_window()
             # Auto-space before dictation so consecutive utterances don't run together.
             # 2026-09-07: removed TUI skip. Hermes, Anthropic, and Sensei all benefit
             # from a leading space; the previous title-based TUI detection was
             # suppressing the space in Hermes and breaking the user's muscle memory.
             # Goal takes skip the auto-space because nothing is typed.
-            if _focus_window is not None and not _goal_take:
+            if HEADLESS:
+                pass
+            elif _focus_window is not None and not _goal_take:
                 subprocess.run(['xdotool', 'key', 'space'],
                                env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
@@ -1211,9 +1281,14 @@ def stop_and_send():
             # max(30s, 5 * duration + 30s) so long paragraphs don't get killed
             # at a hard 60s wall.
             stt_timeout = max(30, int(duration * 5) + 30)
+            # Agent takes (L+R trigger, or the slide-keyboard AGENT toggle)
+            # go to the bridge in execute mode so the response is spoken;
+            # text takes stay transcribe-only.
+            file_agent = _load_dictation_target() == "agent"
+            bridge_mode = "execute" if (_goal_take or file_agent) else "transcribe_only"
             r = subprocess.run(
                 ['curl', '-s', '-X', 'POST', endpoint,
-                 '-F', f'audio=@{wavfile}', '-F', 'mode=transcribe_only',
+                 '-F', f'audio=@{wavfile}', '-F', f'mode={bridge_mode}',
                  '-H', 'Accept: application/json'],
                 capture_output=True, text=True, timeout=stt_timeout)
             data = json.loads(r.stdout)
@@ -1233,7 +1308,9 @@ def stop_and_send():
 
             # Goal fork: preserve the vocab-corrected transcript before style
             # transforms (bubbly/bold/etc.) so goals get content, not formatting.
-            goal_text = transcript if (_goal_take and transcript) else None
+            # The slide-keyboard AGENT toggle counts as an agent take too.
+            agent_take = (_goal_take or file_agent) and bool(transcript)
+            goal_text = transcript if (agent_take and transcript) else None
 
             # Apply PRO / BUBBLY / CASUAL / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
             if mode in ("bubbly", "casual", "bold", "big") and transcript:
@@ -1241,12 +1318,31 @@ def stop_and_send():
 
             if response:
                 log.info(f"Response: {response}")
-                _goal_take = False
-            elif transcript:
-                if _goal_take:
+                if agent_take:
+                    # Agent take answered: queue the goal file and the shared
+                    # transcript log (slide-keyboard notepad) alongside the
+                    # spoken response. Non-agent takes never reach here with
+                    # a response (transcribe_only returns text only).
                     if goal_text is not None:
                         _write_goal(goal_text)
+                        _append_transcript_log(goal_text, response=response, target="agent")
+                        _notify_hermex("Agent transcript", goal_text[:120], urgency="normal")
+                _goal_take = False
+            elif transcript:
+                if agent_take:
+                    if goal_text is not None:
+                        _write_goal(goal_text)
+                        _append_transcript_log(goal_text, response="", target="agent")
+                        _notify_hermex("Agent transcript", goal_text[:120], urgency="normal")
                     _goal_take = False
+                elif HEADLESS:
+                    # No window to type into — speak instead. Goal takes above
+                    # behave identically headless or not (file write, no
+                    # /speak POST, no xdotool).
+                    log.info(f"Output (headless/spoken): {transcript}")
+                    _notify_hermex("Transcript ready", transcript[:120], urgency="normal")
+                    _speak_headless(transcript)
+                    _append_transcript_log(transcript, response="", target="headless")
                 else:
                     target = _load_input_target()
 
@@ -1336,11 +1432,13 @@ def on_press(key):
         # key-repeat flood from doing anything at all past the first press.
         if (time.time() - _last_f13_time) * 1000 < _DEBOUNCE_MS:
             return
-        # Goal fork: if TAHUTI_GOALS is enabled and Ctrl is held, this take
-        # writes the transcript to ~/.tahuti/goals/ instead of typing it.
-        _goal_take = TAHUTI_GOALS and _ctrl_held
+        # Dual trigger: L+R (Ctrl held) = agent take, R alone (F13) = text.
+        # Ungated: Ctrl held during the press always routes to the agent
+        # (bridge execute + spoken response + goal file). TAHUTI_GOALS=1 is
+        # kept as a legacy alias for the same behavior.
+        _goal_take = _ctrl_held
         if _goal_take:
-            log.info("Ctrl+F13 PRESSED — goal take")
+            log.info("Ctrl+F13 PRESSED — agent take")
         else:
             log.info("F13 PRESSED — starting recording")
         # Mute TTS IMMEDIATELY on press — do not wait for the recording thread.
@@ -1543,12 +1641,22 @@ _evdev_thread = _thr.Thread(target=_run_evdev_listener, daemon=True, name="evdev
 _evdev_thread.start()
 
 # Start X11 F13 grab thread (stops F13 from leaking into focused windows —
-# purely a suppression layer, the evdev thread above still does the PTT work)
-_x11_grab_thread = _thr.Thread(target=_run_x11_f13_grab, daemon=True, name="x11-f13-grab")
-_x11_grab_thread.start()
-
-with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+# purely a suppression layer, the evdev thread above still does the PTT work).
+# Headless: no X server to grab from and no pynput listener to run — the evdev
+# thread above is the whole trigger path. Park the main thread so the daemon
+# threads stay alive.
+if HEADLESS:
+    log.info("skipping X11 F13 grab + pynput listener (headless: evdev only)")
     try:
-        listener.join()
+        _thr.Event().wait()
     except KeyboardInterrupt:
         log.info("Stopped.")
+else:
+    _x11_grab_thread = _thr.Thread(target=_run_x11_f13_grab, daemon=True, name="x11-f13-grab")
+    _x11_grab_thread.start()
+
+    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+        try:
+            listener.join()
+        except KeyboardInterrupt:
+            log.info("Stopped.")

@@ -21,6 +21,10 @@ SERVICES=(
     ai-slide-keyboard.service
     a-button-double-tap-enter.service
     gip-audio-watchdog.service
+    # Headless twins (opt-in, installed disabled like everything else — the
+    # launcher starts either the GUI pair or the headless pair, never both).
+    ptt-pynput-headless.service
+    voice-bridge-headless.service
 )
 
 echo "======================================"
