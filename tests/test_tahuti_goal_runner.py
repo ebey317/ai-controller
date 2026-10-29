@@ -197,6 +197,38 @@ def test_execute_file_tool_handles_bad_arguments():
     assert "invalid JSON" in result["error"]
 
 
+def test_process_goal_missing_id_archives_failed(tmp_path, monkeypatch):
+    """Regression: a goal file without an 'id' field used to raise KeyError."""
+    monkeypatch.setattr(runner, "GOALS_DIR", tmp_path / "goals")
+    monkeypatch.setattr(runner, "DONE_DIR", tmp_path / "goals" / "done")
+    monkeypatch.setattr(runner, "FAILED_DIR", tmp_path / "goals" / "failed")
+    monkeypatch.setattr(runner, "_post_speak", lambda text: None)
+    monkeypatch.setattr(runner, "_write_last_response", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "_notify", lambda *args, **kwargs: None)
+
+    goal_path = runner.GOALS_DIR / "no_id.json"
+    goal_path.parent.mkdir(parents=True, exist_ok=True)
+    goal_path.write_text(
+        json.dumps(
+            {
+                "transcript": "write a note",
+                "type": "write",
+                "time": "2026-10-29T18:00:00-0400",
+                "source": "voice_bridge",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    runner._process_goal(goal_path)
+
+    failed = sorted(runner.FAILED_DIR.glob("*.json"))
+    assert len(failed) == 1
+    record = json.loads(failed[0].read_text())
+    assert "missing required" in record["error"].lower()
+    assert "id" in record["error"]
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Model loop with file tools
 # ──────────────────────────────────────────────────────────────────────

@@ -37,6 +37,7 @@ if SCRIPT_DIR not in sys.path:
 
 import ai_controller_paths
 from ptt_notify import notify_hermex as notify_hermex_bg
+import voice_goal_schema as vgs  # noqa: E402
 
 LOG_DIR = Path(ai_controller_paths.ai_controller_dir()) / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -500,11 +501,11 @@ def _needs_approval(transcript: str) -> bool:
     return bool(words & APPROVAL_VERBS)
 
 
-def _write_approval_request(goal: dict) -> None:
+def _write_approval_request(goal_id: str, goal: dict) -> None:
     APPROVALS_DIR.mkdir(parents=True, exist_ok=True)
-    path = APPROVALS_DIR / f"{goal['id']}.pending.json"
+    path = APPROVALS_DIR / f"{goal_id}.pending.json"
     record = {
-        "id": goal["id"],
+        "id": goal_id,
         "transcript": goal.get("transcript", ""),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "reason": "irreversible or desktop/shell action requested",
@@ -533,6 +534,12 @@ def _process_goal(path: Path) -> None:
         return
 
     goal_id = goal.get("id") or path.stem
+    missing = [f for f in vgs.GOAL_REQUIRED_FIELDS if f not in goal or goal[f] in (None, "")]
+    if missing:
+        logger.error("Goal %s missing required fields: %s", goal_id, missing)
+        _archive(claim_path, goal_id, "failed", error=f"missing required fields: {', '.join(missing)}")
+        return
+
     transcript = (goal.get("transcript") or "").strip()
     if not transcript:
         logger.error("Goal %s missing transcript", goal_id)
@@ -552,7 +559,7 @@ def _process_goal(path: Path) -> None:
     model: Optional[str] = None
 
     if approval:
-        _write_approval_request(goal)
+        _write_approval_request(goal_id, goal)
         response = "That request needs your approval before I can act. I've queued it for you."
         worker = "tahuti-runner-v1 (approval gate)"
     else:

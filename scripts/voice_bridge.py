@@ -10,7 +10,6 @@ import json
 import logging
 import logging.handlers
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -32,6 +31,7 @@ if SCRIPT_DIR not in sys.path:
 # One implementation, so the bridge and the CLI cannot disagree about
 # which device is playing or what rate it wants.
 import tts_control  # noqa: E402
+import voice_goal_schema as vgs  # noqa: E402
 from ai_controller_paths import ai_controller_dir, load_env
 
 # -----------------------------------------------------------------------------
@@ -155,60 +155,21 @@ def _extract_responses_text(data: dict) -> str:
 # -----------------------------------------------------------------------------
 # Triage: task verbs vs chat/lookup
 # -----------------------------------------------------------------------------
-# Handoff-approved routing: task verbs create an immediate goal file for the
-# Tahuti headless runner; chat/lookup continue to the LLM for a direct answer.
-TASK_VERBS = {
-    "write", "build", "fix", "open", "operate",
-    "create", "run", "start", "stop", "restart",
-    "edit", "make", "generate", "deploy", "install",
-    "update", "delete", "remove", "send", "move", "copy",
-}
-_CHAT_WORDS = {
-    "what", "who", "when", "where", "why", "how", "is", "are", "was", "were",
-    "tell", "explain", "describe", "define", "look", "search", "chat", "talk",
-    "hello", "hi", "hey", "thanks", "thank",
-}
+# All verb/chat classification lives in voice_goal_schema so the bridge and the
+# Tahuti runner agree on the same contract.
 
 GOALS_DIR = Path.home() / ".tahuti" / "goals"
 
 
-def _classify_transcript(transcript: str) -> str:
-    """Return 'task' if a task verb is present, otherwise 'chat'."""
-    words = re.sub(r"[^a-z ]", " ", transcript.lower()).split()
-    if not words:
-        return "chat"
-    if any(w in TASK_VERBS for w in words):
-        return "task"
-    # Short utterances that start with a chat word default to chat.
-    if len(words) <= 4 and words[0] in _CHAT_WORDS:
-        return "chat"
-    return "chat"
-
-
-def _task_type(transcript: str) -> str:
-    """Return the first task verb found in the transcript."""
-    words = re.sub(r"[^a-z ]", " ", transcript.lower()).split()
-    for w in words:
-        if w in TASK_VERBS:
-            return w
-    return "task"
-
-
-def _write_goal_file(transcript: str, goal_type: str) -> Path:
+def _write_goal_file(transcript: str) -> Path:
     """Write an enriched goal file for the Tahuti headless runner.
 
-    Format: {transcript, type, time} in ~/.tahuti/goals/<uuid>.json.
+    Format is the shared schema in ~/.tahuti/goals/<uuid>.json.
     Directory is created on first use.
     """
     GOALS_DIR.mkdir(parents=True, exist_ok=True)
     path = GOALS_DIR / f"{uuid.uuid4().hex}.json"
-    payload = {
-        "transcript": transcript,
-        "type": goal_type,
-        "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "source": "voice_bridge",
-    }
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(vgs.build_goal_payload(transcript), indent=2), encoding="utf-8")
     return path
 
 
@@ -416,7 +377,7 @@ async def voice(
                             data={
                                 "model": "whisper-large-v3-turbo",
                                 "prompt": (
-                                    "Common terms: AntiMicroX, CLAF, Madam Mary, Hermes, Kimi, "
+                                    "Common terms: CLAF, Madam Mary, Hermes, Kimi, "
                                     "Groq, Whisper, STT, TTS, PTT, Xbox, Microsoft, AI controller, "
                                     "AI Desktop, Fair Chance, Command Center, Monday.com, Railway, "
                                     "Meta, Facebook, Indeed, ZipRecruiter, Discord, Telegram, Sensei."
@@ -473,10 +434,10 @@ async def voice(
         )
 
     # ── Triage: task verbs vs chat/lookup ────────────────────────────────────
-    route = _classify_transcript(transcript)
+    route = vgs.classify_transcript(transcript)
     if route == "task":
-        goal_type = _task_type(transcript)
-        goal_path = _write_goal_file(transcript, goal_type)
+        goal_type = vgs.task_type(transcript) or "task"
+        goal_path = _write_goal_file(transcript)
         ack = "On it"
         logger.info("Task route: %r -> %s", transcript[:80], goal_path)
         _speak_bg(ack)
