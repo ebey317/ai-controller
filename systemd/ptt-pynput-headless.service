@@ -22,10 +22,17 @@ ExecStart=/bin/sh -c 'sg input -c "%h/ai-controller/.venv/bin/python3 %h/ai-cont
 WorkingDirectory=%h/ai-controller/scripts
 Restart=on-failure
 RestartSec=3
-# Same as ptt-pynput.service: mixed signals only the main process first, so
-# an in-flight `parec` recording can finish; systemd still SIGKILLs anything
-# left in the cgroup after TimeoutStopSec so nothing orphans forever.
-KillMode=mixed
+# KillMode=mixed was tried and measured wrong: `man sg` confirms sg always
+# forks+waits to run its `-c command` (never execs itself away), so the
+# "main process" systemd tracks here is a dumb wrapper (sh, then sg) that
+# never forwards SIGTERM to the python3 grandchild doing the real work —
+# verified live 2026-10-28: stopping this unit needed a SIGKILL escalation,
+# and ptt_pynput.py's own parec-cleanup-on-SIGTERM logic (around line 1164)
+# never got the chance to run at all. control-group signals every process
+# in the cgroup directly and simultaneously, so python3 gets a real SIGTERM
+# and can clean up parec itself; anything still alive after TimeoutStopSec
+# still gets SIGKILLed, same safety net as before.
+KillMode=control-group
 Environment=AI_CONTROLLER_HEADLESS=1
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=BRIDGE_URL=http://127.0.0.1:8002

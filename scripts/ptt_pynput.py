@@ -89,6 +89,7 @@ SENSEI_SESSION = os.environ.get("SENSEI_SESSION", "focus-engine")
 # F13 take, the transcript is written to ~/.tahuti/goals/ instead of typed.
 TAHUTI_GOALS = os.environ.get("TAHUTI_GOALS", "") == "1"
 GOALS_DIR = os.path.expanduser("~/.tahuti/goals")
+TRANSCRIPT_LOG_FILE = os.path.join(config_dir(), "transcript_log.jsonl")
 
 # ---------------------------------------------------------------------------
 # Transcription style toggle (controlled by slide_keyboard.py mode button)
@@ -749,6 +750,27 @@ def _write_goal(text: str) -> None:
     except Exception as exc:
         log.error(f"Failed to write goal: {exc}")
         _notify_hermex("Goal failed", str(exc)[:120], urgency="high", sound=True)
+
+
+def _append_transcript_log(transcript: str, response: str = "", target: str = "") -> None:
+    """Append one JSONL line to the shared transcript log.
+
+    Never raises: a log failure must not break a take (the goal file and
+    spoken response are the real outputs; this is the audit trail).
+    """
+    try:
+        os.makedirs(os.path.dirname(TRANSCRIPT_LOG_FILE), exist_ok=True)
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "transcript": transcript,
+            "response": response,
+            "target": target,
+            "source": "ptt_pynput",
+        }
+        with open(TRANSCRIPT_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        log.warning(f"transcript log append failed: {exc}")
 
 
 # Controller headset mic is 24000 Hz mono s16le. Capture at native rate

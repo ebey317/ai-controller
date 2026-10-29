@@ -66,11 +66,11 @@ PINS_FILE = os.path.join(config_dir(), "pinned_snippets.json")
 # = 15 columns, same width as row 0's number row.
 PIN_SLOTS = 7
 DEFAULT_PINS = [
-    {"label": "hermes", "text": "hermes --tui"},
-    {"label": "claude", "text": "claude"},
-    {"label": "desktop", "text": "hermes desktop"},
+    {"label": "hermes", "text": "gnome-terminal -- hermes --tui", "exec": True},
+    {"label": "claude", "text": "gnome-terminal -- claude", "exec": True},
+    {"label": "desktop", "text": "gnome-terminal -- hermes desktop", "exec": True},
     {"label": "sensei", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
-    {"label": "qwen", "text": "qwen"},
+    {"label": "qwen", "text": "gnome-terminal -- qwen", "exec": True},
     {"label": "dashboard", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
     {"label": "update", "text": "~/scripts/update_master_ai.sh", "exec": True},
 ]
@@ -932,9 +932,16 @@ class SlideKeyboard(Gtk.Window):
                 try:
                     # Run exec pins with shell=False and a tokenized command to
                     # avoid shell-injection if the pin file is ever tampered.
+                    # Popen, not run(): this fires on the GTK main thread, so a
+                    # blocking wait (even with a timeout) freezes the whole
+                    # keyboard -- unclosable, undraggable -- for as long as the
+                    # command takes. Fire-and-forget matches what every exec
+                    # pin actually needs (launch and move on), the same way
+                    # gnome-terminal itself returns immediately regardless of
+                    # how long the thing inside the new window runs.
                     cmd = shlex.split(os.path.expanduser(text))
                     if cmd:
-                        subprocess.run(cmd, shell=False, check=False, timeout=60)
+                        subprocess.Popen(cmd, start_new_session=True)
                 except Exception:
                     log.warning("exec pin failed", exc_info=True)
             else:

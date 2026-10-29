@@ -88,6 +88,67 @@ def _load_groq_key() -> str:
 
 GROQ_KEY = _load_groq_key()
 
+
+def _load_meta_key() -> str:
+    """Load the Meta Model API key (env / ai-controller config / master keychain).
+
+    Same 3-source pattern as _load_groq_key. Powers the preferred LLM path
+    (Muse Spark) for voice replies; Groq remains the fallback.
+    """
+    key = os.environ.get("MODEL_API_KEY", "").strip()
+    if key and not key.startswith("***") and len(key) > 20:
+        return key
+    key = load_env().get("MODEL_API_KEY", "").strip()
+    if key and not key.startswith("***") and len(key) > 20:
+        return key
+    # Fallback to the master keychain env file (plain KEY=VALUE format).
+    keychain = Path.home() / "Desktop" / "Projects" / "keychain" / "master_ai_keys"
+    if keychain.exists():
+        try:
+            for line in keychain.read_text().splitlines():
+                if line.strip().startswith("MODEL_API_KEY="):
+                    key = line.split("=", 1)[1].strip().strip('"\'')
+                    if key and not key.startswith("***") and len(key) > 20:
+                        return key
+        except Exception:
+            pass
+    return ""
+
+
+META_KEY = _load_meta_key()
+META_RESPONSES_URL = "https://api.meta.ai/v1/responses"
+META_LLM_MODEL = os.environ.get("VOICE_BRIDGE_META_LLM_MODEL", "muse-spark-1.3")
+# Spoken-voice system prompt. Kept short and honest: no tools are wired yet,
+# so she must not claim she can operate the desktop — but live web lookup
+# IS enabled (Responses API web_search), so current-facts questions work.
+VOICE_SYSTEM_PROMPT = os.environ.get("VOICE_BRIDGE_SYSTEM_PROMPT") or (
+    "You are Aria, the voice assistant on Elijah's Linux desktop, reached by "
+    "holding a game-controller trigger. Keep every reply under 3 sentences, "
+    "plain words that sound natural spoken aloud, no markdown, no lists. "
+    "You can look things up on the live web when asked about current facts. "
+    "You cannot operate the computer or open apps — say so plainly if asked."
+)
+
+
+def _extract_responses_text(data: dict) -> str:
+    """Pull visible assistant text out of a Responses API response body.
+
+    Takes the LAST message only: tool-grounded turns include progress
+    chatter ("I'll check that for you...") before the final answer, and
+    only the final answer should be spoken.
+    """
+    last = ""
+    try:
+        for item in data.get("output", []):
+            if item.get("type") != "message":
+                continue
+            for block in item.get("content", []):
+                if block.get("type") == "output_text" and block.get("text"):
+                    last = block["text"]
+    except Exception:
+        pass
+    return last.strip()
+
 GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_TIMEOUT = float(os.environ.get("VOICE_BRIDGE_GROQ_TIMEOUT", "30"))
 CLAF_TIMEOUT = float(os.environ.get("VOICE_BRIDGE_CLAF_TIMEOUT", "120"))
@@ -362,38 +423,66 @@ async def voice(
     # Still overridable, and worth overriding if a cheaper model appears.
     GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
     GROQ_LLM_MODEL = os.environ.get("VOICE_BRIDGE_LLM_MODEL", "openai/gpt-oss-20b")
-    payload = {
-        "model": GROQ_LLM_MODEL,
-        "messages": [{"role": "user", "content": transcript}],
-        "max_tokens": 256,
-    }
 
-    logger.info("Sending transcript to Groq LLM (%s)", GROQ_LLM_MODEL)
+    logger.info("Sending transcript to LLM")
+    response_text = ""
     async with httpx.AsyncClient(timeout=GROQ_TIMEOUT) as client:
-        try:
-            r = await client.post(
-                GROQ_CHAT_URL,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {GROQ_KEY}",
-                },
-                json=payload,
-            )
-            r.raise_for_status()
-            response_text = _extract_groq_text(r.json())
-            logger.info("LLM response: '%s'", response_text[:200])
-        except httpx.HTTPStatusError as exc:
-            logger.error("Groq LLM HTTP %s", exc.response.status_code)
-            return JSONResponse(
-                {"transcript": transcript, "error": f"Groq LLM HTTP {exc.response.status_code}"},
-                status_code=502,
-            )
-        except httpx.RequestError as exc:
-            logger.error("Groq LLM request failed: %s", exc)
-            return JSONResponse(
-                {"transcript": transcript, "error": f"Groq LLM request failed: {exc}"},
-                status_code=502,
-            )
+        # Preferred: Meta Muse Spark via Responses API (system prompt + live
+        # web_search grounding). Falls through to Groq on any failure.
+        if META_KEY and not response_text:
+            try:
+                r = await client.post(
+                    META_RESPONSES_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {META_KEY}",
+                    },
+                    json={
+                        "model": META_LLM_MODEL,
+                        # Voice replies are direct-answer tasks: minimal
+                        # reasoning keeps latency and cost down (docs: use
+                        # the lowest level that gives acceptable results).
+                        "reasoning": {"effort": "minimal"},
+                        "instructions": VOICE_SYSTEM_PROMPT,
+                        "input": transcript,
+                        "tools": [{"type": "web_search"}],
+                    },
+                )
+                r.raise_for_status()
+                response_text = _extract_responses_text(r.json())
+                logger.info("LLM (meta/%s) response: '%s'", META_LLM_MODEL, response_text[:200])
+            except Exception as exc:
+                logger.warning("Meta LLM failed, falling back to Groq: %s", exc)
+        # Fallback: Groq (legacy path, no system prompt).
+        if not response_text:
+            try:
+                r = await client.post(
+                    GROQ_CHAT_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {GROQ_KEY}",
+                    },
+                    json={
+                        "model": GROQ_LLM_MODEL,
+                        "messages": [{"role": "user", "content": transcript}],
+                        "max_tokens": 256,
+                    },
+                )
+                r.raise_for_status()
+                response_text = _extract_groq_text(r.json())
+                logger.info("LLM (groq/%s) response: '%s'", GROQ_LLM_MODEL, response_text[:200])
+            except httpx.HTTPStatusError as exc:
+                logger.error("Groq LLM HTTP %s", exc.response.status_code)
+                return JSONResponse(
+                    {"transcript": transcript, "error": f"Groq LLM HTTP {exc.response.status_code}"},
+                    status_code=502,
+                )
+            except httpx.RequestError as exc:
+                logger.error("Groq LLM request failed: %s", exc)
+                return JSONResponse(
+                    {"transcript": transcript, "error": f"Groq LLM request failed: {exc}"},
+                    status_code=502,
+                )
 
     # ── TTS — speak response ──────────────────────────────────────────────────
     logger.info("Speaking response via TTS")
