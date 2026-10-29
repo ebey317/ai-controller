@@ -1,0 +1,18 @@
+[Unit]
+Description=Tahuti Headless Goal Runner — drains ~/.tahuti/goals
+After=network.target
+# Manual-start only: no [Install] section, so `systemctl --user enable` will fail.
+
+[Service]
+Type=simple
+Environment=AI_CONTROLLER_DIR=%h/ai-controller
+Environment=BRIDGE_URL=http://127.0.0.1:8002
+EnvironmentFile=%h/.config/ai-controller/config.env
+EnvironmentFile=%h/.hermes/.env
+ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/tahuti_goal_runner.py
+WorkingDirectory=%h/ai-controller
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+
+# No [Install] section => never autostart.

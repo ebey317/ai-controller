@@ -1315,8 +1315,11 @@ def stop_and_send():
                 capture_output=True, text=True, timeout=stt_timeout)
             data = json.loads(r.stdout)
             # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
+            # Task-routed takes also carry {"routed": "task"} — the bridge already
+            # filed the enriched goal, so ptt must NOT file a duplicate.
             transcript = data.get('text', data.get('transcript', ''))
             response = data.get('response', data.get('error', '')).strip()
+            routed_task = data.get('routed', '') == 'task'
 
             # Short accidental trigger presses often produce hallucinated single words
             # from controller/mic noise. Skip them instead of typing garbage.
@@ -1345,8 +1348,13 @@ def stop_and_send():
                     # transcript log (slide-keyboard notepad) alongside the
                     # spoken response. Non-agent takes never reach here with
                     # a response (transcribe_only returns text only).
+                    # Task-routed takes excluded: the bridge filed the enriched
+                    # goal already; filing here would duplicate the queue.
                     if goal_text is not None:
-                        _write_goal(goal_text)
+                        if routed_task:
+                            log.info("Task routed — goal filed by bridge, skipping duplicate")
+                        else:
+                            _write_goal(goal_text)
                         _append_transcript_log(goal_text, response=response, target="agent")
                         _notify_hermex("Agent transcript", goal_text[:120], urgency="normal")
                 _goal_take = False

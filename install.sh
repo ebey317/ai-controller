@@ -25,6 +25,9 @@ SERVICES=(
     # launcher starts either the GUI pair or the headless pair, never both).
     ptt-pynput-headless.service
     voice-bridge-headless.service
+    # Tahuti runner (opt-in, installed disabled — start it to drain the goal
+    # queue with Muse Wonder; the launcher owns enablement like the rest).
+    ai-controller-goal-runner.service
 )
 
 echo "======================================"
