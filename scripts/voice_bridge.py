@@ -6,13 +6,16 @@ Runs on :8002. push-to-talk.sh POSTs audio to /voice?mode=transcribe_only.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import logging.handlers
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -148,6 +151,66 @@ def _extract_responses_text(data: dict) -> str:
     except Exception:
         pass
     return last.strip()
+
+# -----------------------------------------------------------------------------
+# Triage: task verbs vs chat/lookup
+# -----------------------------------------------------------------------------
+# Handoff-approved routing: task verbs create an immediate goal file for the
+# Tahuti headless runner; chat/lookup continue to the LLM for a direct answer.
+TASK_VERBS = {
+    "write", "build", "fix", "open", "operate",
+    "create", "run", "start", "stop", "restart",
+    "edit", "make", "generate", "deploy", "install",
+    "update", "delete", "remove", "send", "move", "copy",
+}
+_CHAT_WORDS = {
+    "what", "who", "when", "where", "why", "how", "is", "are", "was", "were",
+    "tell", "explain", "describe", "define", "look", "search", "chat", "talk",
+    "hello", "hi", "hey", "thanks", "thank",
+}
+
+GOALS_DIR = Path.home() / ".tahuti" / "goals"
+
+
+def _classify_transcript(transcript: str) -> str:
+    """Return 'task' if a task verb is present, otherwise 'chat'."""
+    words = re.sub(r"[^a-z ]", " ", transcript.lower()).split()
+    if not words:
+        return "chat"
+    if any(w in TASK_VERBS for w in words):
+        return "task"
+    # Short utterances that start with a chat word default to chat.
+    if len(words) <= 4 and words[0] in _CHAT_WORDS:
+        return "chat"
+    return "chat"
+
+
+def _task_type(transcript: str) -> str:
+    """Return the first task verb found in the transcript."""
+    words = re.sub(r"[^a-z ]", " ", transcript.lower()).split()
+    for w in words:
+        if w in TASK_VERBS:
+            return w
+    return "task"
+
+
+def _write_goal_file(transcript: str, goal_type: str) -> Path:
+    """Write an enriched goal file for the Tahuti headless runner.
+
+    Format: {transcript, type, time} in ~/.tahuti/goals/<uuid>.json.
+    Directory is created on first use.
+    """
+    GOALS_DIR.mkdir(parents=True, exist_ok=True)
+    path = GOALS_DIR / f"{uuid.uuid4().hex}.json"
+    payload = {
+        "transcript": transcript,
+        "type": goal_type,
+        "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "source": "voice_bridge",
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
 
 GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_TIMEOUT = float(os.environ.get("VOICE_BRIDGE_GROQ_TIMEOUT", "30"))
@@ -409,7 +472,25 @@ async def voice(
             {"transcript": transcript, "response": local, "local": True}
         )
 
-    # ── LLM — route voice commands through Groq free tier ───────────────────
+    # ── Triage: task verbs vs chat/lookup ────────────────────────────────────
+    route = _classify_transcript(transcript)
+    if route == "task":
+        goal_type = _task_type(transcript)
+        goal_path = _write_goal_file(transcript, goal_type)
+        ack = "On it"
+        logger.info("Task route: %r -> %s", transcript[:80], goal_path)
+        _speak_bg(ack)
+        return JSONResponse(
+            {
+                "transcript": transcript,
+                "response": ack,
+                "routed": "task",
+                "goal_type": goal_type,
+                "goal_path": str(goal_path),
+            }
+        )
+
+    # ── LLM — chat/lookup answered directly by Spark / Groq fallback ─────────
     # Direct Groq call instead of CLAF local Ollama for speed.
     #
     # 2026-09-30: the default was llama-3.3-70b-versatile, which now returns

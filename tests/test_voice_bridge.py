@@ -1,6 +1,8 @@
 """Tests for the voice bridge."""
+import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -110,6 +112,36 @@ def test_empty_transcript_returns_400():
     assert "empty transcript" in r.json()["error"]
 
 
+def test_task_verb_routes_to_goal(tmp_path):
+    vb.GOALS_DIR = tmp_path / "goals"
+    r = client.post("/voice", data={"text": "write a todo list", "mode": "execute"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["transcript"] == "write a todo list"
+    assert body["response"] == "On it"
+    assert body["routed"] == "task"
+    assert body["goal_type"] == "write"
+    assert (tmp_path / "goals").exists()
+    goals = list((tmp_path / "goals").glob("*.json"))
+    assert len(goals) == 1
+    payload = json.loads(goals[0].read_text())
+    assert payload["transcript"] == "write a todo list"
+    assert payload["type"] == "write"
+    assert "time" in payload
+
+
+def test_chat_path_still_calls_llm():
+    _set_mock_response(_FakeResponse(200, {
+        "choices": [{"message": {"content": "The sky is blue."}}]
+    }))
+    r = client.post("/voice", data={"text": "what color is the sky", "mode": "execute"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["transcript"] == "what color is the sky"
+    assert body["response"] == "The sky is blue."
+    assert body.get("routed") is None
+
+
 if __name__ == "__main__":
     test_transcribe_only_with_text()
     test_execute_mode_calls_groq()
@@ -117,4 +149,6 @@ if __name__ == "__main__":
     test_stt_mode_with_audio()
     test_stt_groq_error()
     test_empty_transcript_returns_400()
+    test_task_verb_routes_to_goal(Path(tempfile.mkdtemp()))
+    test_chat_path_still_calls_llm()
     print("ok")
