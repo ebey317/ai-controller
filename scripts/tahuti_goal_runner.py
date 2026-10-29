@@ -8,8 +8,9 @@ and delivers the answer three ways:
   - ~/.config/ai-controller/last_agent_response.md
   - Hermex push notification
 
-Safety v1: research/write/answer only. Irreversible actions are converted
-into approval requests in ~/.tahuti/approvals/ and never executed.
+Safety v1: research/write/answer/read only. Irreversible actions are
+converted into approval requests in ~/.tahuti/approvals/ and never
+executed. File writes are also queued as approval requests.
 """
 from __future__ import annotations
 
@@ -70,7 +71,9 @@ POLL_INTERVAL = float(os.environ.get("TAHUTI_RUNNER_POLL_INTERVAL", "2"))
 MODEL_TIMEOUT = float(os.environ.get("TAHUTI_RUNNER_MODEL_TIMEOUT", "120"))
 
 SAFETY_PROMPT = (
-    "You are the Tahuti headless agent (v1). You may only research, write, and answer. "
+    "You are the Tahuti headless agent (v1). You may only research, write, answer, "
+    "and read files. You have three file tools: read_file (live), list_dir (live), "
+    "and write_file (creates an approval request for Elijah, never writes immediately). "
     "You must NOT run shell commands, operate the desktop, click, type, open apps, "
     "install or uninstall software, start/stop/restart services, shutdown or reboot, "
     "delete or remove files, send messages, or perform any irreversible action. "
@@ -87,8 +90,72 @@ APPROVAL_VERBS = {
 
 CODE_HINTS = {
     "code", "script", "python", "function", "class", "module", "file",
-    "write", "build", "fix", "implement", "refactor", "debug",
+    "write", "build", "fix", "implement", "refactor", "debug", "read", "list",
 }
+
+FILE_TOOLS = [
+    {
+        "type": "function",
+        "name": "read_file",
+        "description": (
+            "Read a text file at an absolute path and return its contents. "
+            "Use this to inspect code, logs, notes, or documents. "
+            "Only paths inside the user's home directory are allowed."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute file path"},
+                "offset": {
+                    "type": "integer",
+                    "description": "1-indexed line to start from (default 1)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of lines to read (default all)",
+                },
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "list_dir",
+        "description": (
+            "List the entries in a directory at an absolute path. "
+            "Use this to explore the workspace. "
+            "Only paths inside the user's home directory are allowed."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute directory path"},
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "write_file",
+        "description": (
+            "Propose writing content to a file. This tool does NOT write immediately; "
+            "it creates an approval request in ~/.tahuti/approvals/ for Elijah to review. "
+            "Use this whenever the user asks to create, edit, or overwrite a file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute file path"},
+                "content": {"type": "string", "description": "Full proposed file content"},
+                "reason": {"type": "string", "description": "Why this write is needed"},
+            },
+            "required": ["path", "content"],
+            "additionalProperties": False,
+        },
+    },
+]
 
 _running = True
 
@@ -152,41 +219,201 @@ def _extract_responses_text(data: dict) -> str:
     return last.strip()
 
 
-def _call_model(transcript: str) -> tuple[str, str, str]:
+def _is_under_home(path: Path) -> bool:
+    """Return True if path resolves to a location inside the user's home."""
+    try:
+        resolved = path.resolve()
+        home = Path.home().resolve()
+        return resolved == home or home in resolved.parents
+    except (OSError, ValueError):
+        return False
+
+
+def _all_tools(transcript: str) -> list[dict]:
+    """Tools offered for this transcript: file tools plus optional web search."""
+    tools: list[dict] = list(FILE_TOOLS)
+    lowered = transcript.lower()
+    if "?" in transcript or any(
+        w in lowered
+        for w in {"weather", "news", "lookup", "find", "search", "what", "who", "when", "where", "why", "how"}
+    ):
+        tools.append({"type": "web_search"})
+    return tools
+
+
+def _read_file_tool(path: str, offset: int = 1, limit: Optional[int] = None) -> dict:
+    p = Path(path)
+    if not p.is_absolute():
+        return {"ok": False, "error": "path must be absolute"}
+    if not _is_under_home(p):
+        return {"ok": False, "error": "path outside home directory refused"}
+    try:
+        resolved = p.resolve()
+        if resolved.is_symlink() and not _is_under_home(resolved):
+            return {"ok": False, "error": "symlink escapes home directory"}
+        if not resolved.is_file():
+            return {"ok": False, "error": f"not a file: {path}"}
+        text = resolved.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines()
+        start = max(0, offset - 1)
+        end = len(lines) if limit is None else start + limit
+        selected = lines[start:end]
+        return {
+            "ok": True,
+            "path": str(resolved),
+            "total_lines": len(lines),
+            "content": "\n".join(selected),
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _list_dir_tool(path: str) -> dict:
+    p = Path(path)
+    if not p.is_absolute():
+        return {"ok": False, "error": "path must be absolute"}
+    if not _is_under_home(p):
+        return {"ok": False, "error": "path outside home directory refused"}
+    try:
+        resolved = p.resolve()
+        if not resolved.is_dir():
+            return {"ok": False, "error": f"not a directory: {path}"}
+        entries = []
+        for entry in sorted(resolved.iterdir()):
+            try:
+                kind = "dir" if entry.is_dir() else "file"
+                size = entry.stat().st_size if entry.is_file() else 0
+                entries.append({"name": entry.name, "type": kind, "size": size})
+            except OSError:
+                entries.append({"name": entry.name, "type": "unknown", "size": 0})
+        return {"ok": True, "path": str(resolved), "entries": entries}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _write_file_tool(
+    goal_id: str, path: str, content: str, reason: str = ""
+) -> dict:
+    p = Path(path)
+    if not p.is_absolute():
+        return {"ok": False, "error": "path must be absolute"}
+    if not _is_under_home(p):
+        return {"ok": False, "error": "path outside home directory refused"}
+    try:
+        resolved = p.resolve()
+        APPROVALS_DIR.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r"[^\w.-]", "_", resolved.name) or "file"
+        approval_path = APPROVALS_DIR / f"{goal_id}_{safe_name}.pending.json"
+        record = {
+            "id": goal_id,
+            "tool": "write_file",
+            "path": str(resolved),
+            "content": content,
+            "reason": reason or "file write requested",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "pending",
+        }
+        tmp = approval_path.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(record, f, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, approval_path)
+        return {
+            "ok": True,
+            "queued": str(approval_path),
+            "note": "Approval request created; file has not been written yet.",
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _execute_file_tool(goal_id: str, call: dict) -> dict:
+    """Execute one file tool call and return a JSON-serializable result."""
+    name = call.get("name")
+    try:
+        args = json.loads(call.get("arguments", "{}"))
+    except Exception:
+        return {"ok": False, "error": "invalid JSON arguments"}
+    if name == "read_file":
+        return _read_file_tool(
+            args.get("path", ""), args.get("offset", 1), args.get("limit")
+        )
+    if name == "list_dir":
+        return _list_dir_tool(args.get("path", ""))
+    if name == "write_file":
+        return _write_file_tool(
+            goal_id,
+            args.get("path", ""),
+            args.get("content", ""),
+            args.get("reason", ""),
+        )
+    return {"ok": False, "error": f"unknown file tool: {name}"}
+
+
+def _call_model(transcript: str, goal_id: str = "") -> tuple[str, str, str]:
     t0 = time.time()
     model, effort = _model_for_transcript(transcript)
     if not META_KEY:
         raise RuntimeError("MODEL_API_KEY not available")
+
+    tools = _all_tools(transcript)
     payload: dict = {
         "model": model,
         "instructions": SAFETY_PROMPT,
         "input": transcript,
         "reasoning": {"effort": effort},
+        "tools": tools,
     }
-    if "?" in transcript or any(
-        w in transcript.lower()
-        for w in {"weather", "news", "lookup", "find", "search", "what", "who", "when", "where", "why", "how"}
-    ):
-        payload["tools"] = [{"type": "web_search"}]
+    response_id: Optional[str] = None
+
     try:
         with httpx.Client(timeout=MODEL_TIMEOUT) as client:
-            r = client.post(
-                META_RESPONSES_URL,
-                headers={
-                    "Authorization": f"Bearer {META_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            r.raise_for_status()
-            data = r.json()
+            while True:
+                r = client.post(
+                    META_RESPONSES_URL,
+                    headers={
+                        "Authorization": f"Bearer {META_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                r.raise_for_status()
+                data = r.json()
+                response_id = data.get("id") or response_id
+
+                function_calls = [
+                    item
+                    for item in data.get("output", [])
+                    if isinstance(item, dict) and item.get("type") == "function_call"
+                ]
+                if not function_calls:
+                    break
+
+                outputs = []
+                for call in function_calls:
+                    result = _execute_file_tool(goal_id, call)
+                    outputs.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": call.get("call_id", "unknown"),
+                            "output": json.dumps(result),
+                        }
+                    )
+
+                payload = {
+                    "model": model,
+                    "previous_response_id": response_id,
+                    "input": outputs,
+                    "tools": tools,
+                }
+
+            text = _extract_responses_text(data)
+            if not text:
+                text = "I thought about it, but didn't have a reply."
+            elapsed = f"{time.time() - t0:.1f}s"
+            return text, model, elapsed
     except Exception as exc:
         raise RuntimeError(f"Meta API request failed: {exc}") from exc
-    text = _extract_responses_text(data)
-    if not text:
-        text = "I thought about it, but didn't have a reply."
-    elapsed = f"{time.time() - t0:.1f}s"
-    return text, model, elapsed
 
 
 def _post_speak(text: str) -> None:
@@ -330,7 +557,7 @@ def _process_goal(path: Path) -> None:
         worker = "tahuti-runner-v1 (approval gate)"
     else:
         try:
-            response, model, elapsed = _call_model(transcript)
+            response, model, elapsed = _call_model(transcript, goal_id=goal_id)
             worker = f"tahuti-runner-v1 ({elapsed})"
         except Exception as exc:
             logger.exception("Model call failed for goal %s", goal_id)
