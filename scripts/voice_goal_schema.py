@@ -13,15 +13,14 @@ from typing import Optional
 # Handoff-approved routing: task verbs create an immediate goal file for the
 # Tahuti headless runner; chat/lookup continue to the LLM for a direct answer.
 TASK_VERBS = {
-    "write", "build", "fix",
+    "write", "build", "fix", "open", "launch",
     "create", "run", "start", "stop", "restart",
     "edit", "make", "generate", "deploy", "install",
     "update", "delete", "remove", "send", "move", "copy",
 }
-# NOTE 2026-10-29: "open"/"operate" deliberately NOT routed — the v1 runner
-# has no desktop hands, so those takes got an "On it" followed by nothing.
-# They fall through to Spark, which answers honestly ("I can't open apps
-# yet"). Re-add them when the Phase-3 computer-use driver lands.
+# NOTE 2026-10-30: "open"/"launch" route again — the runner now executes them
+# through gated open_url/open_app tools, so the model acts instead of punting
+# to approvals. "operate" stays chat (unbounded desktop control, Phase 3).
 
 _CHAT_WORDS = {
     "what", "who", "when", "where", "why", "how", "is", "are", "was", "were",

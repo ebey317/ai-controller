@@ -8,9 +8,11 @@ and delivers the answer three ways:
   - ~/.config/ai-controller/last_agent_response.md
   - Hermex push notification
 
-Safety v1: research/write/answer/read only. Irreversible actions are
-converted into approval requests in ~/.tahuti/approvals/ and never
-executed. File writes are also queued as approval requests.
+Safety v1: research/write/answer/read only, PLUS opening URLs and a small
+allowlist of apps through gated tools (open_url/open_app). The model decides
+per task which tool fits; the harness validates every call. Irreversible
+actions are converted into approval requests in ~/.tahuti/approvals/ and
+never executed. File writes are also queued as approval requests.
 """
 from __future__ import annotations
 
@@ -19,7 +21,9 @@ import logging
 import logging.handlers
 import os
 import re
+import shutil
 import signal
+import subprocess
 import sys
 import time
 import urllib.error
@@ -72,22 +76,30 @@ POLL_INTERVAL = float(os.environ.get("TAHUTI_RUNNER_POLL_INTERVAL", "2"))
 MODEL_TIMEOUT = float(os.environ.get("TAHUTI_RUNNER_MODEL_TIMEOUT", "120"))
 
 SAFETY_PROMPT = (
-    "You are the Tahuti headless agent (v1). You may only research, write, answer, "
-    "and read files. You have three file tools: read_file (live), list_dir (live), "
+    "You are the Tahuti headless agent (v1). You may research, write, answer, "
+    "read files, and open things: open_url opens a web URL in the browser, "
+    "open_app launches one of the allowlisted apps (chrome, terminal, files). "
+    "Decide per task whether a tool fits — safe, reversible opens go through "
+    "the tools immediately; do not ask for approval for those. "
+    "You have three file tools: read_file (live), list_dir (live), "
     "and write_file (creates an approval request for Elijah, never writes immediately). "
-    "You must NOT run shell commands, operate the desktop, click, type, open apps, "
-    "install or uninstall software, start/stop/restart services, shutdown or reboot, "
-    "delete or remove files, send messages, or perform any irreversible action. "
+    "You must NOT run shell commands, operate the desktop beyond the open tools, "
+    "click, type, install or uninstall software, start/stop/restart services, "
+    "shutdown or reboot, delete or remove files, send messages, buy anything, "
+    "or perform any other irreversible action. "
     "If a request would require any of those, refuse and explain that it needs Elijah's approval. "
     "Keep replies concise, plain words, and easy to speak aloud. Under 3 sentences."
 )
 
 APPROVAL_VERBS = {
-    "open", "launch", "start", "run", "execute", "click", "type", "press",
+    "start", "run", "execute", "click", "type", "press",
     "install", "uninstall", "restart", "stop", "shutdown", "reboot", "power",
     "delete", "remove", "rm", "kill", "send", "submit", "purchase", "buy",
     "commit", "push", "deploy",
 }
+# NOTE 2026-10-30: "open"/"launch" left the gate — open_url/open_app tools
+# below execute those safely, so gating them only produced "needs approval"
+# dead ends. The model decides; the executors validate.
 
 CODE_HINTS = {
     "code", "script", "python", "function", "class", "module", "file",
@@ -153,6 +165,40 @@ FILE_TOOLS = [
                 "reason": {"type": "string", "description": "Why this write is needed"},
             },
             "required": ["path", "content"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "open_url",
+        "description": (
+            "Open a web URL in the default browser NOW (live, no approval needed). "
+            "Use this whenever Elijah asks to open a website, link, or anything on "
+            "the web. Plain domain names work — https:// is added automatically."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL or domain to open"},
+            },
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "open_app",
+        "description": (
+            "Launch an app NOW (live, no approval needed). Allowed names: "
+            "chrome (web browser), terminal, files (file manager). "
+            "Anything else is refused by the harness — say it needs approval."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "App name: chrome, terminal, or files"},
+            },
+            "required": ["name"],
             "additionalProperties": False,
         },
     },
@@ -328,8 +374,57 @@ def _write_file_tool(
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+def _open_url_tool(url: str) -> dict:
+    """Open an http(s) URL via xdg-open. Fire-and-forget; never blocks."""
+    raw = (url or "").strip()
+    if not raw:
+        return {"ok": False, "error": "empty url"}
+    if "://" not in raw:
+        raw = "https://" + raw
+    try:
+        parts = urllib.parse.urlparse(raw)
+    except Exception as exc:
+        return {"ok": False, "error": f"bad url: {exc}"}
+    if parts.scheme not in ("http", "https") or not parts.hostname or "." not in parts.hostname:
+        return {"ok": False, "error": f"refused (http/https only): {url}"}
+    try:
+        subprocess.Popen(
+            ["xdg-open", raw],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return {"ok": True, "opened": raw}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+APP_COMMANDS = {
+    "chrome": [["google-chrome"], ["chromium"], ["chromium-browser"]],
+    "terminal": [["gnome-terminal"]],
+    "files": [["nautilus"], ["xdg-open", os.path.expanduser("~")]],
+}
+
+
+def _open_app_tool(name: str) -> dict:
+    """Launch an allowlisted app. Fire-and-forget; never blocks."""
+    key = (name or "").strip().lower()
+    candidates = APP_COMMANDS.get(key)
+    if not candidates:
+        return {"ok": False, "error": f"app not allowlisted: {name} (chrome, terminal, files only)"}
+    for cmd in candidates:
+        if shutil.which(cmd[0]) is None:
+            continue
+        try:
+            subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"ok": True, "opened": key, "command": cmd[0]}
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {"ok": False, "error": f"app not installed here: {key}"}
+
+
 def _execute_file_tool(goal_id: str, call: dict) -> dict:
-    """Execute one file tool call and return a JSON-serializable result."""
+    """Execute one tool call and return a JSON-serializable result."""
     name = call.get("name")
     try:
         args = json.loads(call.get("arguments", "{}"))
@@ -348,7 +443,11 @@ def _execute_file_tool(goal_id: str, call: dict) -> dict:
             args.get("content", ""),
             args.get("reason", ""),
         )
-    return {"ok": False, "error": f"unknown file tool: {name}"}
+    if name == "open_url":
+        return _open_url_tool(args.get("url", ""))
+    if name == "open_app":
+        return _open_app_tool(args.get("name", ""))
+    return {"ok": False, "error": f"unknown tool: {name}"}
 
 
 def _call_model(transcript: str, goal_id: str = "") -> tuple[str, str, str]:
