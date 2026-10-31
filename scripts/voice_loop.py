@@ -31,10 +31,16 @@ remain supported through controller_setup.speak_preview as a
 phrase-at-a-time fallback; Tahuti's locked Kokoro default is not
 changed by this module.
 
-STT uses the existing Master AI server on port 8080: POST /stt with
-raw audio bytes returns {"text": ...}. A non-browser client sends no
-Origin header, so the server's extension-token branch is not used.
-No parallel STT stack is installed or required.
+STT uses the stack's production route -- the same one
+voice_bridge.py (audio -> Groq Whisper -> TTS) runs: a multipart
+POST to Groq's transcriptions endpoint with whisper-large-v3-turbo
+and the bridge's vocabulary-bias prompt. The Groq key loads exactly
+the way the bridge loads it (env -> ai-controller config -> master
+keychain file) and is never logged or printed. The old local server
+(~/scripts/stt_server.py, POST :8080/stt) survives only as
+LocalSTTClient, an explicit opt-in fallback (AI_CONTROLLER_STT=
+local); it is NOT the loop's STT -- v1 pointed the default there by
+mistake, and that server is not the file the working stack uses.
 """
 
 import argparse
@@ -49,14 +55,20 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 import voice_profiles as vp  # noqa: E402
-from ai_controller_paths import ai_controller_dir, config_dir  # noqa: E402
+from ai_controller_paths import (  # noqa: E402
+    ai_controller_dir,
+    config_dir,
+    load_env,
+)
 
 STATES = ("idle", "listening", "thinking", "speaking", "working", "done")
 
@@ -250,8 +262,192 @@ class STTError(RuntimeError):
     pass
 
 
+# ── STT -- Groq Whisper, the same route voice_bridge.py runs ─────
+#
+# voice_bridge.py is the stack's production voice path (its header:
+# "audio → Groq Whisper → TTS"). The loop's STT mirrors it exactly:
+# same endpoint, same model, same vocabulary-bias prompt, same
+# 3-source key load, same timeout knob. v1 of this module instead
+# defaulted to a local server (~/scripts/stt_server.py on :8080)
+# that the working stack does not use; that client survives below
+# as LocalSTTClient, an explicit opt-in fallback only.
+
+GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_STT_MODEL = "whisper-large-v3-turbo"
+GROQ_STT_PROMPT = (
+    "Common terms: CLAF, Madam Mary, Hermes, Kimi, "
+    "Groq, Whisper, STT, TTS, PTT, Xbox, Microsoft, AI controller, "
+    "AI Desktop, Fair Chance, Command Center, Monday.com, Railway, "
+    "Meta, Facebook, Indeed, ZipRecruiter, Discord, Telegram, Sensei."
+)
+MAX_TRANSCRIPT_CHARS = 2000
+# Groq sits behind Cloudflare, which rejects urllib's default
+# User-Agent outright (HTTP 403, error 1010). The bridge never sees
+# this because httpx sends its own agent string. This client is
+# stdlib-only, so it declares an honest one of its own -- verified
+# live against the route 2026-10-31.
+GROQ_USER_AGENT = "ai-controller-voice-loop/1.0"
+
+_AUDIO_FILENAMES = {
+    "audio/wav": "audio.wav",
+    "audio/x-wav": "audio.wav",
+    "audio/webm": "audio.webm",
+    "audio/mpeg": "audio.mp3",
+    "audio/mp3": "audio.mp3",
+    "audio/ogg": "audio.ogg",
+    "audio/flac": "audio.flac",
+    "audio/mp4": "audio.m4a",
+    "audio/x-m4a": "audio.m4a",
+}
+_EXTENSION_CONTENT_TYPES = {
+    ".wav": "audio/wav",
+    ".webm": "audio/webm",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+}
+
+
+def content_type_for_path(path) -> str:
+    """Best-guess audio content type from a file extension."""
+    ext = os.path.splitext(str(path))[1].lower()
+    return _EXTENSION_CONTENT_TYPES.get(ext, "audio/wav")
+
+
+def _plausible_key(key) -> bool:
+    """Same acceptance guard voice_bridge uses: real, unmasked keys."""
+    key = (key or "").strip()
+    return bool(key) and not key.startswith("***") and len(key) > 20
+
+
+def _load_groq_key() -> str:
+    """Load the Groq key the way voice_bridge._load_groq_key does.
+
+    Sources, in order: GROQ_API_KEY in the environment, the
+    ai-controller config (ai_controller_paths.load_env), and the
+    master keychain file (plain KEY=VALUE). The value is returned
+    to the caller only -- never logged, never printed.
+    """
+    key = os.environ.get("GROQ_API_KEY", "")
+    if _plausible_key(key):
+        return key.strip()
+    try:
+        key = load_env().get("GROQ_API_KEY", "")
+    except Exception:
+        key = ""
+    if _plausible_key(key):
+        return key.strip()
+    keychain = (Path.home() / "Desktop" / "Projects" / "keychain"
+                / "master_ai_keys")
+    if keychain.exists():
+        try:
+            for line in keychain.read_text().splitlines():
+                if line.strip().startswith("GROQ_API_KEY="):
+                    key = line.split("=", 1)[1].strip().strip("\"'")
+                    if _plausible_key(key):
+                        return key
+        except Exception:
+            pass
+    return ""
+
+
+def _multipart_body(fields, file_field, filename, content_type, data,
+                    boundary) -> bytes:
+    """Build a multipart/form-data body (stdlib only)."""
+    out = []
+    for name, value in fields:
+        out.append(f"--{boundary}\r\n".encode())
+        out.append(
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            .encode())
+        out.append(str(value).encode("utf-8"))
+        out.append(b"\r\n")
+    out.append(f"--{boundary}\r\n".encode())
+    out.append(
+        (f'Content-Disposition: form-data; name="{file_field}"; '
+         f'filename="{filename}"\r\n').encode())
+    out.append(f"Content-Type: {content_type}\r\n\r\n".encode())
+    out.append(data)
+    out.append(b"\r\n")
+    out.append(f"--{boundary}--\r\n".encode())
+    return b"".join(out)
+
+
 class STTClient:
-    """Thin client for the existing Master AI /stt endpoint."""
+    """Groq Whisper client -- the loop's STT (production route).
+
+    Multipart POST to GROQ_STT_URL with the bridge's model and
+    vocabulary-bias prompt; the reply's "text" is the transcript,
+    truncated to MAX_TRANSCRIPT_CHARS exactly as the bridge does.
+    """
+
+    def __init__(self, api_key=None, url=GROQ_STT_URL,
+                 model=GROQ_STT_MODEL, prompt=GROQ_STT_PROMPT,
+                 timeout=None, urlopen=urllib.request.urlopen):
+        self.api_key = _load_groq_key() if api_key is None else api_key
+        self.url = url
+        self.model = model
+        self.prompt = prompt
+        # Same knob the bridge reads: VOICE_BRIDGE_GROQ_TIMEOUT.
+        self.timeout = (float(os.environ.get(
+            "VOICE_BRIDGE_GROQ_TIMEOUT", "30"))
+            if timeout is None else timeout)
+        self._urlopen = urlopen
+
+    def transcribe(self, audio_bytes, content_type="audio/webm") -> str:
+        if not audio_bytes:
+            raise STTError("no audio bytes to transcribe")
+        if not self.api_key:
+            raise STTError(
+                "Groq STT unavailable: no GROQ_API_KEY found in the "
+                "environment, the ai-controller config, or the "
+                "master keychain")
+        filename = _AUDIO_FILENAMES.get(content_type, "audio.wav")
+        boundary = "voice-loop-" + uuid.uuid4().hex
+        body = _multipart_body(
+            [("model", self.model), ("prompt", self.prompt)],
+            "file", filename, content_type, audio_bytes, boundary)
+        request = urllib.request.Request(
+            self.url,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type":
+                    f"multipart/form-data; boundary={boundary}",
+                "User-Agent": GROQ_USER_AGENT,
+            },
+            method="POST")
+        try:
+            with self._urlopen(request, timeout=self.timeout) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            # Same message shape the bridge returns for this failure.
+            raise STTError(f"Groq STT HTTP {e.code}") from e
+        except Exception as e:
+            raise STTError(f"Groq STT request failed: {e}") from e
+        if payload.get("error"):
+            raise STTError(f"Groq STT error: {payload['error']}")
+        return str(payload.get("text", "")).strip()[
+            :MAX_TRANSCRIPT_CHARS]
+
+    def transcribe_file(self, path, content_type=None) -> str:
+        with open(path, "rb") as f:
+            data = f.read()
+        return self.transcribe(
+            data,
+            content_type=content_type or content_type_for_path(path))
+
+
+class LocalSTTClient:
+    """Explicit fallback ONLY -- the old local /stt server client.
+
+    NOT the loop's STT and NOT the stack's production route: this
+    talks to ~/scripts/stt_server.py (POST :8080/stt, raw bytes),
+    a server the working stack does not use (and which currently
+    500s -- its Python has no whisper module). Kept for offline
+    experiments; selected only via AI_CONTROLLER_STT=local.
+    """
 
     def __init__(self, base_url=DEFAULT_STT_URL, timeout=120,
                  urlopen=urllib.request.urlopen):
@@ -280,9 +476,25 @@ class STTClient:
             raise STTError(f"/stt error: {payload['error']}")
         return str(payload.get("text", "")).strip()
 
-    def transcribe_file(self, path, content_type="audio/webm") -> str:
+    def transcribe_file(self, path, content_type=None) -> str:
         with open(path, "rb") as f:
-            return self.transcribe(f.read(), content_type=content_type)
+            data = f.read()
+        return self.transcribe(
+            data,
+            content_type=content_type or content_type_for_path(path))
+
+
+def default_stt_client():
+    """The loop's STT client: Groq (production) unless opted out.
+
+    AI_CONTROLLER_STT=local selects LocalSTTClient, the explicitly
+    labeled non-default fallback. Anything else -- including unset
+    -- is the Groq route voice_bridge.py runs.
+    """
+    if os.environ.get("AI_CONTROLLER_STT", "").strip().lower() \
+            == "local":
+        return LocalSTTClient()
+    return STTClient()
 
 
 def signal_barge_in(state_file=None, flag_file=None,
@@ -338,7 +550,7 @@ class VoiceLoop:
         self.settings = vp.get_avatar_settings(profiles_data)
         self.synthesizer = synthesizer or self._default_synthesizer
         self.player_factory = player_factory or _default_player
-        self.stt_client = stt_client or STTClient()
+        self.stt_client = stt_client or default_stt_client()
         self.poll_interval = poll_interval
         self.state = "idle"
         self.previous_state = None
@@ -575,7 +787,7 @@ class VoiceLoop:
 
     def transcribe_audio(self, audio_bytes,
                          content_type="audio/webm") -> str:
-        """State-wrapped STT through the existing /stt endpoint."""
+        """State-wrapped STT through the Groq Whisper route."""
         if self.state in ("idle", "done", "speaking"):
             self.transition("listening", reason="audio_received")
         text = self.stt_client.transcribe(
@@ -628,7 +840,8 @@ def main(argv=None):
         return 0 if result["ok"] else 2
     if args.cmd == "transcribe":
         with open(args.audio, "rb") as f:
-            print(loop.transcribe_audio(f.read()))
+            print(loop.transcribe_audio(
+                f.read(), content_type=content_type_for_path(args.audio)))
         return 0
     return 2
 
