@@ -1532,15 +1532,27 @@ def on_press(key):
                 _reuse = False
                 try:
                     _old = int(open(_pp).read().strip())
-                    os.kill(_old, 0)
-                    _reuse = True
+                    # Zombie check (2026-10-31): start_new_session children
+                    # are never reaped, so dead pulses linger as zombies and
+                    # os.kill(pid, 0) wrongly reports them alive — nothing
+                    # ever respawned. State Z = dead, reap and replace.
+                    with open(f"/proc/{_old}/stat") as _sf:
+                        _state = _sf.read().split()[2]
+                    if _state != "Z":
+                        os.kill(_old, 0)
+                        _reuse = True
+                    else:
+                        try:
+                            os.waitpid(_old, os.WNOHANG)
+                        except Exception:
+                            pass
                 except Exception:
                     _reuse = False
                 if not _reuse:
                     _proc = subprocess.Popen(
                         ["/usr/bin/python3",
                          os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"),
-                         "--pulse", "12"],
+                         "--pulse", "60"],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         start_new_session=True,
                         env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")})
@@ -1566,6 +1578,14 @@ def on_release(key):
         return
     if key == keyboard.Key.f13:
         log.info("F13 RELEASED — stopping and sending")
+        # Hold-to-show (2026-10-31): the avatar lives exactly as long as the
+        # hold. Release dismisses the summon pulse; tool calls raise their
+        # own windows via the runner. Never blocks the send path.
+        try:
+            _pp = open("/tmp/tahuti-pulse.pid").read().strip()
+            os.kill(int(_pp), 9)
+        except Exception:
+            pass
         threading.Thread(target=stop_and_send, daemon=True).start()
 
 

@@ -517,13 +517,41 @@ def _write_file_tool(
             json.dump(record, f, ensure_ascii=False)
             f.write("\n")
         os.replace(tmp, approval_path)
-        # The singleton native worker owns presentation and execution. Wait for
-        # its verified result so the model cannot mistake queued for completed.
-        subprocess.Popen(
-            ['/usr/bin/python3', str(Path(__file__).with_name('tahuti_approval_ui.py'))],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
+        # One-box law (2026-10-31): the retired standalone worker
+        # (tahuti_approval_ui.py) must not respawn. The request is
+        # presented in the avatar's own box via _present_approval; the
+        # record below remains the audit trail. Only when no box can
+        # answer (headless) does the receipt wait below apply, so the
+        # model cannot mistake queued for completed.
         result_path = approval_path.with_name(approval_path.name.replace('.pending.json', '.resolved.json'))
+        outcome = _present_approval(
+            "tahuti:write_file:background",
+            f"Write {resolved}",
+            why=reason or "file write requested",
+        )
+        if outcome in ("once", "session"):
+            if outcome == "session":
+                _save_grant("tahuti:write_file:background")
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            wtmp = resolved.with_name(resolved.name + ".tmp")
+            wtmp.write_text(content, encoding="utf-8")
+            os.replace(wtmp, resolved)
+            result_path.write_text(
+                json.dumps({"status": "executed", "decision": outcome,
+                            "path": str(resolved)}) + "\n",
+                encoding="utf-8",
+            )
+            logger.info("box-approved write executed: %s", resolved)
+            return {"ok": True, "status": "executed", "decision": outcome,
+                    "path": str(resolved), "receipt": str(result_path)}
+        if outcome == "deny":
+            result_path.write_text(
+                json.dumps({"status": "denied", "decision": "deny",
+                            "path": str(resolved)}) + "\n",
+                encoding="utf-8",
+            )
+            return {"ok": False, "status": "denied",
+                    "error": "Operator denied the write."}
         deadline = time.monotonic() + 150
         while time.monotonic() < deadline:
             if result_path.exists():
@@ -717,6 +745,14 @@ def _open_app_tool(name: str) -> dict:
 
 
 AOL_MAIL_SCRIPT = os.path.expanduser("~/master-ai-cli/aol_mail.py")
+# The real, categorized, multi-account system -- not AOL_MAIL_SCRIPT above,
+# which check_email used until 2026-10-31. AOL_MAIL_SCRIPT is only AOL,
+# read-only, zero categorization: none of the job/bills/security protection
+# work on this system reached Tahuti's own check_email tool at all, even
+# though the operator had been using the real system via Claude Code the
+# whole time -- confirmed by reading what check_email actually called.
+EMAIL_CLEANUP_SCRIPT = os.path.expanduser(
+    "~/.hermes/skills/email-inbox-cleanup/scripts/cleanup.py")
 
 
 def _pop_script_terminal(cmd: list[str], title: str) -> None:
@@ -744,19 +780,23 @@ def _pop_script_terminal(cmd: list[str], title: str) -> None:
 
 
 def _check_email_tool(days: int = 2, unread: bool = True) -> dict:
-    """Run the vendored read-only AOL IMAP reader. No shell, fixed argv.
+    """Run the real categorized multi-account check (--check, read-only).
 
-    The script only SELECTs readonly / PEEKs headers — it cannot send,
-    delete, or mark anything. Days clamped 1-7; folder fixed to INBOX;
-    no search string (IMAP injection surface stays closed).
+    --check never sends, deletes, or moves anything -- that's --run, a
+    different flag this tool never passes. Days clamped 1-7, scoped via
+    cleanup.py's own --days/--unread (added 2026-10-31 specifically for
+    this). /usr/bin/python3 pinned explicitly (not sys.executable --
+    ai-controller's own venv happens to also have fastmcp today, but this
+    script lives outside that venv and has been run under /usr/bin/python3
+    throughout; pinning it avoids depending on that coincidence).
     """
     try:
         days = max(1, min(7, int(days)))
     except Exception:
         days = 2
-    if not os.path.isfile(AOL_MAIL_SCRIPT):
+    if not os.path.isfile(EMAIL_CLEANUP_SCRIPT):
         return {"ok": False, "error": "email reader not installed"}
-    cmd = [sys.executable, AOL_MAIL_SCRIPT, "--days", str(days)]
+    cmd = ["/usr/bin/python3", EMAIL_CLEANUP_SCRIPT, "--check", "--days", str(days)]
     if unread:
         cmd.append("--unread")
     # Visible AND captured: terminal pops for watching, capture for speaking.
@@ -1030,6 +1070,99 @@ def _is_granted(pattern_key: str) -> bool:
     return _load_grants().get(pattern_key) == "always"
 
 
+_AVATAR_APPROVAL = Path(os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"))
+
+
+def _render_approval_card(pattern_key: str, description: str, extra: dict) -> str:
+    """The run card text: QUESTION first, then Who/What/Where/When/Why/How."""
+    try:
+        import tahuti_avatar
+
+        card = tahuti_avatar.card_details(pattern_key, description, extra)
+    except Exception:
+        card = {
+            "who": "Tahuti — your AI Controller",
+            "what": description,
+            "where": "Your active Linux desktop",
+            "when": "Immediately after you choose Yes",
+            "why": "This action needs your approval before Tahuti runs it",
+            "how": "Tahuti goal runner (background)",
+        }
+    lines = [
+        f"QUESTION: {description}",
+        "",
+        f"Who: {card['who']}",
+        f"What: {card['what']}",
+        f"Where: {card['where']}",
+        f"When: {card['when']}",
+        f"Why: {card['why']}",
+        f"How: {card['how']}",
+        "",
+        "Executor: Tahuti goal runner",
+        f"Model: {DEFAULT_MODEL}",
+    ]
+    return "\n".join(lines)
+
+
+def _present_approval(pattern_key: str, description: str, **extra) -> Optional[str]:
+    """Grow the approval card out of the avatar; None when no one can answer.
+
+    The card lives in the avatar's run card (ninja overlay), never in a
+    window owned by this daemon: the existing avatar surface is invoked
+    as a subprocess and its verdict comes back on stdout. Headless (no
+    DISPLAY) there is no one to ask, so this returns None and callers
+    keep the fail-closed queue behavior.
+    Verdict: "once" | "session" | "deny" ("always" maps to "session":
+    the runner's grants file is the persistent form of that grant).
+    """
+    if not os.environ.get("DISPLAY"):
+        return None
+    # One avatar on screen during the decision: retire the work pulse.
+    try:
+        pid = int(Path("/tmp/tahuti-pulse.pid").read_text(encoding="utf-8").strip())
+        os.kill(pid, 9)
+    except Exception:
+        pass
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/python3", str(_AVATAR_APPROVAL), "--ask"],
+            input=_render_approval_card(pattern_key, description, extra),
+            capture_output=True,
+            text=True,
+            timeout=150,
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+        )
+    except Exception as exc:
+        logger.warning("approval card unavailable: %s", exc)
+        return None
+    lines = [ln.strip().lower() for ln in (proc.stdout or "").splitlines() if ln.strip()]
+    verdict = lines[-1] if lines else ""
+    return {"once": "once", "session": "session",
+            "always": "session", "deny": "deny"}.get(verdict)
+
+
+def _save_grant(pattern_key: str) -> None:
+    """Record an 'always' grant for pattern_key (the box's session verdict)."""
+    try:
+        GRANTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data: dict = {}
+        if GRANTS_FILE.exists():
+            try:
+                data = json.loads(GRANTS_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        patterns = data.get("patterns")
+        if not isinstance(patterns, dict):
+            patterns = {}
+        patterns[pattern_key] = "always"
+        data["patterns"] = patterns
+        tmp = GRANTS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, GRANTS_FILE)
+    except Exception as exc:
+        logger.warning("grant save failed: %s", exc)
+
+
 def _needs_approval(transcript: str) -> bool:
     words = set(re.findall(r"[a-z]+", transcript.lower()))
     return bool(words & APPROVAL_VERBS)
@@ -1060,7 +1193,7 @@ def _show_work_avatar() -> None:
     """Raise the avatar for the duration of a job (2026-10-31): the animation
     shows WHILE working, fed live by the caption file (working/done states).
     Kills any previous pulse so windows never stack. Fire-and-forget."""
-    pidfile = Path("/tmp/tahuti-work-pulse.pid")
+    pidfile = Path("/tmp/tahuti-pulse.pid")
     try:
         old = int(pidfile.read_text(encoding="utf-8").strip())
         os.kill(old, 9)
@@ -1163,13 +1296,23 @@ def _process_goal(path: Path) -> None:
     if approval:
         pattern = f"tahuti:{_verb_for_approval(transcript)}:background"
         if _is_granted(pattern):
-            logger.info("grant covers %s — proceeding without queue", pattern)
+            logger.info("grant covers %s — proceeding without the box", pattern)
             approval = False
         else:
             _write_approval_request(goal_id, goal)
-            response = "That request needs your approval before I can act. I've queued it for you."
-            worker = "tahuti-runner-v1 (approval gate)"
-    else:
+            outcome = _present_approval(pattern, transcript)
+            if outcome in ("once", "session"):
+                if outcome == "session":
+                    _save_grant(pattern)
+                logger.info("approval box granted %s (%s) — proceeding", pattern, outcome)
+                approval = False
+            elif outcome == "deny":
+                response = "Okay — I won't do that."
+                worker = "tahuti-runner-v1 (approval denied)"
+            else:
+                response = "That request needs your approval before I can act. I've queued it for you."
+                worker = "tahuti-runner-v1 (approval gate)"
+    if not approval and not response:
         try:
             response, model, elapsed = _call_model(
                 transcript, goal_id=goal_id,
@@ -1201,6 +1344,13 @@ def _process_goal(path: Path) -> None:
         error="" if (approval or model) else "model call failed",
         model=model or ("approval-gate" if approval else "unknown"),
     )
+    # Hold-to-show (2026-10-31): job over = window gone. The spoken answer
+    # and response file carry the result; next claim raises the next window.
+    try:
+        _pp = Path("/tmp/tahuti-pulse.pid").read_text(encoding="utf-8").strip()
+        os.kill(int(_pp), 9)
+    except Exception:
+        pass
 
 
 def _sleep_or_stop(seconds: float) -> None:
