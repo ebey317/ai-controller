@@ -25,10 +25,12 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -222,25 +224,41 @@ FILE_TOOLS = [
             "additionalProperties": False,
         },
     },
-    {
-        "type": "function",
-        "name": "check_email",
-        "description": (
-            "Check the operator's email NOW (live, read-only, no approval needed). "
-            "Returns the recent message list (UID, date, from, subject). Use this "
-            "whenever email, mail, or inbox is asked about — then summarize it "
-            "in the reply. Cannot send, delete, or fetch bodies beyond headers."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "days": {"type": "integer", "description": "Look back N days (1-7, default 2)"},
-                "unread": {"type": "boolean", "description": "Unread only (default true)"},
-            },
-            "additionalProperties": False,
-        },
-    },
 ]
+
+# check_email lives outside FILE_TOOLS and is only offered to the model when
+# the transcript itself plausibly asks about email (see _all_tools below).
+# It used to be unconditionally available on every single goal-take, with a
+# description telling the model to "use this whenever email, mail, or inbox
+# is asked about" -- with the tool always present and STT noise routinely
+# garbling transcripts in this pipeline (confirmed repeatedly: "the medikey
+# works" for "the meta key works", etc.), the model had both the standing
+# invitation and the opportunity to fire it on loosely-related or misheard
+# text. Observed 2026-10-31 as "checking emails randomly." Gating on keyword
+# presence first, before the model ever sees the tool, removes that surface
+# instead of trying to out-word a tool description.
+EMAIL_TOOL = {
+    "type": "function",
+    "name": "check_email",
+    "description": (
+        "Check the operator's email NOW (live, read-only, no approval needed). "
+        "Returns the recent message list (UID, date, from, subject). Only call "
+        "this when the operator has clearly and specifically asked to check, "
+        "read, or review their email/inbox -- not on an incidental or ambiguous "
+        "mention. Summarize the result in the reply. Cannot send, delete, or "
+        "fetch bodies beyond headers."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "days": {"type": "integer", "description": "Look back N days (1-7, default 2)"},
+            "unread": {"type": "boolean", "description": "Unread only (default true)"},
+        },
+        "additionalProperties": False,
+    },
+}
+
+EMAIL_TRIGGER_WORDS = {"email", "emails", "mail", "inbox", "gmail", "aol", "outlook"}
 
 _running = True
 
@@ -367,8 +385,14 @@ def _is_under_home(path: Path) -> bool:
         return False
 
 
+_EMAIL_TRIGGER_RE = re.compile(
+    r"\b(" + "|".join(EMAIL_TRIGGER_WORDS) + r")\b", re.IGNORECASE
+)
+
+
 def _all_tools(transcript: str) -> list[dict]:
-    """Tools offered for this transcript: file tools plus optional web search."""
+    """Tools offered for this transcript: file tools plus optional web search
+    and, only when the transcript itself plausibly mentions email, check_email."""
     tools: list[dict] = list(FILE_TOOLS)
     lowered = transcript.lower()
     if "?" in transcript or any(
@@ -376,6 +400,8 @@ def _all_tools(transcript: str) -> list[dict]:
         for w in {"weather", "news", "lookup", "find", "search", "what", "who", "when", "where", "why", "how"}
     ):
         tools.append({"type": "web_search"})
+    if _EMAIL_TRIGGER_RE.search(transcript):
+        tools.append(EMAIL_TOOL)
     return tools
 
 
@@ -851,6 +877,9 @@ def _post_speak(text: str) -> None:
         logger.warning("POST /speak failed: %s", exc)
 
 
+_LAST_RESPONSE_LOCK = threading.Lock()
+
+
 def _write_last_response(
     transcript: str, worker: str, response: str, model: Optional[str] = None
 ) -> None:
@@ -867,7 +896,13 @@ def _write_last_response(
         "",
     ]
     try:
-        LAST_RESPONSE_FILE.write_text("\n".join(lines), encoding="utf-8")
+        # Concurrent goals (ThreadPoolExecutor, see main()) can finish at
+        # nearly the same instant. write_text() truncates-then-writes with
+        # no locking of its own -- two unsynchronized writers could
+        # interleave into a corrupted file. This is a display-only
+        # convenience file, not control flow, but cheap to make safe.
+        with _LAST_RESPONSE_LOCK:
+            LAST_RESPONSE_FILE.write_text("\n".join(lines), encoding="utf-8")
     except Exception as exc:
         logger.warning("Failed to write last_agent_response.md: %s", exc)
 
@@ -1114,6 +1149,9 @@ def _sleep_or_stop(seconds: float) -> None:
         time.sleep(min(0.2, deadline - time.time()))
 
 
+MAX_CONCURRENT_GOALS = int(os.environ.get("TAHUTI_RUNNER_MAX_CONCURRENT", "3"))
+
+
 def main() -> int:
     GOALS_DIR.mkdir(parents=True, exist_ok=True)
     DONE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1122,15 +1160,25 @@ def main() -> int:
 
     logger.info("Watching %s for goals", GOALS_DIR)
 
-    while _running:
-        try:
-            goals = sorted(GOALS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime)
-            for path in goals:
-                if not _running:
-                    break
-                _process_goal(path)
-        except Exception as exc:
-            logger.exception("Runner loop error: %s", exc)
+    # Previously a strictly sequential `for path in goals: _process_goal(path)`
+    # -- each goal blocked on a full synchronous model round-trip (API call,
+    # tool loop, free-fallback retry) before the next one even started. A
+    # second Ctrl+F13 press wrote its goal file instantly but the runner
+    # wouldn't touch it until the first finished entirely -- observed
+    # 2026-10-31 as "can't make multiple calls back to back." A bounded
+    # thread pool lets several goals run concurrently instead. This is safe
+    # because _process_goal's first step is an atomic os.replace() claim
+    # (path -> path.claim) -- two threads racing for the same file can never
+    # both win it, so nothing here changes what was already a single-claim
+    # guarantee, it just lets DIFFERENT goal files run in parallel.
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_GOALS, thread_name_prefix="tahuti-goal") as pool:
+        while _running:
+            try:
+                goals = sorted(GOALS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime)
+                if goals:
+                    list(pool.map(_process_goal, goals))
+            except Exception as exc:
+                logger.exception("Runner loop error: %s", exc)
         _sleep_or_stop(POLL_INTERVAL)
 
     logger.info("Tahuti goal runner exiting")
