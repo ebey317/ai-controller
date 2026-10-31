@@ -23,6 +23,23 @@ from ai_controller_paths import ai_controller_dir, config_dir, ensure_config_dir
 
 ensure_config_dir()
 STATE_FILE = os.path.join(config_dir(), "ai_controller_voice")
+
+
+def _shared_keyboard_rate():
+    """Rate multiplier from the ONE shared voice profile.
+
+    The setup wizard (controller_setup.py) edits
+    ~/.config/ai-controller/voice-profiles.json; the keyboard and the
+    avatars read the same file (voice_profiles.py). Returns 1.0 when
+    the profile is missing or invalid -- speaking must never break
+    because a config file did.
+    """
+    try:
+        import voice_profiles
+        data = voice_profiles.load_profiles()
+        return float(data.get("keyboard", {}).get("rate", 1.0)) or 1.0
+    except Exception:
+        return 1.0
 UNLOCKS_FILE = os.path.join(config_dir(), "ai_controller_unlocked_voices.json")
 VOICES_DIR = os.path.join(ai_controller_dir(), "voices")
 
@@ -149,11 +166,13 @@ def _split_sentences(text):
     return [c for c in chunks if c]
 
 
-def _synthesize_sentence(model_path, sentence, output_path):
+def _synthesize_sentence(model_path, sentence, output_path, length_scale=1.0):
     """Generate one sentence with Piper using the stock model config."""
+    cmd = ["piper", "--model", model_path, "--output_file", output_path]
+    if length_scale and abs(length_scale - 1.0) > 1e-6:
+        cmd += ["--length-scale", f"{length_scale:.4f}"]
     subprocess.run(
-        ["piper", "--model", model_path,
-         "--output_file", output_path],
+        cmd,
         input=sentence.encode(), check=False,
         stdout=_DEVNULL, stderr=_DEVNULL
     )
@@ -183,7 +202,14 @@ def _concat_with_pauses(paths, pause_ms, output_path):
     wavfile.write(output_path, rate, combined)
 
 
-def _speak_edge(text, voice):
+def _rate_percent_to_mult(rate_str):
+    try:
+        return 1.0 + float(str(rate_str).strip().rstrip("%")) / 100.0
+    except Exception:
+        return 1.0
+
+
+def _speak_edge(text, voice, rate_mult=1.0):
     """Speak text using Microsoft Edge TTS."""
     mp3_fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
     os.close(mp3_fd)
@@ -192,7 +218,7 @@ def _speak_edge(text, voice):
             [sys.executable, "-m", "edge_tts",
              "--voice", voice.get("voice", "en-US-AriaNeural"),
              "--pitch=" + voice.get("pitch", "+0Hz"),
-             "--rate=" + voice.get("rate", "+0%"),
+             "--rate=" + f"{round((_rate_percent_to_mult(voice.get('rate', '+0%')) * rate_mult - 1) * 100):+d}%",
              "--text", text,
              "--write-media", mp3_path],
             stdout=_DEVNULL, stderr=_DEVNULL, check=True, timeout=30
@@ -215,7 +241,7 @@ def _speak_spd(text):
                    stdout=_DEVNULL, stderr=_DEVNULL)
 
 
-def _piper_speak(text, model_path):
+def _piper_speak(text, model_path, length_scale=1.0):
     """Try to speak with Piper; return True if audio was produced."""
     if not model_path or not os.path.isfile(model_path):
         return False
@@ -228,7 +254,7 @@ def _piper_speak(text, model_path):
         paths = []
         for i, sentence in enumerate(sentences):
             out = os.path.join(tmp_dir, f"sent_{i:03d}.wav")
-            _synthesize_sentence(model_path, sentence, out)
+            _synthesize_sentence(model_path, sentence, out, length_scale)
             if os.path.exists(out) and os.path.getsize(out) > 0:
                 paths.append(out)
         if paths:
@@ -261,14 +287,15 @@ def speak(text, voice_id=None):
             "model": os.path.join(VOICES_DIR, "joe", "en_US-joe-medium.onnx"),
         }
 
+    shared_rate = _shared_keyboard_rate()
     if voice.get("engine") == "edge-tts":
-        if _speak_edge(text, voice):
+        if _speak_edge(text, voice, rate_mult=shared_rate):
             return
         _speak_spd(text)
         return
 
     model_path = voice.get("model")
-    if _piper_speak(text, model_path):
+    if _piper_speak(text, model_path, length_scale=1.0 / shared_rate):
         return
 
     # Piper failed or model missing — fall back to cloud TTS, then spd-say.
