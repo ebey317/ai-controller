@@ -30,6 +30,7 @@ import urllib.request
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
+import voice_loop as vl  # noqa: E402
 import voice_profiles as vp  # noqa: E402
 from ai_controller_paths import ai_controller_dir, config_dir, load_env  # noqa: E402
 
@@ -349,6 +350,68 @@ def check_kokoro(home=None):
                           f"model + voices bin present")
 
 
+def check_edge_demo(path=None, voice_names=None):
+    """Doctor row for the Tahuti voice loop's Edge demo bridge.
+
+    Reports whether edge-tts is installed and whether the demo
+    preset's voice exists in its catalog. This is a WARN row, never
+    a hard failure: the demo bridge is optional, and Tahuti's locked
+    local Kokoro voice must keep passing doctor without network.
+    """
+    path = path or vp.profiles_path()
+    try:
+        data = vp.load_profiles(path) if os.path.exists(path) \
+            else vp.DEFAULT_PROFILES
+    except Exception as e:
+        return (WARN, "edge demo voice", f"profile file invalid: {e}")
+    preset = data.get("avatars", {}).get(vp.DEMO_PROFILE_NAME)
+    if not isinstance(preset, dict) or \
+            vp.canonical_engine(preset.get("engine", "")) != "edge":
+        return (WARN, "edge demo voice",
+                f"{vp.DEMO_PROFILE_NAME} preset not configured -- "
+                "the voice loop demo bridge is off; Tahuti's locked "
+                "local voice is unaffected")
+    voice = preset.get("voice")
+    try:
+        import importlib.util
+        installed = importlib.util.find_spec("edge_tts") is not None
+    except Exception:
+        installed = False
+    if not installed:
+        # speak paths use the ai-controller venv interpreter, which
+        # may carry edge_tts when this interpreter does not.
+        venv_py = os.path.join(ai_controller_dir(), ".venv", "bin",
+                               "python3")
+        if os.path.exists(venv_py):
+            try:
+                r = subprocess.run(
+                    [venv_py, "-c", "import edge_tts"],
+                    capture_output=True, timeout=15)
+                installed = r.returncode == 0
+            except Exception:
+                installed = False
+    if not installed:
+        return (WARN, "edge demo voice",
+                "edge-tts is not installed -- demo bridge unavailable; "
+                "Tahuti's locked local voice is unaffected")
+    if voice_names is None:
+        try:
+            voice_names = vl.edge_voice_names(timeout=20)
+        except Exception as e:
+            return (WARN, "edge demo voice",
+                    f"edge-tts installed; voice catalog unreachable "
+                    f"({e}) -- preset voice {voice} unverified")
+    if voice not in voice_names:
+        return (WARN, "edge demo voice",
+                f"edge-tts installed; preset voice {voice} is not in "
+                "the installed catalog")
+    return (OK, "edge demo voice",
+            f"edge-tts installed; {vp.DEMO_PROFILE_NAME} = {voice} "
+            f"rate {preset.get('rate')} pitch "
+            f"{preset.get('pitch_semitones')}st (Tahuti's locked "
+            "local default unchanged)")
+
+
 def check_services():
     rows = []
     for svc in SERVICES:
@@ -391,7 +454,8 @@ def check_keyboard_voice():
 def run_doctor():
     rows = [check_profile_file(), check_avatar(), check_voice_board(),
             check_config_env(),
-            check_piper(), check_kokoro(), check_keyboard_voice()]
+            check_piper(), check_kokoro(), check_edge_demo(),
+            check_keyboard_voice()]
     rows += check_services()
     rows += [r for r in telegram_audit() if r[0] != "INFO"]
     return rows
@@ -541,24 +605,16 @@ def speak_preview(profile, name, text=None):
                     errors="replace").strip()[-300:])
                 return False
             out = _apply_fx(raw, out, profile)
-        elif engine == "edge-tts":
-            mp3 = out + ".mp3"
-            py = sys.executable
-            venv_py = os.path.join(ai_controller_dir(), ".venv", "bin",
-                                   "python3")
-            if os.path.exists(venv_py):
-                py = venv_py
-            r = subprocess.run(
-                [py, "-m", "edge_tts", "--voice", profile["voice"],
-                 f"--rate={round((rate - 1) * 100):+d}%",
-                 "--text", text, "--write-media", mp3],
-                capture_output=True, text=True, timeout=60,
-            )
-            if r.returncode != 0:
-                print("edge-tts preview failed (needs network):",
-                      r.stderr.strip()[-200:])
+        elif vp.canonical_engine(engine) == "edge":
+            # The voice loop's render path: Edge TTS phrase -> MP3 ->
+            # shared voice_fx chain (pitch / EQ / gain) -> WAV, so
+            # the knobs apply to the demo bridge exactly as they do
+            # to Kokoro and Piper.
+            try:
+                out = vl.render_edge_profile(text, profile, out)
+            except Exception as e:
+                print("edge-tts preview failed (needs network):", e)
                 return False
-            out = mp3
         else:
             print(f"Unknown engine {engine!r}")
             return False

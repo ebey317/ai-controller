@@ -165,3 +165,41 @@ def test_profile_without_knob_keys_still_valid():
     data = copy.deepcopy(vp.DEFAULT_PROFILES)
     assert vp.validate_profiles(data) == []
     assert vp.knob_values(data["avatars"]["tahuti"])["gain"] == 1.0
+
+
+# ── Edge demo bridge (Tahuti voice loop) ─────────────────────────
+
+def test_edge_demo_preset_values_and_lock_unchanged(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    data = vp.load_profiles(path)
+    demo = data["avatars"]["tahuti_demo"]
+    assert demo == vp.TAHUTI_DEMO_PROFILE
+    assert demo == {
+        "engine": "edge",
+        "voice": "en-US-ChristopherNeural",
+        "pitch_semitones": 0.0,
+        "rate": 1.07,
+    }
+    assert vp.canonical_engine(demo["engine"]) == "edge"
+    # The demo preset never moves Tahuti's locked local default.
+    assert data["avatars"]["tahuti"] == {
+        "engine": "kokoro", "voice": "am_onyx",
+        "pitch_semitones": 0.0, "rate": 1.07,
+    }
+    vp.save_profiles(data, path)
+    loaded = vp.load_profiles(path)
+    assert loaded["avatars"]["tahuti_demo"] == demo
+    assert loaded["avatars"]["tahuti"]["engine"] == "kokoro"
+
+
+def test_edge_engine_spellings_both_validate():
+    assert "edge" in vp.ENGINES and "edge-tts" in vp.ENGINES
+    assert vp.canonical_engine("edge-tts") == "edge"
+    assert vp.canonical_engine("edge") == "edge"
+    assert vp.canonical_engine("kokoro") == "kokoro"
+    data = copy.deepcopy(vp.DEFAULT_PROFILES)
+    data["avatars"]["seba"] = {
+        "engine": "edge-tts", "voice": "en-US-GuyNeural",
+        "pitch_semitones": 0.0, "rate": 1.0,
+    }
+    assert vp.validate_profiles(data) == []

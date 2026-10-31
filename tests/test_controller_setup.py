@@ -285,3 +285,25 @@ def test_apply_fx_runs_the_chain(tmp_path):
     assert cs._apply_fx(raw, out, profile) == out
     samples, _ = sf.read(out, dtype="float32")
     assert float(np.max(np.abs(samples))) == pytest.approx(0.2, abs=0.02)
+
+
+# ── Edge demo voice (doctor row) ─────────────────────────────────
+
+def test_doctor_edge_demo_ok(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    vp.save_profiles(vp.load_profiles(path), path)
+    level, label, detail = cs.check_edge_demo(
+        path, voice_names=["en-US-ChristopherNeural",
+                           "en-US-AriaNeural"])
+    assert level == cs.OK
+    assert label == "edge demo voice"
+    assert "en-US-ChristopherNeural" in detail
+    assert "locked" in detail
+
+
+def test_doctor_edge_demo_missing_voice_warns_not_fails(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    vp.save_profiles(vp.load_profiles(path), path)
+    level, _, detail = cs.check_edge_demo(path, voice_names=[])
+    assert level == cs.WARN  # optional bridge: never a hard failure
+    assert "en-US-ChristopherNeural" in detail
