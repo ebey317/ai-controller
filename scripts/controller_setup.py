@@ -560,18 +560,64 @@ def _edit_profile(name, profile):
     return new
 
 
-def _avatar_setup(data):
-    """Avatar setup: who shows, when, how big, how it moves, its voice.
+def _pick_avatar(data):
+    """Step one of Avatar setup: the numbered portrait list.
 
-    Everything persists into the shared "avatar" section of
-    voice-profiles.json -- the same file the overlay and the slide
-    keyboard read. The old overlay on/off + scale live here now as
-    "feature armed" (enabled_by_default) and the scale multiplier.
+    Returns the chosen avatar's name, or None to go back. Choosing a
+    name also makes it the active avatar -- the settings menu that
+    follows edits the shared overlay block, and the overlay shows
+    the active avatar.
+    """
+    s = vp.get_avatar_settings(data)
+    names = vp.available_avatars()
+    if not names:
+        print(f"  no portraits found in {vp.avatars_dir()} -- avatar "
+              "setup needs at least one portrait on disk")
+        return None
+    print("\n-- avatar setup -- pick the avatar to set up --")
+    for i, n in enumerate(names, 1):
+        mark = " (active)" if n == s["active_avatar"] else ""
+        print(f"   {i}) {n}{mark}")
+    print("   0) Back")
+    which = _ask("avatar number", "")
+    if which.isdigit() and 1 <= int(which) <= len(names):
+        name = names[int(which) - 1]
+        if name != s["active_avatar"]:
+            data["avatar"]["active_avatar"] = name
+            vp.save_profiles(data)
+        print(f"  setting up: {name} (the active avatar)")
+        return name
+    if which not in ("", "0"):
+        print("  no such avatar -- no change.")
+    return None
+
+
+def _avatar_setup(data):
+    """Avatar setup: pick an avatar FIRST, then edit its settings.
+
+    Lijah (2026-10-31): pressing 3 dropped him straight into the
+    active avatar's settings with no list to choose from. The
+    picker is the entry point now, not a sub-item: portraits from
+    assets/avatars/, numbered; the pick sets the active avatar and
+    opens that avatar's settings (trigger, size, movement,
+    lifecycle, voice). Everything persists into the shared "avatar"
+    section of voice-profiles.json -- the same file the overlay and
+    the slide keyboard read. The old overlay on/off + scale live
+    there as "feature armed" (enabled_by_default) and the scale
+    multiplier.
     """
     while True:
+        name = _pick_avatar(data)
+        if name is None:
+            return
+        _avatar_settings_menu(data, name)
+
+
+def _avatar_settings_menu(data, name):
+    """Settings for ONE picked avatar (see _avatar_setup)."""
+    while True:
         s = vp.get_avatar_settings(data)
-        print("\n-- avatar setup --")
-        print(f"   active avatar : {s['active_avatar']}")
+        print(f"\n-- avatar setup: {name} --")
         print(f"   shows         : "
               f"{vp.SHOW_TRIGGER_LABELS[s['show_trigger']]}")
         print(f"   feature       : "
@@ -593,36 +639,19 @@ def _avatar_setup(data):
               f"{'on' if s['stay_while_working'] else 'off'}, fades done "
               f"{'on' if s['fade_when_done'] else 'off'}, approval pop-up "
               f"{'on' if s['popup_on_approval'] else 'off'}")
-        print("\n   1) Change the active avatar")
-        print("   2) Show-when trigger (L/R talk buttons vs always on)")
-        print("   3) Arm / disarm the avatar feature")
-        print("   4) Avatar size on screen (px)")
-        print("   5) Movement + notification corner")
-        print("   6) Approval box beside the avatar")
-        print("   7) Visibility lifecycle (talk / working / done / approval)")
-        print("   8) Tune the active avatar's voice")
-        print("   0) Back")
+        print("\n   1) Show-when trigger (L/R talk buttons vs always on)")
+        print("   2) Arm / disarm the avatar feature")
+        print("   3) Avatar size on screen (px)")
+        print("   4) Movement + notification corner")
+        print("   5) Approval box beside the avatar")
+        print("   6) Visibility lifecycle (talk / working / done / approval)")
+        print(f"   7) Tune {name}'s voice")
+        print("   0) Back to the avatar list")
         pick = _ask("choose", "0")
         av = data["avatar"]
         if pick == "0":
             return
         elif pick == "1":
-            names = vp.available_avatars()
-            if not names:
-                print(f"  no portraits found in {vp.avatars_dir()}")
-                continue
-            for i, n in enumerate(names, 1):
-                mark = " (active)" if n == s["active_avatar"] else ""
-                print(f"     {i}) {n}{mark}")
-            which = _ask("avatar number", "")
-            if which.isdigit() and 1 <= int(which) <= len(names):
-                av["active_avatar"] = names[int(which) - 1]
-                data["avatar"] = av
-                vp.save_profiles(data)
-                print(f"  active avatar: {av['active_avatar']}")
-            else:
-                print("  no change.")
-        elif pick == "2":
             print("     1) L/R talk buttons -- the avatar pops up and "
                   "animates when you press L or R to talk (default)")
             print("     2) Always on -- the avatar is present whenever "
@@ -635,14 +664,14 @@ def _avatar_setup(data):
             data["avatar"] = av
             vp.save_profiles(data)
             print(f"  shows: {vp.SHOW_TRIGGER_LABELS[av['show_trigger']]}")
-        elif pick == "3":
+        elif pick == "2":
             av["enabled_by_default"] = _ask_yes(
-                "Arm the avatar feature? (the trigger in step 2 decides "
+                "Arm the avatar feature? (the trigger in step 1 decides "
                 "when it pops up)", default=s["enabled_by_default"])
             data["avatar"] = av
             vp.save_profiles(data)
             print("  saved.")
-        elif pick == "4":
+        elif pick == "3":
             av["size_px"] = _ask_int(
                 "avatar size on screen, px (small companion: "
                 "180-260 is the usual class)",
@@ -651,7 +680,7 @@ def _avatar_setup(data):
             data["avatar"] = av
             vp.save_profiles(data)
             print(f"  size: {av['size_px']} px")
-        elif pick == "5":
+        elif pick == "4":
             print("     1) Corner loop: top-left > bottom-left > "
                   "bottom-right (default)")
             print("     2) Stay put: no corner movement")
@@ -675,14 +704,14 @@ def _avatar_setup(data):
             data["avatar"] = av
             vp.save_profiles(data)
             print("  saved movement.")
-        elif pick == "6":
+        elif pick == "5":
             av["approval_box"] = _ask_yes(
                 "Avatar spawns its own small approval box beside itself "
                 "(one at a time)?", default=s["approval_box"])
             data["avatar"] = av
             vp.save_profiles(data)
             print("  saved.")
-        elif pick == "7":
+        elif pick == "6":
             toggles = [
                 ("show_on_talk",
                  "Pop up while you hold L or R and talk?"),
@@ -700,8 +729,7 @@ def _avatar_setup(data):
             data["avatar"] = av
             vp.save_profiles(data)
             print("  saved lifecycle.")
-        elif pick == "8":
-            name = s["active_avatar"]
+        elif pick == "7":
             current = vp.get_avatar_profile(data, name)
             new = _edit_profile(name, current)
             if new is not None:
@@ -709,8 +737,7 @@ def _avatar_setup(data):
                 vp.save_profiles(data)
                 print(f"  saved voice for {name}.")
         else:
-            print("  pick 0-8")
-
+            print("  pick 0-7")
 
 def wizard():
     print("=" * 62)
