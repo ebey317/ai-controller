@@ -20,6 +20,12 @@ import wave
 from datetime import datetime
 from typing import Dict, Optional
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+import voice_goal_schema as vgs  # noqa: E402
+
 # Headless mode (opt-in): AI_CONTROLLER_HEADLESS=1 keeps audio capture, STT,
 # the evdev trigger path, goal takes, and TTS — but skips everything that
 # needs X11 (pynput listener, X11 F13 grab, focus snapshot, xdotool typing).
@@ -727,20 +733,17 @@ def _speak_headless(text: str) -> None:
 def _write_goal(text: str) -> None:
     """Write a Tahuti goal JSON file from a Ctrl+F13 take.
 
-    The file is written atomically (temp + rename) to the queue directory the
-    Tahuti headless runner watches."""
+    Uses the shared voice_goal_schema payload so the runner's validation
+    accepts it (plain {id,transcript,timestamp} payloads fail as missing
+    type/time — observed 2026-10-31, takes silently died). Atomic temp+rename
+    into the queue directory the headless runner watches."""
     try:
+        payload = vgs.build_goal_payload(text)
+        payload["source"] = "ptt_pynput"
+        goal_id = payload["id"]
         os.makedirs(GOALS_DIR, exist_ok=True)
-        goal_id = str(uuid.uuid4())
-        ts = datetime.now().isoformat()
         path = os.path.join(GOALS_DIR, f"{goal_id}.json")
         tmp_path = f"{path}.tmp"
-        payload = {
-            "id": goal_id,
-            "transcript": text,
-            "timestamp": ts,
-            "source": "ptt_pynput",
-        }
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
             f.write("\n")
