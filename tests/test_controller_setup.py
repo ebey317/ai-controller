@@ -84,3 +84,142 @@ def test_doctor_kokoro_missing_home(tmp_path):
     level, _, detail = cs.check_kokoro(str(tmp_path))
     assert level == cs.FAIL
     assert "missing" in detail
+
+
+# ── avatar setup (wizard section 3 / doctor "avatar setup") ─────────
+
+def _portraits(tmp_path, *names):
+    d = tmp_path / "avatars"
+    d.mkdir()
+    for n in names:
+        (d / f"{n}.webp").write_bytes(b"portrait")
+    return str(d)
+
+
+def test_available_avatars_lists_portraits(tmp_path):
+    d = _portraits(tmp_path, "tahuti", "seba", "ogun")
+    (tmp_path / "avatars" / "notes.md").write_text("not a portrait")
+    assert vp.available_avatars(d) == ["ogun", "seba", "tahuti"]
+
+
+def test_avatar_defaults_match_lijah_rules():
+    s = vp.get_avatar_settings(vp.load_profiles("/nonexistent.json"))
+    assert s["active_avatar"] == "tahuti"
+    # Presence is talk-driven by default (Lijah, 2026-10-31).
+    assert s["show_trigger"] == "talk_buttons"
+    assert s["enabled_by_default"] is True  # feature armed
+    assert 180 <= s["size_px"] <= 260  # small-companion class
+    assert s["movement"] == "corner_loop"
+    assert s["respect_notification_corner"] is True
+    assert s["approval_box"] is True
+
+
+def test_avatar_trigger_round_trip_both_modes(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    for mode in ("talk_buttons", "always_on"):
+        data = vp.load_profiles(path)
+        data["avatar"]["show_trigger"] = mode
+        data["avatar"]["active_avatar"] = "seba"
+        vp.save_profiles(data, path)
+        loaded = vp.load_profiles(path)
+        assert loaded["avatar"]["show_trigger"] == mode
+        assert loaded["avatar"]["active_avatar"] == "seba"
+        label = vp.SHOW_TRIGGER_LABELS[mode]
+        assert label  # doctor/wizard summary must have words for it
+
+
+def test_avatar_bad_values_rejected(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    data = vp.load_profiles(path)
+    data["avatar"]["show_trigger"] = "sometimes"
+    data["avatar"]["size_px"] = 4000
+    data["avatar"]["movement"] = "teleports"
+    problems = vp.validate_profiles(data)
+    assert any("show_trigger" in p for p in problems)
+    assert any("size_px" in p for p in problems)
+    assert any("movement" in p for p in problems)
+    try:
+        vp.save_profiles(data, path)
+        raise AssertionError("save_profiles should have raised")
+    except ValueError:
+        pass
+
+
+def test_doctor_avatar_ok(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    vp.save_profiles(vp.load_profiles(path), path)
+    d = _portraits(tmp_path, "tahuti", "seba", "kunoichi", "ogun")
+    level, label, detail = cs.check_avatar(path, d)
+    assert level == cs.OK
+    assert "tahuti" in detail
+    assert "talk-button" in detail  # trigger mode reported in plain words
+    assert "220px" in detail
+
+
+def test_doctor_avatar_missing_portrait_fails(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    data = vp.load_profiles(path)
+    data["avatar"]["active_avatar"] = "ghost"
+    vp.save_profiles(data, path)
+    d = _portraits(tmp_path, "tahuti")
+    level, _, detail = cs.check_avatar(path, d)
+    assert level == cs.FAIL
+    assert "ghost" in detail
+
+
+def test_doctor_avatar_always_on_reported(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    data = vp.load_profiles(path)
+    data["avatar"]["show_trigger"] = "always_on"
+    vp.save_profiles(data, path)
+    d = _portraits(tmp_path, "tahuti")
+    level, _, detail = cs.check_avatar(path, d)
+    assert level == cs.OK
+    assert "always on" in detail
+
+
+def test_validate_avatar_settings_flags_unknown_active(tmp_path):
+    d = _portraits(tmp_path, "tahuti")
+    settings = vp.get_avatar_settings(vp.DEFAULT_PROFILES)
+    settings["active_avatar"] = "nobody"
+    problems = vp.validate_avatar_settings(settings, d)
+    assert problems and "nobody" in problems[0]
+
+
+# ── avatar visibility lifecycle ─────────────────────────────────────
+
+def test_lifecycle_defaults_all_on():
+    s = vp.get_avatar_settings(vp.load_profiles("/nonexistent.json"))
+    for key in vp.LIFECYCLE_KEYS:
+        assert s[key] is True, key
+
+
+def test_lifecycle_round_trip(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    data = vp.load_profiles(path)
+    data["avatar"]["stay_while_working"] = False
+    data["avatar"]["fade_when_done"] = False
+    vp.save_profiles(data, path)
+    s = vp.get_avatar_settings(vp.load_profiles(path))
+    assert s["stay_while_working"] is False
+    assert s["fade_when_done"] is False
+    assert s["show_on_talk"] is True  # untouched keys keep defaults
+    assert s["popup_on_approval"] is True
+
+
+def test_lifecycle_bad_value_rejected(tmp_path):
+    data = vp.load_profiles(str(tmp_path / "x.json"))
+    data["avatar"]["popup_on_approval"] = "yes please"
+    problems = vp.validate_profiles(data)
+    assert any("popup_on_approval" in p for p in problems)
+
+
+def test_doctor_reports_lifecycle(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    vp.save_profiles(vp.load_profiles(path), path)
+    d = _portraits(tmp_path, "tahuti")
+    level, _, detail = cs.check_avatar(path, d)
+    assert level == cs.OK
+    for word in ("talk pop-up on", "stays while working on",
+                 "fades when done on", "approval pop-up on"):
+        assert word in detail, word

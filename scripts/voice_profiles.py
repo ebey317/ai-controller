@@ -19,13 +19,37 @@ Schema (version 1):
                    "pitch_semitones": 0.0, "rate": 1.07},
         ...
       },
-      "avatar": {"enabled_by_default": true, "scale": 1.0}
+      "avatar": {"enabled_by_default": true, "scale": 1.0,
+                 "active_avatar": "tahuti",
+                 "show_trigger": "talk_buttons", "size_px": 220,
+                 "movement": "corner_loop",
+                 "notification_corner": "top-right",
+                 "respect_notification_corner": true,
+                 "approval_box": true,
+                 "show_on_talk": true, "stay_while_working": true,
+                 "fade_when_done": true, "popup_on_approval": true}
     }
 
 - engine: "kokoro" | "piper" | "edge-tts"
 - voice: engine voice id (kokoro: "am_onyx"; piper: pack id or model
   filename; edge-tts: "en-US-AriaNeural")
 - rate: speaking-rate multiplier, 0.5..2.0 (1.0 = natural)
+- avatar.show_trigger: "talk_buttons" (the avatar pops up when the
+  controller's L or R talk button is pressed -- the default) |
+  "always_on" (present while the slide keyboard is up).
+  avatar.enabled_by_default arms the avatar feature itself.
+  avatar.size_px: small-companion on-screen size, 120..400 (220
+  default). avatar.movement: "corner_loop" (top-left -> bottom-left
+  -> bottom-right) | "stay_put"; avatar.notification_corner names
+  the corner the loop never parks in while
+  avatar.respect_notification_corner is true. avatar.approval_box:
+  the avatar spawns its own small approval box beside itself, one
+  at a time. Visibility lifecycle keys (all default true):
+  show_on_talk (pop up while L/R is held), stay_while_working (stay
+  visible with work animations after release), fade_when_done (fade
+  to black once the result lands), popup_on_approval (pop up with
+  the approval box whenever approval is needed). Older files
+  without these keys merge over the defaults.
 - pitch_semitones: -12..+12 (0 = natural). Kokoro previews apply it by
   resampling; Piper has no pitch control, so the value is stored and
   only takes effect on engines that support it.
@@ -49,6 +73,34 @@ RATE_MIN, RATE_MAX = 0.5, 2.0
 PITCH_MIN, PITCH_MAX = -12.0, 12.0
 SCALE_MIN, SCALE_MAX = 0.25, 3.0
 
+# ── avatar overlay (the "avatar" section) ────────────────────────────
+# Presence is talk-driven (Lijah, 2026-10-31): pressing the
+# controller's L or R talk button is what pops the avatar up and
+# animates it. Always-on (present whenever the slide keyboard is up)
+# is the alternate mode. "enabled_by_default" arms the feature;
+# "show_trigger" picks how it appears.
+SHOW_TRIGGERS = ("talk_buttons", "always_on")
+# Visibility lifecycle under the talk-button trigger (Lijah,
+# 2026-10-31): L/R held -> avatar pops up, talking/listening;
+# L/R released, agent working -> avatar STAYS, work animations;
+# work done -> the result lands, then the avatar fades to black;
+# approval needed at any time -> avatar pops up with its box.
+LIFECYCLE_KEYS = ("show_on_talk", "stay_while_working",
+                  "fade_when_done", "popup_on_approval")
+SHOW_TRIGGER_LABELS = {
+    "talk_buttons": "on L/R talk-button press",
+    "always_on": "always on while the keyboard is up",
+}
+# Small-companion size rule: the avatar stays a few percent of the
+# screen (~180-260 px class). Bounded so a typo can't fill the screen.
+AVATAR_SIZE_DEFAULT_PX = 220
+AVATAR_SIZE_MIN_PX, AVATAR_SIZE_MAX_PX = 120, 400
+# Corner loop: top-left -> bottom-left -> bottom-right. The
+# notification corner is never parked in.
+MOVEMENT_PATTERNS = ("corner_loop", "stay_put")
+NOTIFICATION_CORNERS = ("top-right", "top-left", "bottom-right",
+                        "bottom-left")
+
 DEFAULT_PROFILES = {
     "version": 1,
     # The keyboard's own speaking voice: a voice pack from voices/
@@ -64,9 +116,25 @@ DEFAULT_PROFILES = {
             "rate": 1.07,
         },
     },
-    # Slide-keyboard avatar overlay: present by default when the
-    # keyboard is up (Lijah's standing decision, 2026-10-31).
-    "avatar": {"enabled_by_default": True, "scale": 1.0},
+    # Slide-keyboard avatar overlay. Defaults locked by Lijah
+    # 2026-10-31: feature armed, Tahuti active, pops up on the L/R
+    # talk buttons, small-companion size, corner loop that never
+    # parks in the notification corner, approval box beside itself.
+    "avatar": {
+        "enabled_by_default": True,
+        "scale": 1.0,
+        "active_avatar": "tahuti",
+        "show_trigger": "talk_buttons",
+        "size_px": AVATAR_SIZE_DEFAULT_PX,
+        "movement": "corner_loop",
+        "notification_corner": "top-right",
+        "respect_notification_corner": True,
+        "approval_box": True,
+        "show_on_talk": True,
+        "stay_while_working": True,
+        "fade_when_done": True,
+        "popup_on_approval": True,
+    },
 }
 
 PREVIEW_LINES = {
@@ -136,6 +204,46 @@ def validate_profiles(data) -> list:
             problems.append(
                 f"avatar.scale must be a number {SCALE_MIN}..{SCALE_MAX}"
             )
+        # Extended avatar-setup keys: checked when present, so files
+        # written before they existed still validate (load_profiles
+        # merges the defaults in anyway).
+        if "active_avatar" in av and (
+            not isinstance(av.get("active_avatar"), str)
+            or not av.get("active_avatar")
+        ):
+            problems.append(
+                "avatar.active_avatar must be a non-empty string")
+        if "show_trigger" in av and (
+            av.get("show_trigger") not in SHOW_TRIGGERS
+        ):
+            problems.append(
+                "avatar.show_trigger must be one of "
+                + ", ".join(SHOW_TRIGGERS))
+        if "size_px" in av:
+            size = av.get("size_px")
+            if not _is_number(size) or not (
+                AVATAR_SIZE_MIN_PX <= size <= AVATAR_SIZE_MAX_PX
+            ):
+                problems.append(
+                    f"avatar.size_px must be a number "
+                    f"{AVATAR_SIZE_MIN_PX}..{AVATAR_SIZE_MAX_PX}")
+        if "movement" in av and (
+            av.get("movement") not in MOVEMENT_PATTERNS
+        ):
+            problems.append(
+                "avatar.movement must be one of "
+                + ", ".join(MOVEMENT_PATTERNS))
+        if "notification_corner" in av and (
+            av.get("notification_corner") not in NOTIFICATION_CORNERS
+        ):
+            problems.append(
+                "avatar.notification_corner must be one of "
+                + ", ".join(NOTIFICATION_CORNERS))
+        for flag in ("respect_notification_corner", "approval_box",
+                     "show_on_talk", "stay_while_working",
+                     "fade_when_done", "popup_on_approval"):
+            if flag in av and not isinstance(av.get(flag), bool):
+                problems.append(f"avatar.{flag} must be true/false")
     return problems
 
 
@@ -214,6 +322,55 @@ def preview_line(name) -> str:
     if name in PREVIEW_LINES:
         return PREVIEW_LINES[name]
     return DEFAULT_PREVIEW_LINE.format(name=name.capitalize())
+
+
+# ── avatar overlay helpers ───────────────────────────────────────────
+
+def avatars_dir() -> str:
+    """Where the avatar portraits live (assets/avatars in the repo)."""
+    env = os.environ.get("AI_CONTROLLER_AVATARS_DIR")
+    if env:
+        return os.path.expanduser(env)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root, "assets", "avatars")
+
+
+def available_avatars(directory=None) -> list:
+    """Avatar names with a portrait on disk (tahuti, seba, ...)."""
+    directory = directory or avatars_dir()
+    names = []
+    if os.path.isdir(directory):
+        for fn in sorted(os.listdir(directory)):
+            stem, ext = os.path.splitext(fn)
+            if ext.lower() in (".webp", ".png", ".jpg", ".jpeg") and stem:
+                names.append(stem)
+    return names
+
+
+def get_avatar_settings(data) -> dict:
+    """The avatar overlay section, locked defaults merged in."""
+    merged = copy.deepcopy(DEFAULT_PROFILES["avatar"])
+    section = data.get("avatar") if isinstance(data, dict) else None
+    if isinstance(section, dict):
+        merged.update(section)
+    return merged
+
+
+def validate_avatar_settings(settings, directory=None) -> list:
+    """Problems with an avatar settings dict (empty = good to show).
+
+    Beyond the schema checks in validate_profiles: the active avatar
+    must have a portrait on disk, or the overlay would show nothing.
+    """
+    problems = []
+    active = settings.get("active_avatar")
+    names = available_avatars(directory)
+    if names and active not in names:
+        problems.append(
+            f"active avatar {active!r} has no portrait in "
+            f"{directory or avatars_dir()} (found: {', '.join(names)})"
+        )
+    return problems
 
 
 if __name__ == "__main__":

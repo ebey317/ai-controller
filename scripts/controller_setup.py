@@ -218,12 +218,56 @@ def check_profile_file(path=None):
     except Exception as e:
         return (FAIL, "voice profiles", f"{path} is invalid: {e}")
     tahuti = vp.get_avatar_profile(data, "tahuti")
+    settings = vp.get_avatar_settings(data)
     return (OK, "voice profiles",
             f"{path} valid; Tahuti = {tahuti['engine']}/{tahuti['voice']} "
             f"rate {tahuti['rate']} pitch {tahuti['pitch_semitones']}st; "
             f"avatar default "
             f"{'ON' if data['avatar']['enabled_by_default'] else 'OFF'} "
-            f"scale {data['avatar']['scale']}")
+            f"scale {data['avatar']['scale']}; shows "
+            f"{vp.SHOW_TRIGGER_LABELS[settings['show_trigger']]}")
+
+
+def _avatar_summary(s):
+    trigger = vp.SHOW_TRIGGER_LABELS[s["show_trigger"]]
+    move = ("corner loop TL>BL>BR" if s["movement"] == "corner_loop"
+            else "stays put")
+    return (f"active {s['active_avatar']}; shows {trigger}; "
+            f"{'armed' if s['enabled_by_default'] else 'NOT armed'}; "
+            f"size {s['size_px']}px; {move}; notification corner "
+            f"{s['notification_corner']} "
+            f"{'respected' if s['respect_notification_corner'] else 'IGNORED'}; "
+            f"approval box {'on' if s['approval_box'] else 'off'}; "
+            f"lifecycle: talk pop-up "
+            f"{'on' if s['show_on_talk'] else 'off'}, stays while "
+            f"working {'on' if s['stay_while_working'] else 'off'}, "
+            f"fades when done "
+            f"{'on' if s['fade_when_done'] else 'off'}, approval "
+            f"pop-up {'on' if s['popup_on_approval'] else 'off'}")
+
+
+def check_avatar(path=None, avatars_dir=None):
+    """Doctor row for the avatar overlay block (setup's Avatar setup)."""
+    path = path or vp.profiles_path()
+    if not os.path.exists(path):
+        settings = vp.get_avatar_settings(vp.DEFAULT_PROFILES)
+        names = vp.available_avatars(avatars_dir)
+        if settings["active_avatar"] not in names:
+            return (FAIL, "avatar setup",
+                    f"active avatar {settings['active_avatar']!r} has no "
+                    f"portrait in {avatars_dir or vp.avatars_dir()}")
+        return (WARN, "avatar setup",
+                "no profile file yet -- locked defaults in effect: "
+                + _avatar_summary(settings))
+    try:
+        data = vp.load_profiles(path)
+    except Exception as e:
+        return (FAIL, "avatar setup", f"profile file invalid: {e}")
+    settings = vp.get_avatar_settings(data)
+    problems = vp.validate_avatar_settings(settings, avatars_dir)
+    if problems:
+        return (FAIL, "avatar setup", "; ".join(problems))
+    return (OK, "avatar setup", _avatar_summary(settings))
 
 
 def check_config_env(path=None):
@@ -313,8 +357,8 @@ def check_keyboard_voice():
 
 
 def run_doctor():
-    rows = [check_profile_file(), check_config_env(), check_piper(),
-            check_kokoro(), check_keyboard_voice()]
+    rows = [check_profile_file(), check_avatar(), check_config_env(),
+            check_piper(), check_kokoro(), check_keyboard_voice()]
     rows += check_services()
     rows += [r for r in telegram_audit() if r[0] != "INFO"]
     return rows
@@ -472,6 +516,19 @@ def _ask_float(prompt, current, lo, hi):
         print(f"  out of range -- {lo}..{hi}")
 
 
+def _ask_int(prompt, current, lo, hi):
+    while True:
+        raw = _ask(prompt, current)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            print(f"  enter a whole number between {lo} and {hi}")
+            continue
+        if lo <= value <= hi:
+            return value
+        print(f"  out of range -- {lo}..{hi}")
+
+
 def _ask_yes(prompt, default=False):
     raw = input(f"{prompt} [{'Y/n' if default else 'y/N'}]: ").strip().lower()
     if not raw:
@@ -503,6 +560,158 @@ def _edit_profile(name, profile):
     return new
 
 
+def _avatar_setup(data):
+    """Avatar setup: who shows, when, how big, how it moves, its voice.
+
+    Everything persists into the shared "avatar" section of
+    voice-profiles.json -- the same file the overlay and the slide
+    keyboard read. The old overlay on/off + scale live here now as
+    "feature armed" (enabled_by_default) and the scale multiplier.
+    """
+    while True:
+        s = vp.get_avatar_settings(data)
+        print("\n-- avatar setup --")
+        print(f"   active avatar : {s['active_avatar']}")
+        print(f"   shows         : "
+              f"{vp.SHOW_TRIGGER_LABELS[s['show_trigger']]}")
+        print(f"   feature       : "
+              f"{'armed' if s['enabled_by_default'] else 'off'}")
+        print(f"   size          : {s['size_px']} px on screen "
+              f"(small companion)")
+        if s["movement"] == "corner_loop":
+            print("   movement      : corner loop "
+                  "top-left > bottom-left > bottom-right")
+            print(f"   never parks   : {s['notification_corner']} "
+                  f"(notification corner) -- "
+                  f"{'respected' if s['respect_notification_corner'] else 'OFF'}")
+        else:
+            print("   movement      : stays where it pops up")
+        print(f"   approval box  : "
+              f"{'spawns beside the avatar, one at a time' if s['approval_box'] else 'off'}")
+        print(f"   lifecycle     : talk pop-up "
+              f"{'on' if s['show_on_talk'] else 'off'}, stays working "
+              f"{'on' if s['stay_while_working'] else 'off'}, fades done "
+              f"{'on' if s['fade_when_done'] else 'off'}, approval pop-up "
+              f"{'on' if s['popup_on_approval'] else 'off'}")
+        print("\n   1) Change the active avatar")
+        print("   2) Show-when trigger (L/R talk buttons vs always on)")
+        print("   3) Arm / disarm the avatar feature")
+        print("   4) Avatar size on screen (px)")
+        print("   5) Movement + notification corner")
+        print("   6) Approval box beside the avatar")
+        print("   7) Visibility lifecycle (talk / working / done / approval)")
+        print("   8) Tune the active avatar's voice")
+        print("   0) Back")
+        pick = _ask("choose", "0")
+        av = data["avatar"]
+        if pick == "0":
+            return
+        elif pick == "1":
+            names = vp.available_avatars()
+            if not names:
+                print(f"  no portraits found in {vp.avatars_dir()}")
+                continue
+            for i, n in enumerate(names, 1):
+                mark = " (active)" if n == s["active_avatar"] else ""
+                print(f"     {i}) {n}{mark}")
+            which = _ask("avatar number", "")
+            if which.isdigit() and 1 <= int(which) <= len(names):
+                av["active_avatar"] = names[int(which) - 1]
+                data["avatar"] = av
+                vp.save_profiles(data)
+                print(f"  active avatar: {av['active_avatar']}")
+            else:
+                print("  no change.")
+        elif pick == "2":
+            print("     1) L/R talk buttons -- the avatar pops up and "
+                  "animates when you press L or R to talk (default)")
+            print("     2) Always on -- the avatar is present whenever "
+                  "the slide keyboard is up")
+            which = _ask("trigger",
+                         "1" if s["show_trigger"] == "talk_buttons"
+                         else "2")
+            av["show_trigger"] = ("talk_buttons" if which != "2"
+                                  else "always_on")
+            data["avatar"] = av
+            vp.save_profiles(data)
+            print(f"  shows: {vp.SHOW_TRIGGER_LABELS[av['show_trigger']]}")
+        elif pick == "3":
+            av["enabled_by_default"] = _ask_yes(
+                "Arm the avatar feature? (the trigger in step 2 decides "
+                "when it pops up)", default=s["enabled_by_default"])
+            data["avatar"] = av
+            vp.save_profiles(data)
+            print("  saved.")
+        elif pick == "4":
+            av["size_px"] = _ask_int(
+                "avatar size on screen, px (small companion: "
+                "180-260 is the usual class)",
+                s["size_px"], vp.AVATAR_SIZE_MIN_PX,
+                vp.AVATAR_SIZE_MAX_PX)
+            data["avatar"] = av
+            vp.save_profiles(data)
+            print(f"  size: {av['size_px']} px")
+        elif pick == "5":
+            print("     1) Corner loop: top-left > bottom-left > "
+                  "bottom-right (default)")
+            print("     2) Stay put: no corner movement")
+            which = _ask("movement",
+                         "1" if s["movement"] == "corner_loop" else "2")
+            av["movement"] = ("corner_loop" if which != "2"
+                              else "stay_put")
+            if av["movement"] == "corner_loop":
+                print("  notification corners: "
+                      + ", ".join(vp.NOTIFICATION_CORNERS))
+                corner = _ask("corner the avatar must never park in",
+                              s["notification_corner"]).lower()
+                if corner in vp.NOTIFICATION_CORNERS:
+                    av["notification_corner"] = corner
+                else:
+                    print(f"  unknown corner -- keeping "
+                          f"{s['notification_corner']}")
+                av["respect_notification_corner"] = _ask_yes(
+                    "Keep the avatar out of the notification corner?",
+                    default=s["respect_notification_corner"])
+            data["avatar"] = av
+            vp.save_profiles(data)
+            print("  saved movement.")
+        elif pick == "6":
+            av["approval_box"] = _ask_yes(
+                "Avatar spawns its own small approval box beside itself "
+                "(one at a time)?", default=s["approval_box"])
+            data["avatar"] = av
+            vp.save_profiles(data)
+            print("  saved.")
+        elif pick == "7":
+            toggles = [
+                ("show_on_talk",
+                 "Pop up while you hold L or R and talk?"),
+                ("stay_while_working",
+                 "Stay visible with work animations after you release "
+                 "L/R, while the agent works?"),
+                ("fade_when_done",
+                 "Fade to black once the result lands?"),
+                ("popup_on_approval",
+                 "Pop up with the approval box whenever approval is "
+                 "needed, even after fading out?"),
+            ]
+            for key, question in toggles:
+                av[key] = _ask_yes(question, default=s[key])
+            data["avatar"] = av
+            vp.save_profiles(data)
+            print("  saved lifecycle.")
+        elif pick == "8":
+            name = s["active_avatar"]
+            current = vp.get_avatar_profile(data, name)
+            new = _edit_profile(name, current)
+            if new is not None:
+                data["avatars"][name] = new
+                vp.save_profiles(data)
+                print(f"  saved voice for {name}.")
+        else:
+            print("  pick 0-8")
+
+
 def wizard():
     print("=" * 62)
     print(" AI Controller -- setup")
@@ -522,7 +731,7 @@ def wizard():
     while True:
         print("\n  1) Tune an avatar voice (Tahuti + roster)")
         print("  2) Tune the keyboard voice")
-        print("  3) Avatar overlay settings (default on/off, scale)")
+        print("  3) Avatar setup (who shows, when, size, movement, voice)")
         print("  4) Telegram (audit / register command menu)")
         print("  5) Run doctor")
         print("  0) Done")
@@ -574,18 +783,7 @@ def wizard():
                 pass
             print("  saved keyboard voice.")
         elif choice == "3":
-            av = data["avatar"]
-            print(f"\n-- avatar overlay -- default "
-                  f"{'ON' if av['enabled_by_default'] else 'OFF'}, "
-                  f"scale {av['scale']}")
-            av["enabled_by_default"] = _ask_yes(
-                "Show the avatar by default when the keyboard is up?",
-                default=av["enabled_by_default"])
-            av["scale"] = _ask_float("avatar scale", av["scale"],
-                                     vp.SCALE_MIN, vp.SCALE_MAX)
-            data["avatar"] = av
-            vp.save_profiles(data)
-            print("  saved avatar settings.")
+            _avatar_setup(data)
         elif choice == "4":
             print_rows(telegram_audit())
             if _ask_yes("\nRegister the full command menu with Telegram "
