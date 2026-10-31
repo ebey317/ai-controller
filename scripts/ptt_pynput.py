@@ -13,13 +13,42 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 import urllib.error
 import urllib.request
 import wave
 from datetime import datetime
 from typing import Dict, Optional
 
-from pynput import keyboard
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+import voice_goal_schema as vgs  # noqa: E402
+
+# Headless mode (opt-in): AI_CONTROLLER_HEADLESS=1 keeps audio capture, STT,
+# the evdev trigger path, goal takes, and TTS — but skips everything that
+# needs X11 (pynput listener, X11 F13 grab, focus snapshot, xdotool typing).
+# Unset (default) = current GUI behavior, byte-for-byte.
+HEADLESS = os.environ.get("AI_CONTROLLER_HEADLESS", "").strip().lower() in ("1", "true", "yes", "on")
+
+try:
+    if HEADLESS:
+        raise ImportError("headless: pynput X11 listener disabled")
+    from pynput import keyboard
+except Exception:
+    # Minimal stub so the evdev path (which synthesizes its own F13 key
+    # object via _make_fake_key) keeps working without the X11 client
+    # library. Only used when HEADLESS is set or pynput is uninstallable.
+    class _HeadlessKey:
+        ctrl_l = "ctrl_l"
+        ctrl_r = "ctrl_r"
+        f13 = "f13"
+
+    class _HeadlessKeyboard:
+        Key = _HeadlessKey
+
+    keyboard = _HeadlessKeyboard()  # type: ignore
 
 # Persistent file log for dictation pipeline debugging. Rotated -- this
 # process runs for days at a time and an unbounded FileHandler here grows
@@ -62,6 +91,12 @@ _PAREC_DEVICE_ARGS = ["--device", _AUDIO_INPUT] if _AUDIO_INPUT else []
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8002")
 SENSEI_SESSION = os.environ.get("SENSEI_SESSION", "focus-engine")
 
+# Tahuti goal fork: default OFF. When TAHUTI_GOALS=1 and Ctrl is held during an
+# F13 take, the transcript is written to ~/.tahuti/goals/ instead of typed.
+TAHUTI_GOALS = os.environ.get("TAHUTI_GOALS", "") == "1"
+GOALS_DIR = os.path.expanduser("~/.tahuti/goals")
+TRANSCRIPT_LOG_FILE = os.path.join(config_dir(), "transcript_log.jsonl")
+
 # ---------------------------------------------------------------------------
 # Transcription style toggle (controlled by slide_keyboard.py mode button)
 # ---------------------------------------------------------------------------
@@ -69,6 +104,31 @@ ensure_config_dir()
 MODE_FILE = os.path.join(config_dir(), "ptt_mode")
 VOCAB_FILE = os.path.join(config_dir(), "ptt_vocabulary.json")
 INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
+DICTATION_TARGET_FILE = os.path.join(config_dir(), "ai_controller_dictation_target")
+# Live caption for the avatar prompt box (2026-10-31): ptt publishes what it
+# heard + where it went; the avatar pulse displays it so the operator sees
+# words land and render to a model. Never raises.
+CAPTION_FILE = os.path.join(config_dir(), "tahuti_caption.json")
+
+
+def _write_caption(text: str, state: str) -> None:
+    try:
+        with open(CAPTION_FILE, "w", encoding="utf-8") as f:
+            json.dump({"text": text[:300], "state": state,
+                       "time": time.time()}, f)
+    except Exception as exc:
+        log.warning(f"caption write failed: {exc}")
+
+
+def _read_caption(max_age: float = 60.0) -> dict:
+    try:
+        with open(CAPTION_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        if time.time() - float(data.get("time", 0)) > max_age:
+            return {}
+        return data
+    except Exception:
+        return {}
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
 # ---------------------------------------------------------------------------
@@ -183,6 +243,23 @@ def _load_input_target() -> str:
         with open(INPUT_TARGET_FILE, "r", encoding="utf-8") as f:
             target = f.read().strip().lower()
             if target in ("type", "clipboard"):
+                return target
+    except Exception:
+        pass
+    return "type"
+
+
+def _load_dictation_target() -> str:
+    """Return dictation target: 'type' (default) or 'agent' (execute mode).
+
+    Shared with slide_keyboard.py's mode-bar toggle, which persists the same
+    file. The L+R trigger (Ctrl held) promotes a single take to agent
+    regardless of this file; the file persists the button state.
+    """
+    try:
+        with open(DICTATION_TARGET_FILE, "r", encoding="utf-8") as f:
+            target = f.read().strip().lower()
+            if target in ("type", "agent"):
                 return target
     except Exception:
         pass
@@ -654,6 +731,75 @@ def _send_browser_text(text):
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
+
+def _speak_headless(text: str) -> None:
+    """Speak text through the voice bridge /speak endpoint (headless output path).
+
+    GUI takes type into the focused window; headless has no window, so the
+    transcript is spoken back instead. Failures only warn — the transcript is
+    already logged by the caller, so a dead bridge must not fail the take.
+    The x-api-key header is sent only when VOICE_BRIDGE_API_KEY is set
+    (unset today; added so a future 401 is a one-line diagnosis, not a bug).
+    """
+    if not text:
+        return
+    cmd = ['curl', '-s', '-X', 'POST', f'{BRIDGE_URL}/speak',
+           '-F', f'text={text[:500]}']
+    api_key = os.environ.get("VOICE_BRIDGE_API_KEY", "")
+    if api_key:
+        cmd += ['-H', f'x-api-key: {api_key}']
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except Exception as exc:
+        log.warning(f"Headless /speak POST failed: {exc}")
+
+
+def _write_goal(text: str) -> None:
+    """Write a Tahuti goal JSON file from a Ctrl+F13 take.
+
+    Uses the shared voice_goal_schema payload so the runner's validation
+    accepts it (plain {id,transcript,timestamp} payloads fail as missing
+    type/time — observed 2026-10-31, takes silently died). Atomic temp+rename
+    into the queue directory the headless runner watches."""
+    try:
+        payload = vgs.build_goal_payload(text)
+        payload["source"] = "ptt_pynput"
+        goal_id = payload["id"]
+        os.makedirs(GOALS_DIR, exist_ok=True)
+        path = os.path.join(GOALS_DIR, f"{goal_id}.json")
+        tmp_path = f"{path}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp_path, path)
+        log.info(f"Goal written: {path}")
+        _notify_hermex("Goal captured", text[:120], urgency="normal")
+    except Exception as exc:
+        log.error(f"Failed to write goal: {exc}")
+        _notify_hermex("Goal failed", str(exc)[:120], urgency="high", sound=True)
+
+
+def _append_transcript_log(transcript: str, response: str = "", target: str = "") -> None:
+    """Append one JSONL line to the shared transcript log.
+
+    Never raises: a log failure must not break a take (the goal file and
+    spoken response are the real outputs; this is the audit trail).
+    """
+    try:
+        os.makedirs(os.path.dirname(TRANSCRIPT_LOG_FILE), exist_ok=True)
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "transcript": transcript,
+            "response": response,
+            "target": target,
+            "source": "ptt_pynput",
+        }
+        with open(TRANSCRIPT_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        log.warning(f"transcript log append failed: {exc}")
+
+
 # Controller headset mic is 24000 Hz mono s16le. Capture at native rate
 # through PulseAudio (parec) to avoid ALSA resampling artifacts.
 SAMPLE_RATE = 24000
@@ -704,6 +850,11 @@ _SHORT_HALLUCINATIONS = {
     "thank you", "thanks", "thank", "check", "yellow", "yep", "yup",
     "mm", "hmm", "um", "uh", "mhm", "okay", "ok",
 }
+
+# Modifier / goal-fork state. Ctrl is tracked both by pynput (X11) and the
+# evdev fallback so Ctrl+F13 works whichever path delivers F13.
+_ctrl_held = False
+_goal_take = False
 
 
 def _active_window():
@@ -939,15 +1090,26 @@ def start_recording():
             _warmup_mic()
             # Save the currently focused window so we can restore focus before typing.
             # AntiMicroX or other apps may steal focus during recording.
-            _focus_window = _active_window()
+            # Headless: no window to snapshot and no xdotool to send with —
+            # takes are spoken, never typed.
+            if HEADLESS:
+                _focus_window = None
+                log.info("skipping focus snapshot + auto-space (headless)")
+            else:
+                _focus_window = _active_window()
             # Auto-space before dictation so consecutive utterances don't run together.
             # 2026-09-07: removed TUI skip. Hermes, Anthropic, and Sensei all benefit
             # from a leading space; the previous title-based TUI detection was
             # suppressing the space in Hermes and breaking the user's muscle memory.
-            if _focus_window is not None:
+            # Goal takes skip the auto-space because nothing is typed.
+            if HEADLESS:
+                pass
+            elif _focus_window is not None and not _goal_take:
                 subprocess.run(['xdotool', 'key', 'space'],
                                env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+            elif _goal_take:
+                log.info("skipping auto-space (goal take)")
             else:
                 log.info("skipping auto-space (no focus window)")
             fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
@@ -1093,7 +1255,7 @@ def _reap_orphan_recorders():
 
 
 def stop_and_send():
-    global recording, rec_proc, rawfile, wavfile, _last_f13_time
+    global recording, rec_proc, rawfile, wavfile, _last_f13_time, _goal_take
     _processing_lock.acquire()
     try:
         with lock:
@@ -1168,15 +1330,23 @@ def stop_and_send():
             # max(30s, 5 * duration + 30s) so long paragraphs don't get killed
             # at a hard 60s wall.
             stt_timeout = max(30, int(duration * 5) + 30)
+            # Agent takes (L+R trigger, or the slide-keyboard AGENT toggle)
+            # go to the bridge in execute mode so the response is spoken;
+            # text takes stay transcribe-only.
+            file_agent = _load_dictation_target() == "agent"
+            bridge_mode = "execute" if (_goal_take or file_agent) else "transcribe_only"
             r = subprocess.run(
                 ['curl', '-s', '-X', 'POST', endpoint,
-                 '-F', f'audio=@{wavfile}', '-F', 'mode=transcribe_only',
+                 '-F', f'audio=@{wavfile}', '-F', f'mode={bridge_mode}',
                  '-H', 'Accept: application/json'],
                 capture_output=True, text=True, timeout=stt_timeout)
             data = json.loads(r.stdout)
             # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
+            # Task-routed takes also carry {"routed": "task"} — the bridge already
+            # filed the enriched goal, so ptt must NOT file a duplicate.
             transcript = data.get('text', data.get('transcript', ''))
             response = data.get('response', data.get('error', '')).strip()
+            routed_task = data.get('routed', '') == 'task'
 
             # Short accidental trigger presses often produce hallucinated single words
             # from controller/mic noise. Skip them instead of typing garbage.
@@ -1188,51 +1358,91 @@ def stop_and_send():
             # Fast personal-vocabulary autocorrect (applies to PRO and BUBBLY)
             transcript = _apply_vocabulary(transcript)
 
+            # Goal fork: preserve the vocab-corrected transcript before style
+            # transforms (bubbly/bold/etc.) so goals get content, not formatting.
+            # The slide-keyboard AGENT toggle counts as an agent take too.
+            agent_take = (_goal_take or file_agent) and bool(transcript)
+            goal_text = transcript if (agent_take and transcript) else None
+            if agent_take and goal_text:
+                # Avatar prompt box: show what was heard going to the agent.
+                _write_caption(goal_text, "heard")
+
             # Apply PRO / BUBBLY / CASUAL / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
             if mode in ("bubbly", "casual", "bold", "big") and transcript:
                 transcript = _transform_text(transcript, mode)
 
             if response:
                 log.info(f"Response: {response}")
+                if agent_take:
+                    # Agent take answered: queue the goal file and the shared
+                    # transcript log (slide-keyboard notepad) alongside the
+                    # spoken response. Non-agent takes never reach here with
+                    # a response (transcribe_only returns text only).
+                    # Task-routed takes excluded: the bridge filed the enriched
+                    # goal already; filing here would duplicate the queue.
+                    if goal_text is not None:
+                        if routed_task:
+                            log.info("Task routed — goal filed by bridge, skipping duplicate")
+                        else:
+                            _write_goal(goal_text)
+                        _append_transcript_log(goal_text, response=response, target="agent")
+                        _notify_hermex("Agent transcript", goal_text[:120], urgency="normal")
+                _goal_take = False
             elif transcript:
-                target = _load_input_target()
-
-                # Only explicit clipboard target skips typing. Everything else goes
-                # through xdotool type — clipboard auto-paste proved unreliable in
-                # the operator's target windows.
-                use_clipboard = (target == "clipboard")
-
-                log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
-                _notify_hermex("Transcript ready", transcript[:120], urgency="normal")
-                time.sleep(_TYPE_SETTLE_MS / 1000.0)
-
-                if use_clipboard:
-                    _set_clipboard_text(transcript)
-                elif _is_browser_window():
-                    result = _send_browser_text(transcript)
-                    if not result.get("ok"):
-                        log.warning(f"Browser inject failed: {result.get('error')}")
+                if agent_take:
+                    if goal_text is not None:
+                        _write_goal(goal_text)
+                        _append_transcript_log(goal_text, response="", target="agent")
+                        _notify_hermex("Agent transcript", goal_text[:120], urgency="normal")
+                    _goal_take = False
+                elif HEADLESS:
+                    # No window to type into — speak instead. Goal takes above
+                    # behave identically headless or not (file write, no
+                    # /speak POST, no xdotool).
+                    log.info(f"Output (headless/spoken): {transcript}")
+                    _notify_hermex("Transcript ready", transcript[:120], urgency="normal")
+                    _speak_headless(transcript)
+                    _append_transcript_log(transcript, response="", target="headless")
                 else:
-                    # Type into the window that was active when recording started.
-                    # AntiMicroX or other overlays may have moved focus since then,
-                    # so we restore it explicitly before typing. We do NOT search
-                    # for the Hermes TUI — if the user clicked a different window,
-                    # their voice goes there, not here.
-                    global _focus_window
-                    target_window = _resolve_type_target(_focus_window)
-                    if target_window:
-                        try:
-                            subprocess.run(
-                                ['xdotool', 'windowfocus', '--sync', target_window],
-                                env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-                        except Exception:
-                            pass
+                    target = _load_input_target()
 
-                    # Leading space was already decided before capture started.
-                    _type_text_fast(transcript, mode, target_window=target_window)
+                    # Only explicit clipboard target skips typing. Everything else goes
+                    # through xdotool type — clipboard auto-paste proved unreliable in
+                    # the operator's target windows.
+                    use_clipboard = (target == "clipboard")
+
+                    log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
+                    _notify_hermex("Transcript ready", transcript[:120], urgency="normal")
+                    time.sleep(_TYPE_SETTLE_MS / 1000.0)
+
+                    if use_clipboard:
+                        _set_clipboard_text(transcript)
+                    elif _is_browser_window():
+                        result = _send_browser_text(transcript)
+                        if not result.get("ok"):
+                            log.warning(f"Browser inject failed: {result.get('error')}")
+                    else:
+                        # Type into the window that was active when recording started.
+                        # AntiMicroX or other overlays may have moved focus since then,
+                        # so we restore it explicitly before typing. We do NOT search
+                        # for the Hermes TUI — if the user clicked a different window,
+                        # their voice goes there, not here.
+                        global _focus_window
+                        target_window = _resolve_type_target(_focus_window)
+                        if target_window:
+                            try:
+                                subprocess.run(
+                                    ['xdotool', 'windowfocus', '--sync', target_window],
+                                    env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+                            except Exception:
+                                pass
+
+                        # Leading space was already decided before capture started.
+                        _type_text_fast(transcript, mode, target_window=target_window)
             else:
                 log.info("(nothing heard)")
+                _goal_take = False
         except Exception as ex:
             log.error(f"Error: {ex}")
             # Strip the home directory before this goes into a phone push
@@ -1263,7 +1473,11 @@ def stop_and_send():
 
 
 def on_press(key):
+    global _ctrl_held, _goal_take
     log.debug("Key pressed: %s (vk=%s)", key, getattr(key, 'vk', None))
+    if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+        _ctrl_held = True
+        return
     if key == keyboard.Key.f13:
         # 2026-09-15: reproduced live -- X11/antimicrox key-repeat fires
         # on_press() repeatedly for a single physical hold (observed: 11
@@ -1278,7 +1492,29 @@ def on_press(key):
         # key-repeat flood from doing anything at all past the first press.
         if (time.time() - _last_f13_time) * 1000 < _DEBOUNCE_MS:
             return
-        log.info("F13 PRESSED — starting recording")
+        # Dual trigger: L+R (Ctrl held) = agent take, R alone (F13) = text.
+        # Ungated: Ctrl held during the press always routes to the agent
+        # (bridge execute + spoken response + goal file). TAHUTI_GOALS=1 is
+        # kept as a legacy alias for the same behavior.
+        _goal_take = _ctrl_held
+        if _goal_take:
+            log.info("Ctrl+F13 PRESSED — agent take")
+            _write_caption("", "listening")
+            # L+R summons the avatar (2026-10-31): pulse the Tahuti overlay
+            # animation so the press is visible. Fire-and-forget — a dead
+            # overlay must never break voice.
+            try:
+                subprocess.Popen(
+                    ["/usr/bin/python3",
+                     os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"),
+                     "--pulse", "12"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                    env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")})
+            except Exception as exc:
+                log.warning(f"avatar pulse failed: {exc}")
+        else:
+            log.info("F13 PRESSED — starting recording")
         # Mute TTS IMMEDIATELY on press — do not wait for the recording thread.
         # This is the barge-in interrupt: RT press should stop agent speech instantly.
         _mute_tts()
@@ -1289,7 +1525,11 @@ def on_press(key):
 
 
 def on_release(key):
+    global _ctrl_held
     log.debug("Key released: %s (vk=%s)", key, getattr(key, 'vk', None))
+    if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+        _ctrl_held = False
+        return
     if key == keyboard.Key.f13:
         log.info("F13 RELEASED — stopping and sending")
         threading.Thread(target=stop_and_send, daemon=True).start()
@@ -1373,6 +1613,11 @@ def _run_evdev_listener():
                 # struct input_event { long tv_sec; long tv_usec; __u16 type; __u16 code; __s32 value; }
                 _, _, ev_type, ev_code, ev_value = _struct.unpack("llHHi", buf)
                 # EV_KEY = 1, KEY_F13 = 0xb7 (183)
+                # Track Ctrl on the antimicrox device so Ctrl+F13 can be detected
+                # as a goal take regardless of whether X11/pynput saw the modifier.
+                if ev_type == 1 and ev_code in (29, 97):  # KEY_LEFTCTRL, KEY_RIGHTCTRL
+                    _ctrl_held = ev_value in (1, 2)
+                    continue
                 # Only handle F13 — let all other keys pass through to X11
                 if ev_type == 1 and ev_code == 0xb7:
                     if ev_value == 1:
@@ -1390,9 +1635,22 @@ def _run_evdev_listener():
                 pass
             time.sleep(0.3)
 
+# Both overlaid to the F13 keysym by fix-f13-keymap.sh / controller-profile-switcher.sh
+# (`xmodmap -e "keycode 191 = F13"` and `... 202 = F13`). Two raw X11 keycodes carry
+# F13 here because antimicrox's uinput backend can synthesize this trigger as either
+# kernel KEY_F13 (evdev 183 -> X11 keycode 191) or KEY_F24 (evdev 194 -> X11 keycode
+# 202) depending on which slot/profile state fired — see trigger index="6" vs "5" in
+# the loaded .amgp. keysym_to_keycode() only ever resolves ONE of the two (2026-10-06:
+# confirmed it picked 191), so a grab built from it silently left the other keycode
+# ungrabbed and X11 kept delivering literal "F13" to whatever window had focus every
+# time the trigger happened to fire through that second path. Grab both, unconditionally.
+_F13_KEYCODES = (191, 202)
+
+
 def _run_x11_f13_grab():
-    """Globally grab the F13 KEYSYM (not the device) so X11 stops delivering
-    it to whatever window has focus.
+    """Globally grab both F13-overlaid KEYCODES (not the device, not just one
+    keysym resolution) so X11 stops delivering either of them to whatever
+    window has focus.
 
     2026-09-08: reproduced live — F13 presses were landing as literal "F13"
     text in the focused window (a terminal with no F13 binding), because the
@@ -1400,13 +1658,18 @@ def _run_x11_f13_grab():
     every OTHER AntiMicroX-mapped key keeps flowing to X11 normally. An
     exclusive EVIOCGRAB on the device was tried before and reverted for
     exactly that reason — it would silence every button on this device, not
-    just F13. XGrabKey is the selective tool: it grabs one keysym server-wide
+    just F13. XGrabKey is the selective tool: it grabs a keycode server-wide
     regardless of which device injects it, and leaves everything else alone.
     The actual PTT start/stop logic still comes entirely from the evdev
     listener above — this thread only has to keep draining the grabbed
-    key's events off this connection so they never escape to focus."""
+    keys' events off this connection so they never escape to focus.
+
+    Grabbing by raw keycode (not a keysym lookup) also means this no longer
+    needs to wait for the xmodmap overlay to land first: XGrabKey operates
+    on the keycode itself, independent of whatever symbol X11 currently
+    maps it to."""
     try:
-        from Xlib import XK, X
+        from Xlib import X
         from Xlib import display as _xdisplay
     except ImportError:
         log.warning("python-xlib not available — F13 will keep leaking to focused windows")
@@ -1416,14 +1679,21 @@ def _run_x11_f13_grab():
         try:
             disp = _xdisplay.Display()
             root = disp.screen().root
-            keysym = XK.string_to_keysym("F13")
-            keycode = disp.keysym_to_keycode(keysym)
-            if not keycode:
-                log.warning("X11 has no keycode mapped for F13 keysym — nothing to grab")
-                return
-            root.grab_key(keycode, X.AnyModifier, True, X.GrabModeAsync, X.GrabModeAsync)
+            grabbed = []
+            for keycode in _F13_KEYCODES:
+                try:
+                    root.grab_key(keycode, X.AnyModifier, True, X.GrabModeAsync, X.GrabModeAsync)
+                    grabbed.append(keycode)
+                except Exception as e:
+                    log.warning("X11 F13 grab failed for keycode=%s (%s)", keycode, e)
+            if not grabbed:
+                log.warning("Could not grab any F13 keycode %s — retrying in %.1fs", _F13_KEYCODES, backoff)
+                disp.close()
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 10.0)
+                continue
             disp.sync()
-            log.info("X11 F13 grab active (keycode=%s) — F13 will no longer reach focused windows", keycode)
+            log.info("X11 F13 grab active (keycodes=%s) — F13 will no longer reach focused windows", grabbed)
             backoff = 1.0
             while True:
                 disp.next_event()  # drain grabbed KeyPress/KeyRelease; PTT logic lives in the evdev thread
@@ -1445,12 +1715,22 @@ _evdev_thread = _thr.Thread(target=_run_evdev_listener, daemon=True, name="evdev
 _evdev_thread.start()
 
 # Start X11 F13 grab thread (stops F13 from leaking into focused windows —
-# purely a suppression layer, the evdev thread above still does the PTT work)
-_x11_grab_thread = _thr.Thread(target=_run_x11_f13_grab, daemon=True, name="x11-f13-grab")
-_x11_grab_thread.start()
-
-with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+# purely a suppression layer, the evdev thread above still does the PTT work).
+# Headless: no X server to grab from and no pynput listener to run — the evdev
+# thread above is the whole trigger path. Park the main thread so the daemon
+# threads stay alive.
+if HEADLESS:
+    log.info("skipping X11 F13 grab + pynput listener (headless: evdev only)")
     try:
-        listener.join()
+        _thr.Event().wait()
     except KeyboardInterrupt:
         log.info("Stopped.")
+else:
+    _x11_grab_thread = _thr.Thread(target=_run_x11_f13_grab, daemon=True, name="x11-f13-grab")
+    _x11_grab_thread.start()
+
+    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+        try:
+            listener.join()
+        except KeyboardInterrupt:
+            log.info("Stopped.")
