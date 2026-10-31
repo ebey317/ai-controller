@@ -274,6 +274,10 @@ class STTError(RuntimeError):
 
 GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_STT_MODEL = "whisper-large-v3-turbo"
+# One deliberate divergence from voice_bridge.py's prompt: "Tahuti"
+# leads this copy (f33e70b). The bridge's vocabulary omits the name,
+# and Groq returned it as "Tawhiri" / "to hoodie" in live proofs
+# (2026-10-31). Everything else mirrors the bridge verbatim.
 GROQ_STT_PROMPT = (
     "Common terms: Tahuti, CLAF, Madam Mary, Hermes, Kimi, "
     "Groq, Whisper, STT, TTS, PTT, Xbox, Microsoft, AI controller, "
