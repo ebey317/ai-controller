@@ -390,10 +390,34 @@ _EMAIL_TRIGGER_RE = re.compile(
 )
 
 
+def _tools_with_live_open_app(tools: list[dict]) -> list[dict]:
+    """Rewrite open_app's description with the operator's actual current
+    pin names instead of the hardcoded 5-app list. Without this the model
+    is told pins don't exist ("anything else is refused by the harness")
+    even though _open_app_tool already handles them -- observed 2026-10-31
+    as the model never even attempting "open hermes"/"open claude"/etc.
+    Replaces the dict rather than mutating FILE_TOOLS' shared object."""
+    pins = _reachable_pin_names()
+    pin_note = f" Also recognized pins: {', '.join(pins)}." if pins else ""
+    out = []
+    for tool in tools:
+        if tool.get("name") == "open_app":
+            tool = dict(tool)
+            tool["description"] = (
+                "Launch an app NOW (live, no approval needed). Allowed names: "
+                "chrome (web browser), thunderbird (email), terminal, files (file manager), "
+                "code (Master AI Sensei, a local terminal agent)."
+                + pin_note +
+                " Anything else is refused by the harness — say it needs approval."
+            )
+        out.append(tool)
+    return out
+
+
 def _all_tools(transcript: str) -> list[dict]:
     """Tools offered for this transcript: file tools plus optional web search
     and, only when the transcript itself plausibly mentions email, check_email."""
-    tools: list[dict] = list(FILE_TOOLS)
+    tools: list[dict] = _tools_with_live_open_app(FILE_TOOLS)
     lowered = transcript.lower()
     if "?" in transcript or any(
         w in lowered
@@ -595,6 +619,24 @@ def _pin_commands() -> dict:
     return out
 
 
+def _reachable_pin_names() -> list[str]:
+    """Pin labels open_app can actually reach via the pins fallback.
+
+    _open_app_tool checks APP_ALIASES before pins, so a pin label that's
+    also an alias target (e.g. "sensei" -> "code") is shadowed and never
+    reached regardless of what's in the pin itself. Excluding those here
+    keeps the model's own description of what it can open honest -- it
+    used to not even know pins existed at all (observed 2026-10-31: the
+    open_app tool description claimed "anything else is refused by the
+    harness," which was true for the model's own knowledge even though
+    the code underneath already handled pin names correctly).
+    """
+    try:
+        return sorted(name for name in _pin_commands() if name not in APP_ALIASES)
+    except Exception:
+        return []
+
+
 def _launch_visible(argv: list[str], tag: str) -> dict:
     """Launch a GUI program visibly. Records PID so 'show me your work'
     can raise the window. Fire-and-forget; never blocks."""
@@ -639,12 +681,29 @@ def _open_app_tool(name: str) -> dict:
         return {"ok": False, "error": f"app not installed here: {key}"}
     # Pins registry: operator's exec pins (hermes, claude, ...) run with the
     # same trust as the slide keyboard, which executes the identical text.
+    # Each pin toggles between variants (plain terminal launch, an update
+    # script, a URL, ...) via the slide keyboard's variant_index -- the
+    # TOP-LEVEL "text" field _pin_commands() reads is whichever variant is
+    # currently active. gnome-terminal/xdg-open variants already pop their
+    # own visible window, but a bare-script variant (e.g. the "Upd" variant
+    # of some pins is a plain shell script with no window of its own) used
+    # to run with stdout/stderr -> DEVNULL unconditionally -- completely
+    # silent, zero operator-visible feedback that anything happened at all
+    # (observed 2026-10-31). Anything that doesn't already self-launch
+    # visibly now gets wrapped in a titled terminal, same as scripts run
+    # via _pop_script_terminal elsewhere in this file.
     pins = _pin_commands()
     if key in pins:
+        text = pins[key]
+        self_visible = text.strip().startswith(("gnome-terminal", "xdg-open"))
         try:
+            if self_visible:
+                argv = ["bash", "-c", text]
+            else:
+                argv = ["gnome-terminal", f"--title={key}", "--", "bash", "-c",
+                        text + '; echo; echo "— done —"; exec bash']
             proc = subprocess.Popen(
-                ["bash", "-c", pins[key]],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True)
             try:
                 LAST_TERM_FILE.write_text(str(proc.pid), encoding="utf-8")
@@ -653,7 +712,8 @@ def _open_app_tool(name: str) -> dict:
             return {"ok": True, "opened": f"pin:{key}", "pid": proc.pid}
         except Exception as exc:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-    return {"ok": False, "error": f"app not allowlisted: {name} (chrome, thunderbird, terminal, files, code, or a pin name)"}
+    pin_names = ", ".join(_reachable_pin_names()) or "none configured"
+    return {"ok": False, "error": f"app not allowlisted: {name} (chrome, thunderbird, terminal, files, code, or a pin: {pin_names})"}
 
 
 AOL_MAIL_SCRIPT = os.path.expanduser("~/master-ai-cli/aol_mail.py")
