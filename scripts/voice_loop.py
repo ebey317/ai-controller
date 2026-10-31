@@ -275,7 +275,7 @@ class STTError(RuntimeError):
 GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_STT_MODEL = "whisper-large-v3-turbo"
 GROQ_STT_PROMPT = (
-    "Common terms: CLAF, Madam Mary, Hermes, Kimi, "
+    "Common terms: Tahuti, CLAF, Madam Mary, Hermes, Kimi, "
     "Groq, Whisper, STT, TTS, PTT, Xbox, Microsoft, AI controller, "
     "AI Desktop, Fair Chance, Command Center, Monday.com, Railway, "
     "Meta, Facebook, Indeed, ZipRecruiter, Discord, Telegram, Sensei."
