@@ -30,9 +30,10 @@ Schema (version 1):
                  "fade_when_done": true, "popup_on_approval": true}
     }
 
-- engine: "kokoro" | "piper" | "edge-tts"
+- engine: "kokoro" | "piper" | "edge" (the historical spelling
+  "edge-tts" stays valid as an alias for "edge")
 - voice: engine voice id (kokoro: "am_onyx"; piper: pack id or model
-  filename; edge-tts: "en-US-AriaNeural")
+  filename; edge: "en-US-ChristopherNeural")
 - rate: speaking-rate multiplier, 0.5..2.0 (1.0 = natural)
 - avatar.show_trigger: "talk_buttons" (the avatar pops up when the
   controller's L or R talk button is pressed -- the default) |
@@ -84,7 +85,18 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from ai_controller_paths import config_dir  # noqa: E402
 
-ENGINES = ("kokoro", "piper", "edge-tts")
+ENGINES = ("kokoro", "piper", "edge", "edge-tts")
+EDGE_ENGINES = ("edge", "edge-tts")
+
+
+def canonical_engine(engine) -> str:
+    """One name per engine family: the Edge bridge is "edge".
+
+    Profiles written before the Tahuti voice loop say "edge-tts";
+    they mean the same Microsoft Edge TTS bridge, so render paths
+    canonicalize instead of forcing a file migration.
+    """
+    return "edge" if engine in EDGE_ENGINES else engine
 RATE_MIN, RATE_MAX = 0.5, 2.0
 PITCH_MIN, PITCH_MAX = -12.0, 12.0
 SCALE_MIN, SCALE_MAX = 0.25, 3.0
@@ -159,6 +171,17 @@ DEFAULT_PROFILES = {
             "pitch_semitones": 0.0,
             "rate": 1.07,
         },
+        # Demo bridge for the Tahuti voice loop (2026-10-31): a
+        # grown en-US male neural voice at Lijah's 1.07 cadence,
+        # behind the same profile + voice_fx knobs. This is a
+        # SEPARATE preset -- Tahuti's locked local default above
+        # does not move.
+        "tahuti_demo": {
+            "engine": "edge",
+            "voice": "en-US-ChristopherNeural",
+            "pitch_semitones": 0.0,
+            "rate": 1.07,
+        },
     },
     # Slide-keyboard avatar overlay. Defaults locked by Lijah
     # 2026-10-31: feature armed, Tahuti active, pops up on the L/R
@@ -181,7 +204,19 @@ DEFAULT_PROFILES = {
     },
 }
 
+DEMO_PROFILE_NAME = "tahuti_demo"
+TAHUTI_DEMO_PROFILE = {
+    "engine": "edge",
+    "voice": "en-US-ChristopherNeural",
+    "pitch_semitones": 0.0,
+    "rate": 1.07,
+}
+
 PREVIEW_LINES = {
+    "tahuti_demo": (
+        "I am Tahuti. I keep the record, I weigh the words, and "
+        "nothing moves without your approval."
+    ),
     "tahuti": (
         "I am Tahuti. I keep the record, I weigh the words, and "
         "nothing moves without your approval."

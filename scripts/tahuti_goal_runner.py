@@ -66,6 +66,18 @@ GRANTS_FILE = Path.home() / ".tahuti" / "grants.json"
 DONE_DIR = GOALS_DIR / "done"
 FAILED_DIR = GOALS_DIR / "failed"
 LAST_RESPONSE_FILE = Path(ai_controller_paths.config_dir()) / "last_agent_response.md"
+CAPTION_FILE = Path(ai_controller_paths.config_dir()) / "tahuti_caption.json"
+
+
+def _write_caption(text: str, state: str) -> None:
+    """Avatar prompt box feed (2026-10-31): publish run state for display."""
+    try:
+        CAPTION_FILE.write_text(
+            json.dumps({"text": text[:300], "state": state, "time": time.time()}),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning("caption write failed: %s", exc)
 
 META_RESPONSES_URL = "https://api.meta.ai/v1/responses"
 DEFAULT_MODEL = os.environ.get("TAHUTI_RUNNER_MODEL", "muse-wonder-1.0")
@@ -630,11 +642,17 @@ def _pop_script_terminal(cmd: list[str], title: str) -> None:
     try:
         import shlex
         line = " ".join(shlex.quote(c) for c in cmd)
-        subprocess.Popen(
+        proc = subprocess.Popen(
             ["gnome-terminal", f"--title={title}", "--", "bash", "-c",
              line + '; echo; echo "— done —"; exec bash'],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
+        # Tracked: "show me your work" raises this terminal.
+        try:
+            Path("/tmp/tahuti-last-term.pid").write_text(
+                str(proc.pid), encoding="utf-8")
+        except Exception:
+            pass
     except Exception as exc:
         logger.warning("visible terminal failed: %s", exc)
 
@@ -943,6 +961,29 @@ def _write_approval_request(goal_id: str, goal: dict) -> None:
     os.replace(tmp, path)
 
 
+def _show_work_avatar() -> None:
+    """Raise the avatar for the duration of a job (2026-10-31): the animation
+    shows WHILE working, fed live by the caption file (working/done states).
+    Kills any previous pulse so windows never stack. Fire-and-forget."""
+    pidfile = Path("/tmp/tahuti-work-pulse.pid")
+    try:
+        old = int(pidfile.read_text(encoding="utf-8").strip())
+        os.kill(old, 9)
+    except Exception:
+        pass
+    try:
+        proc = subprocess.Popen(
+            ["/usr/bin/python3",
+             os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"),
+             "--pulse", "180"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")})
+        pidfile.write_text(str(proc.pid), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("work avatar failed: %s", exc)
+
+
 def _process_show() -> str:
     """Deterministic 'show me your work': raise the live agent terminal.
 
@@ -973,6 +1014,7 @@ def _process_goal(path: Path) -> None:
     except OSError as exc:
         logger.debug("Could not claim %s: %s", path, exc)
         return
+    _show_work_avatar()
 
     try:
         with open(claim_path, "r", encoding="utf-8") as f:
@@ -1001,6 +1043,7 @@ def _process_goal(path: Path) -> None:
         return
 
     logger.info("Processing goal %s: %r", goal_id, transcript[:120])
+    _write_caption(transcript, "working")
 
     # Deterministic intents bypass the model entirely: zero tokens, instant.
     if goal.get("type") == "show":
@@ -1044,6 +1087,7 @@ def _process_goal(path: Path) -> None:
 
     _post_speak(response)
     _write_last_response(transcript, worker, response, model=model)
+    _write_caption(response if response else transcript, "done")
     # Full answer in the push body (not a snippet): the phone pane shows the
     # work itself — Termux/Termux read the notification, zero extra build.
     _notify(
