@@ -6,6 +6,10 @@ After=network.target
 [Service]
 Type=simple
 Environment=AI_CONTROLLER_DIR=%h/ai-controller
+# DISPLAY/XAUTHORITY: open_url/open_app launch real GUI programs — without
+# these they Popen-successfully and die silently (observed 2026-10-30).
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
 Environment=BRIDGE_URL=http://127.0.0.1:8002
 EnvironmentFile=%h/.config/ai-controller/config.env
 EnvironmentFile=%h/.hermes/.env

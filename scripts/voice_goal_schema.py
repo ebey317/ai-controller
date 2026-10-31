@@ -28,10 +28,23 @@ _CHAT_WORDS = {
     "hello", "hi", "hey", "thanks", "thank",
 }
 
+# Deterministic intent routing (2026-10-30): some requests resolve to a
+# fixed handler, no model guessing. Email: "check/read/show ... email/mail/
+# inbox" is always a task (type "email") — "check the weather" stays chat
+# because it has no email word. Show: "show me your work" opens the last
+# response file deterministically (type "show") — zero tokens.
+_EMAIL_WORDS = {"email", "emails", "mail", "inbox", "inboxes"}
+_EMAIL_VERBS = {"check", "read", "show", "see", "get", "fetch", "look"}
+_SHOW_WORDS = {"work", "result", "results", "answer"}
+_SHOW_VERBS = {"show", "display", "open"}
 # Leading words that mark a spoken question even without a trailing "?".
+# NOTE 2026-10-30: can/could/will/would are NOT here — polite commands
+# ("can you open facebook") must reach the runner's open tools, and without
+# a task verb they still fall through to chat below. "do/does/did" stay:
+# "do you write poetry" is a question, not a task.
 _QUESTION_LEADERS = {
     "what", "who", "when", "where", "why", "how", "is", "are", "was", "were",
-    "do", "does", "did", "can", "could", "will", "would", "should", "shall",
+    "do", "does", "did", "should", "shall",
     "am", "may", "might",
 }
 
@@ -71,6 +84,18 @@ def classify_transcript(transcript: str) -> str:
     if any(tok in _NEGATION_TOKENS for tok in tokens):
         return "chat"
 
+    # Email intent: deterministic, resolved before anything else. "Check my
+    # emails" must not depend on the model guessing — it maps to the email
+    # handler. Requires an email word AND an email verb so "email me the
+    # weather" style chatter without one stays on the normal path.
+    tokset = set(tokens)
+    if tokset & _EMAIL_WORDS and tokset & (_EMAIL_VERBS | TASK_VERBS):
+        return "task"
+
+    # Show intent: "show me your work" — deterministic file open, no model.
+    if tokset & _SHOW_WORDS and tokset & _SHOW_VERBS:
+        return "task"
+
     if any(tok in TASK_VERBS for tok in tokens):
         return "task"
 
@@ -82,22 +107,33 @@ def classify_transcript(transcript: str) -> str:
 
 
 def task_type(transcript: str) -> Optional[str]:
-    """Return the first genuine task verb found in the transcript."""
+    """Return the intent type: 'email' for email checks, else first task verb."""
     # Skip task verbs inside negated or question contexts.
     if classify_transcript(transcript) != "task":
         return None
-    for tok in _tokens(transcript):
+    toks = _tokens(transcript)
+    tokset = set(toks)
+    if tokset & _EMAIL_WORDS and tokset & (_EMAIL_VERBS | TASK_VERBS):
+        return "email"
+    if tokset & _SHOW_WORDS and tokset & _SHOW_VERBS:
+        return "show"
+    for tok in toks:
         if tok in TASK_VERBS:
             return tok
     return None
 
 
-def build_goal_payload(transcript: str) -> dict:
+def build_goal_payload(transcript: str, effort: Optional[str] = None) -> dict:
     """Build a goal file payload that satisfies the shared schema."""
-    return {
+    payload = {
         "id": uuid.uuid4().hex,
         "transcript": transcript,
         "type": task_type(transcript) or "task",
         "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "source": "voice_bridge",
     }
+    # Selective thinking (Master AI vocabulary): none/low/medium/high/xhigh.
+    # Runner honors it when valid; otherwise its own defaults apply.
+    if effort in ("none", "low", "medium", "high", "xhigh"):
+        payload["effort"] = effort
+    return payload

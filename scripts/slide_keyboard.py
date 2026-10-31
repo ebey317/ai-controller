@@ -485,6 +485,15 @@ class SlideKeyboard(Gtk.Window):
         self.mode_btn.connect("clicked", self._on_mode_cycle)
         self.mode_bar.pack_start(self.mode_btn, False, False, 0)
 
+        # SETUP: same wide toggle shape as the other mode-bar buttons.
+        # Reopens the setup wizard (controller_setup.py) in a terminal --
+        # voice tuning on the shared profile, avatar settings, Telegram --
+        # so setup is one tap from the keyboard, never a hunt for a command.
+        self.setup_btn = Gtk.Button(label="SETUP")
+        self.setup_btn.get_style_context().add_class("mode")
+        self.setup_btn.connect("clicked", self._on_setup)
+        self.mode_bar.pack_start(self.setup_btn, False, False, 0)
+
         # Voice toggle: cycles between unlocked voice packs (aria ↔ joe).
         self.voice_btn = Gtk.Button(label=self._voice_label())
         self.voice_btn.get_style_context().add_class("mode")
@@ -770,6 +779,34 @@ class SlideKeyboard(Gtk.Window):
         except Exception:
             name = "?"
         return f"🔊 {name}"
+
+    def _on_setup(self, _widget):
+        """Launch the AI Controller setup wizard in a fresh terminal.
+
+        The wizard is scripts/controller_setup.py (interactive setup +
+        doctor). It edits the shared voice profile both the keyboard and
+        the avatars read. Falls back across the terminal emulators this
+        box actually has; logs and gives up quietly if none exist.
+        """
+        script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "controller_setup.py"
+        )
+        inner = (
+            f"cd {shlex.quote(os.path.dirname(script))} && "
+            f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash"
+        )
+        for term_cmd in (
+            ["gnome-terminal", "--", "bash", "-lc", inner],
+            ["x-terminal-emulator", "-e", "bash", "-lc", inner],
+            ["xterm", "-e", "bash", "-lc", inner],
+        ):
+            if shutil.which(term_cmd[0]):
+                try:
+                    subprocess.Popen(term_cmd)
+                except Exception:
+                    log.warning("SETUP launch failed", exc_info=True)
+                return
+        log.warning("SETUP button: no terminal emulator found")
 
     def _on_voice_toggle(self, _widget):
         """Cycle to the next unlocked voice and speak a confirmation."""

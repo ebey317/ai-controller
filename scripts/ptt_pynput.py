@@ -1469,6 +1469,19 @@ def on_press(key):
         _goal_take = _ctrl_held
         if _goal_take:
             log.info("Ctrl+F13 PRESSED — agent take")
+            # L+R summons the avatar (2026-10-31): pulse the Tahuti overlay
+            # animation so the press is visible. Fire-and-forget — a dead
+            # overlay must never break voice.
+            try:
+                subprocess.Popen(
+                    ["/usr/bin/python3",
+                     os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"),
+                     "--pulse", "6"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                    env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")})
+            except Exception as exc:
+                log.warning(f"avatar pulse failed: {exc}")
         else:
             log.info("F13 PRESSED — starting recording")
         # Mute TTS IMMEDIATELY on press — do not wait for the recording thread.

@@ -62,6 +62,7 @@ logger.info("Tahuti goal runner starting — logs at %s", LOG_FILE)
 
 GOALS_DIR = Path.home() / ".tahuti" / "goals"
 APPROVALS_DIR = Path.home() / ".tahuti" / "approvals"
+GRANTS_FILE = Path.home() / ".tahuti" / "grants.json"
 DONE_DIR = GOALS_DIR / "done"
 FAILED_DIR = GOALS_DIR / "failed"
 LAST_RESPONSE_FILE = Path(ai_controller_paths.config_dir()) / "last_agent_response.md"
@@ -76,19 +77,25 @@ POLL_INTERVAL = float(os.environ.get("TAHUTI_RUNNER_POLL_INTERVAL", "2"))
 MODEL_TIMEOUT = float(os.environ.get("TAHUTI_RUNNER_MODEL_TIMEOUT", "120"))
 
 SAFETY_PROMPT = (
-    "You are the Tahuti headless agent (v1). You may research, write, answer, "
-    "read files, and open things: open_url opens a web URL in the browser, "
-    "open_app launches one of the allowlisted apps (chrome, terminal, files). "
-    "Decide per task whether a tool fits — safe, reversible opens go through "
-    "the tools immediately; do not ask for approval for those. "
-    "You have three file tools: read_file (live), list_dir (live), "
-    "and write_file (creates an approval request for Elijah, never writes immediately). "
-    "You must NOT run shell commands, operate the desktop beyond the open tools, "
-    "click, type, install or uninstall software, start/stop/restart services, "
-    "shutdown or reboot, delete or remove files, send messages, buy anything, "
-    "or perform any other irreversible action. "
-    "If a request would require any of those, refuse and explain that it needs Elijah's approval. "
-    "Keep replies concise, plain words, and easy to speak aloud. Under 3 sentences."
+    "You are Tahuti, the headless agent on the operator's Linux desktop — "
+    "a model with live tools, and you know your framework. YOUR TOOLS: "
+    "open_url (open any website now), open_app (chrome, thunderbird, "
+    "terminal, files, code — the coding agent), check_email (read-only "
+    "inbox check), read_file and list_dir (home directory only), "
+    "write_file (queues an approval request, never writes directly), "
+    "web_search (offered on lookup tasks). Decide per task which tool fits "
+    "and act immediately on safe, reversible ones — no approval needed. "
+    "YOUR HARNESS: controller L+R and the keyboard AGENT toggle file goals "
+    "to ~/.tahuti/goals; anything you cannot do waits in ~/.tahuti/approvals "
+    "for the operator; your final message is spoken aloud and saved. CLAF "
+    "(tiered model router) and the Hermes gateway also live on this machine, "
+    "but you cannot call them — never claim otherwise. "
+    "The native coding agent is Master AI Sensei — always name it exactly "
+    "that, never Claude or another agent. "
+    "HARD NOS: no shell or terminal, no clicking or typing, no services, "
+    "no installs, no deletes, no sending or buying. Route those to approval "
+    "with a one-line reason. Replies concise, plain spoken words, under 3 "
+    "sentences."
 )
 
 APPROVAL_VERBS = {
@@ -154,7 +161,7 @@ FILE_TOOLS = [
         "name": "write_file",
         "description": (
             "Propose writing content to a file. This tool does NOT write immediately; "
-            "it creates an approval request in ~/.tahuti/approvals/ for Elijah to review. "
+            "it creates an approval request in ~/.tahuti/approvals/ for the operator to review. "
             "Use this whenever the user asks to create, edit, or overwrite a file."
         ),
         "parameters": {
@@ -173,7 +180,7 @@ FILE_TOOLS = [
         "name": "open_url",
         "description": (
             "Open a web URL in the default browser NOW (live, no approval needed). "
-            "Use this whenever Elijah asks to open a website, link, or anything on "
+            "Use this whenever the operator asks to open a website, link, or anything on "
             "the web. Plain domain names work — https:// is added automatically."
         ),
         "parameters": {
@@ -190,15 +197,34 @@ FILE_TOOLS = [
         "name": "open_app",
         "description": (
             "Launch an app NOW (live, no approval needed). Allowed names: "
-            "chrome (web browser), terminal, files (file manager). "
+            "chrome (web browser), thunderbird (email), terminal, files (file manager), "
+            "code (the coding agent: terminal with Claude). "
             "Anything else is refused by the harness — say it needs approval."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "App name: chrome, terminal, or files"},
+                "name": {"type": "string", "description": "App name: chrome, thunderbird, terminal, files, or code"},
             },
             "required": ["name"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "check_email",
+        "description": (
+            "Check the operator's email NOW (live, read-only, no approval needed). "
+            "Returns the recent message list (UID, date, from, subject). Use this "
+            "whenever email, mail, or inbox is asked about — then summarize it "
+            "in the reply. Cannot send, delete, or fetch bodies beyond headers."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Look back N days (1-7, default 2)"},
+                "unread": {"type": "boolean", "description": "Unread only (default true)"},
+            },
             "additionalProperties": False,
         },
     },
@@ -228,10 +254,15 @@ def _load_meta_key() -> str:
     ):
         if src and not src.startswith("***") and len(src) > 20:
             return src
-    keychain = Path.home() / "Desktop" / "Projects" / "keychain" / "master_ai_keys"
-    if keychain.exists():
+    # Master AI keychains: home KV file first (canonical), then Desktop copy.
+    for keychain in (
+        Path.home() / ".master_ai_keys",
+        Path.home() / "Desktop" / "Projects" / "keychain" / "master_ai_keys",
+    ):
+        if not keychain.exists():
+            continue
         try:
-            for line in keychain.read_text().splitlines():
+            for line in keychain.read_text(errors="replace").splitlines():
                 if line.strip().startswith("MODEL_API_KEY="):
                     key = line.split("=", 1)[1].strip().strip('"\'')
                     if key and not key.startswith("***") and len(key) > 20:
@@ -243,6 +274,41 @@ def _load_meta_key() -> str:
 
 META_KEY = _load_meta_key()
 
+# Free fallback chain (2026-10-30): fetch/retrieval/small stuff rides free
+# keys; cron/background prefers OpenRouter/Nvidia free models. Meta is the
+# primary worker; when it fails (observed: Responses 503 while chat stayed
+# green), the runner degrades to an OpenRouter :free model instead of
+# erroring out loud. (Nvidia direct was tried first — its key 404s on chat
+# for this account.) Tools don't exist on the fallback path — direct
+# answers only.
+FALLBACK_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+FALLBACK_MODEL = os.environ.get(
+    "TAHUTI_FALLBACK_MODEL", "nvidia/nemotron-3.5-lightning:free")
+
+
+def _load_openrouter_key() -> str:
+    for src in (
+        os.environ.get("OPENROUTER_API_KEY", "").strip(),
+        ai_controller_paths.load_env().get("OPENROUTER_API_KEY", "").strip(),
+    ):
+        if src and not src.startswith("***") and len(src) > 20:
+            return src
+    for keychain in (
+        Path.home() / ".master_ai_keys",
+        Path.home() / "Desktop" / "Projects" / "keychain" / "master_ai_keys",
+    ):
+        if not keychain.exists():
+            continue
+        try:
+            for line in keychain.read_text(errors="replace").splitlines():
+                if line.strip().startswith("OPENROUTER_API_KEY="):
+                    key = line.split("=", 1)[1].strip().strip('"\'')
+                    if key and not key.startswith("***") and len(key) > 20:
+                        return key
+        except Exception:
+            pass
+    return ""
+
 
 def _model_for_transcript(text: str) -> tuple[str, str]:
     """Return (model, reasoning_effort)."""
@@ -250,6 +316,19 @@ def _model_for_transcript(text: str) -> tuple[str, str]:
     if any(h in lowered for h in CODE_HINTS):
         return CODE_MODEL, "medium"
     return DEFAULT_MODEL, "minimal"
+
+
+# Selective thinking (Master AI's level vocabulary). Meta rejects "none",
+# so it maps to minimal. Runner honors goal["effort"] when valid.
+EFFORT_MAP = {"none": "minimal", "low": "low", "medium": "medium",
+              "high": "high", "xhigh": "xhigh"}
+
+
+def _effort_for_goal(goal: dict, transcript: str) -> str:
+    effort = EFFORT_MAP.get((goal.get("effort") or "").strip().lower(), "")
+    if effort:
+        return effort
+    return _model_for_transcript(transcript)[1]
 
 
 def _extract_responses_text(data: dict) -> str:
@@ -348,12 +427,23 @@ def _write_file_tool(
         return {"ok": False, "error": "path outside home directory refused"}
     try:
         resolved = p.resolve()
+        # Granted writes execute for real (Master AI ALWAYS semantics).
+        # Everything else queues for the box.
+        if _is_granted("tahuti:write_file:background"):
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            tmp = resolved.with_name(resolved.name + ".tmp")
+            tmp.write_text(content, encoding="utf-8")
+            os.replace(tmp, resolved)
+            logger.info("granted write executed: %s", resolved)
+            return {"ok": True, "written": str(resolved)}
         APPROVALS_DIR.mkdir(parents=True, exist_ok=True)
+        import uuid
         safe_name = re.sub(r"[^\w.-]", "_", resolved.name) or "file"
-        approval_path = APPROVALS_DIR / f"{goal_id}_{safe_name}.pending.json"
+        approval_path = APPROVALS_DIR / f"{goal_id}_{safe_name}_{uuid.uuid4().hex}.pending.json"
         record = {
             "id": goal_id,
             "tool": "write_file",
+            "pattern_key": "tahuti:write_file:background",
             "path": str(resolved),
             "content": content,
             "reason": reason or "file write requested",
@@ -365,11 +455,27 @@ def _write_file_tool(
             json.dump(record, f, ensure_ascii=False)
             f.write("\n")
         os.replace(tmp, approval_path)
-        return {
-            "ok": True,
-            "queued": str(approval_path),
-            "note": "Approval request created; file has not been written yet.",
-        }
+        # The singleton native worker owns presentation and execution. Wait for
+        # its verified result so the model cannot mistake queued for completed.
+        subprocess.Popen(
+            ['/usr/bin/python3', str(Path(__file__).with_name('tahuti_approval_ui.py'))],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        result_path = approval_path.with_name(approval_path.name.replace('.pending.json', '.resolved.json'))
+        deadline = time.monotonic() + 150
+        while time.monotonic() < deadline:
+            if result_path.exists():
+                result = json.loads(result_path.read_text())
+                return {'ok': result.get('status') == 'executed',
+                        'status': result.get('status'),
+                        'decision': result.get('decision'),
+                        'path': str(resolved),
+                        'error': result.get('error', ''),
+                        'receipt': str(result_path)}
+            time.sleep(0.2)
+        # Cancel an unanswered request rather than let it execute later.
+        approval_path.unlink(missing_ok=True)
+        return {'ok': False, 'status': 'timeout', 'error': 'Approval timed out; not authorized.'}
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -379,19 +485,30 @@ def _open_url_tool(url: str) -> dict:
     raw = (url or "").strip()
     if not raw:
         return {"ok": False, "error": "empty url"}
+    if len(raw) > 2048:
+        return {"ok": False, "error": "url too long (2048 max)"}
     if "://" not in raw:
         raw = "https://" + raw
     try:
         parts = urllib.parse.urlparse(raw)
     except Exception as exc:
         return {"ok": False, "error": f"bad url: {exc}"}
-    if parts.scheme not in ("http", "https") or not parts.hostname or "." not in parts.hostname:
+    host = (parts.hostname or "").lower()
+    if parts.scheme not in ("http", "https") or not host or "." not in host:
         return {"ok": False, "error": f"refused (http/https only): {url}"}
+    # Hardening (Hermes review 8dda64e): reject userinfo smuggling
+    # (https://evil@bank.com) and local/metadata targets — opening local
+    # services in the browser is outside what voice commands should reach.
+    if "@" in (parts.netloc or ""):
+        return {"ok": False, "error": "refused (userinfo in url)"}
+    if host in ("localhost",) or host.startswith(("127.", "169.254.", "[::1]")) or host == "::1":
+        return {"ok": False, "error": f"refused (local address): {url}"}
     try:
         subprocess.Popen(
             ["xdg-open", raw],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
         return {"ok": True, "opened": raw}
     except Exception as exc:
@@ -400,27 +517,157 @@ def _open_url_tool(url: str) -> dict:
 
 APP_COMMANDS = {
     "chrome": [["google-chrome"], ["chromium"], ["chromium-browser"]],
+    "thunderbird": [["thunderbird"]],
     "terminal": [["gnome-terminal"]],
     "files": [["nautilus"], ["xdg-open", os.path.expanduser("~")]],
+    # Native coding agent (shippable: symlink + repo, no personal pins):
+    # Master AI Sensei, interactive, in its own terminal.
+    "code": [["gnome-terminal", "--", "python3",
+              os.path.expanduser("~/scripts/master_ai.py")]],
 }
+
+APP_ALIASES = {
+    "coding agent": "code",
+    "coding-agent": "code",
+    "sensei": "code",
+    "master ai": "code",
+    "browser": "chrome",
+    "email": "thunderbird",
+    "mail": "thunderbird",
+}
+
+PINS_FILE = Path.home() / ".config" / "ai-controller" / "pinned_snippets.json"
+LAST_TERM_FILE = Path("/tmp/tahuti-last-term.pid")
+
+
+def _pin_commands() -> dict:
+    """Operator's exec pins: {label: shell text}. Same registry the slide
+    keyboard runs — the model may open these coding agents by name."""
+    try:
+        pins = json.loads(PINS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out = {}
+    for pin in pins if isinstance(pins, list) else []:
+        try:
+            if isinstance(pin, dict) and pin.get("exec") and pin.get("label") and pin.get("text"):
+                out[str(pin["label"]).strip().lower()] = str(pin["text"])
+        except Exception:
+            continue
+    return out
+
+
+def _launch_visible(argv: list[str], tag: str) -> dict:
+    """Launch a GUI program visibly. Records PID so 'show me your work'
+    can raise the window. Fire-and-forget; never blocks."""
+    try:
+        proc = subprocess.Popen(
+            argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+        try:
+            LAST_TERM_FILE.write_text(str(proc.pid), encoding="utf-8")
+        except Exception:
+            pass
+        return {"ok": True, "opened": tag, "pid": proc.pid}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _raise_last_term() -> bool:
+    """Raise the last launched terminal. True if a window was activated."""
+    try:
+        pid = int(LAST_TERM_FILE.read_text(encoding="utf-8").strip())
+    except Exception:
+        return False
+    try:
+        r = subprocess.run(
+            ["xdotool", "search", "--pid", str(pid), "windowactivate"],
+            capture_output=True, timeout=10)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def _open_app_tool(name: str) -> dict:
-    """Launch an allowlisted app. Fire-and-forget; never blocks."""
+    """Launch an allowlisted app or a named exec pin. Visible always."""
     key = (name or "").strip().lower()
+    key = APP_ALIASES.get(key, key)
     candidates = APP_COMMANDS.get(key)
-    if not candidates:
-        return {"ok": False, "error": f"app not allowlisted: {name} (chrome, terminal, files only)"}
-    for cmd in candidates:
-        if shutil.which(cmd[0]) is None:
-            continue
+    if candidates:
+        for cmd in candidates:
+            if shutil.which(cmd[0]) is None:
+                continue
+            return _launch_visible(cmd, key)
+        return {"ok": False, "error": f"app not installed here: {key}"}
+    # Pins registry: operator's exec pins (hermes, claude, ...) run with the
+    # same trust as the slide keyboard, which executes the identical text.
+    pins = _pin_commands()
+    if key in pins:
         try:
-            subprocess.Popen(
-                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return {"ok": True, "opened": key, "command": cmd[0]}
+            proc = subprocess.Popen(
+                ["bash", "-c", pins[key]],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True)
+            try:
+                LAST_TERM_FILE.write_text(str(proc.pid), encoding="utf-8")
+            except Exception:
+                pass
+            return {"ok": True, "opened": f"pin:{key}", "pid": proc.pid}
         except Exception as exc:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-    return {"ok": False, "error": f"app not installed here: {key}"}
+    return {"ok": False, "error": f"app not allowlisted: {name} (chrome, thunderbird, terminal, files, code, or a pin name)"}
+
+
+AOL_MAIL_SCRIPT = os.path.expanduser("~/master-ai-cli/aol_mail.py")
+
+
+def _pop_script_terminal(cmd: list[str], title: str) -> None:
+    """Scripts run VISIBLE: pop a terminal so the operator watches it work.
+
+    Best-effort — a headless capture still delivers the summary if no
+    display is present. Never raises.
+    """
+    try:
+        import shlex
+        line = " ".join(shlex.quote(c) for c in cmd)
+        subprocess.Popen(
+            ["gnome-terminal", f"--title={title}", "--", "bash", "-c",
+             line + '; echo; echo "— done —"; exec bash'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+    except Exception as exc:
+        logger.warning("visible terminal failed: %s", exc)
+
+
+def _check_email_tool(days: int = 2, unread: bool = True) -> dict:
+    """Run the vendored read-only AOL IMAP reader. No shell, fixed argv.
+
+    The script only SELECTs readonly / PEEKs headers — it cannot send,
+    delete, or mark anything. Days clamped 1-7; folder fixed to INBOX;
+    no search string (IMAP injection surface stays closed).
+    """
+    try:
+        days = max(1, min(7, int(days)))
+    except Exception:
+        days = 2
+    if not os.path.isfile(AOL_MAIL_SCRIPT):
+        return {"ok": False, "error": "email reader not installed"}
+    cmd = [sys.executable, AOL_MAIL_SCRIPT, "--days", str(days)]
+    if unread:
+        cmd.append("--unread")
+    # Visible AND captured: terminal pops for watching, capture for speaking.
+    _pop_script_terminal(cmd, "Tahuti email check")
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "email check timed out"}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    out = (proc.stdout or "")[:4000]
+    if proc.returncode != 0:
+        return {"ok": False, "error": (proc.stderr or out or "reader failed")[:500]}
+    return {"ok": True, "output": out}
 
 
 def _execute_file_tool(goal_id: str, call: dict) -> dict:
@@ -447,19 +694,33 @@ def _execute_file_tool(goal_id: str, call: dict) -> dict:
         return _open_url_tool(args.get("url", ""))
     if name == "open_app":
         return _open_app_tool(args.get("name", ""))
+    if name == "check_email":
+        return _check_email_tool(args.get("days", 2), args.get("unread", True))
     return {"ok": False, "error": f"unknown tool: {name}"}
 
 
-def _call_model(transcript: str, goal_id: str = "") -> tuple[str, str, str]:
+def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[str, str, str]:
     t0 = time.time()
-    model, effort = _model_for_transcript(transcript)
+    model, default_effort = _model_for_transcript(transcript)
+    effort = effort or default_effort
     if not META_KEY:
         raise RuntimeError("MODEL_API_KEY not available")
 
     tools = _all_tools(transcript)
+    instructions = SAFETY_PROMPT
+    try:
+        pins = sorted(_pin_commands().keys())
+        if pins:
+            instructions += (
+                " Coding agents you can open by name right now: "
+                + ", ".join(pins)
+                + ". The native one is 'code' (Master AI Sensei)."
+            )
+    except Exception:
+        pass
     payload: dict = {
         "model": model,
-        "instructions": SAFETY_PROMPT,
+        "instructions": instructions,
         "input": transcript,
         "reasoning": {"effort": effort},
         "tools": tools,
@@ -513,7 +774,42 @@ def _call_model(transcript: str, goal_id: str = "") -> tuple[str, str, str]:
             elapsed = f"{time.time() - t0:.1f}s"
             return text, model, elapsed
     except Exception as exc:
-        raise RuntimeError(f"Meta API request failed: {exc}") from exc
+        logger.warning("Meta worker failed, trying free fallback: %s", exc)
+        return _call_free_fallback(transcript, t0)
+
+
+def _call_free_fallback(transcript: str, t0: float) -> tuple[str, str, str]:
+    """Direct-answer fallback on OpenRouter :free models. No tools by design."""
+    key = _load_openrouter_key()
+    if not key:
+        raise RuntimeError("Meta failed and no OPENROUTER_API_KEY available")
+    body = json.dumps({
+        "model": FALLBACK_MODEL,
+        "messages": [
+            {"role": "system", "content": SAFETY_PROMPT},
+            {"role": "user", "content": transcript},
+        ],
+        "max_tokens": 512,
+    }).encode()
+    req = urllib.request.Request(
+        FALLBACK_CHAT_URL, data=body,
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {key}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode())
+        if data.get("error"):
+            raise RuntimeError(f"fallback error: {data['error'].get('message', data['error'])}")
+        text = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+    except Exception as exc:
+        raise RuntimeError(f"Free fallback failed: {exc}") from exc
+    if not text:
+        raise RuntimeError("Free fallback returned empty text")
+    elapsed = f"{time.time() - t0:.1f}s"
+    logger.info("Free fallback (%s) answered", FALLBACK_MODEL)
+    return text, FALLBACK_MODEL, elapsed
 
 
 def _post_speak(text: str) -> None:
@@ -595,6 +891,32 @@ def _archive(
         logger.error("Failed to archive %s: %s", path, exc)
 
 
+def _verb_for_approval(transcript: str) -> str:
+    """First approval verb in the transcript, for the record's pattern_key."""
+    words = set(re.findall(r"[a-z]+", transcript.lower()))
+    for verb in sorted(words & APPROVAL_VERBS):
+        return verb
+    return "action"
+
+
+def _load_grants() -> dict:
+    """Shared grants file (box writes, runner reads): {"patterns": {key: "always"}}.
+
+    Master AI gate semantics: an "always" grant covers background headless runs.
+    Missing/corrupt file = no grants (fail closed). Reloaded every goal.
+    """
+    try:
+        data = json.loads(GRANTS_FILE.read_text(encoding="utf-8"))
+        patterns = data.get("patterns", {})
+        return patterns if isinstance(patterns, dict) else {}
+    except Exception:
+        return {}
+
+
+def _is_granted(pattern_key: str) -> bool:
+    return _load_grants().get(pattern_key) == "always"
+
+
 def _needs_approval(transcript: str) -> bool:
     words = set(re.findall(r"[a-z]+", transcript.lower()))
     return bool(words & APPROVAL_VERBS)
@@ -603,17 +925,45 @@ def _needs_approval(transcript: str) -> bool:
 def _write_approval_request(goal_id: str, goal: dict) -> None:
     APPROVALS_DIR.mkdir(parents=True, exist_ok=True)
     path = APPROVALS_DIR / f"{goal_id}.pending.json"
+    transcript = goal.get("transcript", "")
     record = {
         "id": goal_id,
-        "transcript": goal.get("transcript", ""),
+        "transcript": transcript,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "reason": "irreversible or desktop/shell action requested",
+        # Shared vocabulary with master-ai-cli's approval_gate (cua:<action>:<mode>
+        # pattern): the approval box grants by pattern_key. Headless runs in
+        # background mode — a foreground grant must never cover these.
+        "pattern_key": f"tahuti:{_verb_for_approval(transcript)}:background",
     }
     tmp = path.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False)
         f.write("\n")
     os.replace(tmp, path)
+
+
+def _process_show() -> str:
+    """Deterministic 'show me your work': raise the live agent terminal.
+
+    Watching-it-work means seeing the session, not a markdown file. Falls
+    back to opening the last response file when no terminal is tracked.
+    """
+    if _raise_last_term():
+        return "Showing my work — that's the live session."
+    try:
+        if LAST_RESPONSE_FILE.exists():
+            subprocess.Popen(
+                ["xdg-open", str(LAST_RESPONSE_FILE)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return "Showing my work."
+        return "No work yet — give me a task first."
+    except Exception as exc:
+        logger.warning("show failed: %s", exc)
+        return "I couldn't open it, but the last answer is saved."
 
 
 def _process_goal(path: Path) -> None:
@@ -652,18 +1002,40 @@ def _process_goal(path: Path) -> None:
 
     logger.info("Processing goal %s: %r", goal_id, transcript[:120])
 
+    # Deterministic intents bypass the model entirely: zero tokens, instant.
+    if goal.get("type") == "show":
+        response = _process_show()
+        worker = "tahuti-runner-v1 (show)"
+        _post_speak(response)
+        try:
+            work = LAST_RESPONSE_FILE.read_text(encoding="utf-8")[:1000] \
+                if LAST_RESPONSE_FILE.exists() else "nothing yet"
+        except Exception:
+            work = "nothing yet"
+        _notify("Showing work", work, urgency="normal", sound=True)
+        _archive(claim_path, goal_id, "done", response=response,
+                 model="deterministic-show")
+        return
+
     approval = _needs_approval(transcript)
     response = ""
     worker = ""
     model: Optional[str] = None
 
     if approval:
-        _write_approval_request(goal_id, goal)
-        response = "That request needs your approval before I can act. I've queued it for you."
-        worker = "tahuti-runner-v1 (approval gate)"
+        pattern = f"tahuti:{_verb_for_approval(transcript)}:background"
+        if _is_granted(pattern):
+            logger.info("grant covers %s — proceeding without queue", pattern)
+            approval = False
+        else:
+            _write_approval_request(goal_id, goal)
+            response = "That request needs your approval before I can act. I've queued it for you."
+            worker = "tahuti-runner-v1 (approval gate)"
     else:
         try:
-            response, model, elapsed = _call_model(transcript, goal_id=goal_id)
+            response, model, elapsed = _call_model(
+                transcript, goal_id=goal_id,
+                effort=_effort_for_goal(goal, transcript))
             worker = f"tahuti-runner-v1 ({elapsed})"
         except Exception as exc:
             logger.exception("Model call failed for goal %s", goal_id)
@@ -672,9 +1044,11 @@ def _process_goal(path: Path) -> None:
 
     _post_speak(response)
     _write_last_response(transcript, worker, response, model=model)
+    # Full answer in the push body (not a snippet): the phone pane shows the
+    # work itself — Termux/Termux read the notification, zero extra build.
     _notify(
         "Goal needs approval" if approval else "Goal done",
-        transcript[:120],
+        response[:1000] if response else transcript[:120],
         urgency="normal",
         sound=not approval,
     )

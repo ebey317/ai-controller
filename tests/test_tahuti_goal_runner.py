@@ -144,10 +144,16 @@ def test_list_dir_tool_rejects_outside_home(monkeypatch):
 def test_write_file_tool_queues_approval(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "_is_under_home", lambda p: True)
     monkeypatch.setattr(runner, "APPROVALS_DIR", tmp_path)
+    def simulate_ui(*args, **kwargs):
+        for pending in tmp_path.glob('*.pending.json'):
+            receipt = pending.with_name(pending.name.replace('.pending.json', '.resolved.json'))
+            receipt.write_text(json.dumps({'status': 'executed', 'decision': 'once'}))
+    monkeypatch.setattr(runner.subprocess, 'Popen', simulate_ui)
     target = tmp_path / "out.txt"
     result = runner._write_file_tool("g1", str(target), "new content", "create file")
     assert result["ok"] is True
-    assert "queued" in result
+    assert result["status"] == "executed"
+    assert result["decision"] == "once"
     pending = list(tmp_path.glob("*.pending.json"))
     assert len(pending) == 1
     data = json.loads(pending[0].read_text())
@@ -276,6 +282,11 @@ def test_call_model_executes_read_file_tool_and_follows_up(monkeypatch):
 
 def test_call_model_queues_write_file_tool_and_follows_up(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "APPROVALS_DIR", tmp_path)
+    def simulate_ui(*args, **kwargs):
+        for pending in tmp_path.glob('*.pending.json'):
+            receipt = pending.with_name(pending.name.replace('.pending.json', '.resolved.json'))
+            receipt.write_text(json.dumps({'status': 'executed', 'decision': 'once'}))
+    monkeypatch.setattr(runner.subprocess, 'Popen', simulate_ui)
     fake = _FakeClient(
         [
             _function_call_response(
