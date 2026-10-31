@@ -270,6 +270,38 @@ def check_avatar(path=None, avatars_dir=None):
     return (OK, "avatar setup", _avatar_summary(settings))
 
 
+def _knob_summary(profile):
+    k = vp.knob_values(profile)
+    text = (f"gain {k['gain']:.2f} bass {k['bass_db']:+.0f}dB "
+            f"treble {k['treble_db']:+.0f}dB")
+    if profile.get("engine") == "piper" or "pack" in profile:
+        text += (f" expr {k['noise_scale']:.2f} "
+                 f"var {k['noise_w']:.2f}")
+    return text
+
+
+def check_voice_board(path=None):
+    """Doctor row for the voice board: every knob value in bounds,
+    for the keyboard voice and each avatar. Bounds themselves are
+    enforced by vp.load_profiles validation; this row reports the
+    effective values (neutrals filled) the board would show."""
+    path = path or vp.profiles_path()
+    if not os.path.exists(path):
+        data = vp.DEFAULT_PROFILES
+        prefix = "no profile file yet -- locked defaults: "
+    else:
+        try:
+            data = vp.load_profiles(path)
+        except Exception as e:
+            return (FAIL, "voice board", f"profile file invalid: {e}")
+        prefix = ""
+    parts = [f"keyboard ({_knob_summary(data['keyboard'])})"]
+    for name in sorted(data.get("avatars", {})):
+        parts.append(f"{name} ({_knob_summary(data['avatars'][name])})")
+    return (OK, "voice board",
+            prefix + "knobs in bounds: " + "; ".join(parts))
+
+
 def check_config_env(path=None):
     env = load_env(path)
     if not env:
@@ -357,7 +389,8 @@ def check_keyboard_voice():
 
 
 def run_doctor():
-    rows = [check_profile_file(), check_avatar(), check_config_env(),
+    rows = [check_profile_file(), check_avatar(), check_voice_board(),
+            check_config_env(),
             check_piper(), check_kokoro(), check_keyboard_voice()]
     rows += check_services()
     rows += [r for r in telegram_audit() if r[0] != "INFO"]
@@ -373,19 +406,15 @@ def print_rows(rows):
 
 _KOKORO_HELPER = r"""
 import json, sys
-import numpy as np
 import soundfile as sf
 from kokoro_onnx import Kokoro
 cfg = json.loads(sys.argv[1])
 k = Kokoro(cfg["model"], cfg["voices_bin"])
 samples, sr = k.create(cfg["text"], voice=cfg["voice"],
                        speed=cfg["rate"], lang="en-us")
-st = float(cfg.get("pitch_semitones", 0.0))
-if st:
-    factor = 2 ** (st / 12.0)
-    idx = np.arange(0, len(samples), factor)
-    samples = np.interp(idx, np.arange(len(samples)),
-                        samples).astype(samples.dtype)
+# Raw render only: pitch / tone / volume are applied afterwards by
+# the shared voice_fx chain in speak_preview, same as Piper, so a
+# knob means the same thing on every engine.
 sf.write(cfg["out"], samples, sr)
 """
 
@@ -421,13 +450,60 @@ def _piper_model_for(voice_id):
     return None
 
 
-def speak_preview(profile, name):
-    """Synthesize + play the preview line for one profile. Never raises."""
-    text = vp.preview_line(name)
+def _piper_argv(piper, model, out, rate, knobs):
+    """The piper command for one preview render. length-scale is the
+    inverse of the speaking rate; noise-scale / noise-w-scale are the
+    binary's own generator-noise flags (Expression / Variation)."""
+    return [piper, "--model", model,
+            "--length-scale", f"{1.0 / rate:.4f}",
+            "--noise-scale", f"{knobs['noise_scale']:.3f}",
+            "--noise-w-scale", f"{knobs['noise_w']:.3f}",
+            "--output_file", out]
+
+
+def _apply_fx(raw, out, profile):
+    """Run the shared voice_fx chain (pitch -> tone -> volume).
+
+    Returns the path to play. Neutral settings are a plain copy; a
+    failed FX run falls back to the raw render with a printed note --
+    a preview must never go silent because a knob exists.
+    """
+    knobs = vp.knob_values(profile)
+    pitch = float(profile.get("pitch_semitones", 0.0))
+    if (not pitch and not knobs["bass_db"] and not knobs["treble_db"]
+            and knobs["gain"] == 1.0):
+        if os.path.abspath(raw) != os.path.abspath(out):
+            shutil.copyfile(raw, out)
+        return out
+    fx = os.path.join(SCRIPT_DIR, "voice_fx.py")
+    r = subprocess.run(
+        [sys.executable, fx, raw, out,
+         "--pitch", f"{pitch}", "--bass", f"{knobs['bass_db']}",
+         "--treble", f"{knobs['treble_db']}",
+         "--gain", f"{knobs['gain']}"],
+        capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        print("voice FX failed (playing the raw render):",
+              r.stderr.strip()[-200:])
+        if os.path.abspath(raw) != os.path.abspath(out):
+            shutil.copyfile(raw, out)
+    return out
+
+
+def speak_preview(profile, name, text=None):
+    """Synthesize + play the preview line for one profile. Never raises.
+
+    text overrides the avatar's standard line (the voice board's
+    editable test line). Kokoro and Piper renders both pass through
+    the voice_fx chain, so pitch/tone/volume knobs are real on both.
+    """
+    text = text or vp.preview_line(name)
     engine = profile.get("engine", "piper")
     rate = float(profile.get("rate", 1.0))
     pitch = float(profile.get("pitch_semitones", 0.0))
+    knobs = vp.knob_values(profile)
     out = os.path.join(tempfile.gettempdir(), f"aic_preview_{name}.wav")
+    raw = os.path.join(tempfile.gettempdir(), f"aic_preview_{name}_raw.wav")
     try:
         if engine == "kokoro":
             home = tahuti_tts_home()
@@ -435,7 +511,7 @@ def speak_preview(profile, name):
                 "model": os.path.join(home, "models", "kokoro-v1.0.onnx"),
                 "voices_bin": os.path.join(home, "models", "voices-v1.0.bin"),
                 "text": text, "voice": profile["voice"], "rate": rate,
-                "pitch_semitones": pitch, "out": out,
+                "out": raw,
             }
             helper = os.path.join(tempfile.gettempdir(), "_aic_kokoro.py")
             with open(helper, "w", encoding="utf-8") as f:
@@ -448,6 +524,7 @@ def speak_preview(profile, name):
             if r.returncode != 0:
                 print("Kokoro preview failed:", r.stderr.strip()[-300:])
                 return False
+            out = _apply_fx(raw, out, profile)
         elif engine == "piper":
             model = _piper_model_for(profile["voice"])
             piper = shutil.which("piper") or os.path.expanduser(
@@ -456,17 +533,14 @@ def speak_preview(profile, name):
                 print("Piper preview unavailable (model or binary missing).")
                 return False
             r = subprocess.run(
-                [piper, "--model", model, "--length-scale",
-                 f"{1.0 / rate:.4f}", "--output_file", out],
+                _piper_argv(piper, model, raw, rate, knobs),
                 input=text.encode(), capture_output=True, timeout=120,
             )
             if r.returncode != 0:
                 print("Piper preview failed:", r.stderr.decode(
                     errors="replace").strip()[-300:])
                 return False
-            if pitch:
-                print("(note: Piper has no pitch control -- pitch applies "
-                      "on Kokoro; the value is saved either way)")
+            out = _apply_fx(raw, out, profile)
         elif engine == "edge-tts":
             mp3 = out + ".mp3"
             py = sys.executable
@@ -536,6 +610,29 @@ def _ask_yes(prompt, default=False):
     return raw.startswith("y")
 
 
+def _ask_knobs(profile, engine):
+    """Numeric prompts for the voice-board knob fields -- the same
+    fields the graphical board turns, so terminal and knobs agree."""
+    knobs = vp.knob_values(profile)
+    knobs["gain"] = _ask_float(
+        "volume / gain (0.0 mute .. 2.0 double)", knobs["gain"],
+        vp.GAIN_MIN, vp.GAIN_MAX)
+    knobs["bass_db"] = _ask_float(
+        "bass tone, dB (-15..+15)", knobs["bass_db"],
+        vp.BASS_MIN, vp.BASS_MAX)
+    knobs["treble_db"] = _ask_float(
+        "treble tone, dB (-15..+15)", knobs["treble_db"],
+        vp.TREBLE_MIN, vp.TREBLE_MAX)
+    if engine == "piper":
+        knobs["noise_scale"] = _ask_float(
+            "expression -- piper noise-scale (0.0..1.0)",
+            knobs["noise_scale"], vp.NOISE_SCALE_MIN, vp.NOISE_SCALE_MAX)
+        knobs["noise_w"] = _ask_float(
+            "variation -- piper noise-w (0.0..1.0)",
+            knobs["noise_w"], vp.NOISE_W_MIN, vp.NOISE_W_MAX)
+    return knobs
+
+
 def _edit_profile(name, profile):
     print(f"\n-- {name} -- current: engine={profile['engine']} "
           f"voice={profile['voice']} rate={profile['rate']} "
@@ -552,12 +649,31 @@ def _edit_profile(name, profile):
                        profile["pitch_semitones"], vp.PITCH_MIN, vp.PITCH_MAX)
     new = {"engine": engine, "voice": voice, "rate": rate,
            "pitch_semitones": pitch}
+    new.update(_ask_knobs(profile, engine))
     if _ask_yes("Hear a preview line?", default=True):
         speak_preview(new, name)
         if not _ask_yes("Keep these settings?", default=True):
             print("  discarded.")
             return None
     return new
+
+
+def launch_voice_board():
+    """Open the graphical knob board (scripts/voice_board.py).
+
+    Returns a human-readable outcome. The board needs a display; in a
+    bare terminal the honest answer is the direct command."""
+    board = os.path.join(SCRIPT_DIR, "voice_board.py")
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return (f"the voice board needs a display -- on the desktop run:"
+                f"\n    python3 {board}")
+    try:
+        subprocess.Popen([sys.executable, board],
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    except Exception as e:
+        return f"could not launch the voice board: {e}"
+    return "voice board opened -- turn the knobs, hit SPEAK to hear, SAVE to keep."
 
 
 def _pick_avatar(data):
@@ -761,6 +877,7 @@ def wizard():
         print("  3) Avatar setup (who shows, when, size, movement, voice)")
         print("  4) Telegram (audit / register command menu)")
         print("  5) Run doctor")
+        print("  6) Voice board (knobs) -- graphical radio-knob panel")
         print("  0) Done")
         choice = _ask("choose", "0")
         if choice == "0":
@@ -798,8 +915,12 @@ def wizard():
             pitch = _ask_float("pitch shift, semitones",
                                kb["pitch_semitones"],
                                vp.PITCH_MIN, vp.PITCH_MAX)
-            data["keyboard"] = {"pack": pack, "rate": rate,
-                                "pitch_semitones": pitch}
+            new_kb = {"pack": pack, "rate": rate,
+                      "pitch_semitones": pitch}
+            # Keyboard packs are Piper models, so the Piper noise
+            # knobs are real for the keyboard voice too.
+            new_kb.update(_ask_knobs(kb, "piper"))
+            data["keyboard"] = new_kb
             vp.save_profiles(data)
             # Keep voice_toggle's state file in step with the chosen pack.
             try:
@@ -819,8 +940,10 @@ def wizard():
                 print(("  OK   " if ok else "  FAIL ") + msg)
         elif choice == "5":
             print_rows(run_doctor())
+        elif choice == "6":
+            print("  " + launch_voice_board())
         else:
-            print("  pick 0-5")
+            print("  pick 0-6")
 
 
 def main(argv=None):

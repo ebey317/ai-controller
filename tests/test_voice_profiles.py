@@ -103,3 +103,65 @@ def test_unknown_avatar_gets_neutral_default():
 
 def test_preview_line_for_tahuti():
     assert vp.preview_line("tahuti").startswith("I am Tahuti.")
+
+
+# ── voice-board knobs ────────────────────────────────────────────────
+
+def test_knob_values_defaults_are_neutral():
+    """A profile that never opened the board gets engine neutrals."""
+    assert vp.knob_values({}) == {
+        "gain": 1.0, "bass_db": 0.0, "treble_db": 0.0,
+        "noise_scale": vp.NOISE_SCALE_DEFAULT,
+        "noise_w": vp.NOISE_W_DEFAULT,
+    }
+    assert vp.knob_values({"gain": 1.4})["gain"] == 1.4
+
+
+def test_knob_fields_round_trip(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    data = vp.load_profiles(path)
+    knobs = {"gain": 1.3, "bass_db": -3.0, "treble_db": 4.5,
+             "noise_scale": 0.5, "noise_w": 0.25}
+    data["avatars"]["tahuti"].update(knobs)
+    data["keyboard"].update(knobs)
+    vp.save_profiles(data, path)
+    loaded = vp.load_profiles(path)
+    assert vp.knob_values(loaded["avatars"]["tahuti"]) == knobs
+    assert vp.knob_values(loaded["keyboard"]) == knobs
+    # The locked Tahuti pick itself is untouched by the new fields.
+    tahuti = loaded["avatars"]["tahuti"]
+    assert tahuti["engine"] == "kokoro"
+    assert tahuti["voice"] == "am_onyx"
+    assert tahuti["rate"] == 1.07
+    assert tahuti["pitch_semitones"] == 0.0
+
+
+def test_knob_bounds_rejected():
+    bad_values = {"gain": 2.5, "bass_db": -20.0, "treble_db": 16.0,
+                  "noise_scale": 1.5, "noise_w": -0.1}
+    for field, bad in bad_values.items():
+        data = copy.deepcopy(vp.DEFAULT_PROFILES)
+        data["avatars"]["tahuti"][field] = bad
+        problems = vp.validate_profiles(data)
+        assert any(field in p for p in problems), field
+        data = copy.deepcopy(vp.DEFAULT_PROFILES)
+        data["keyboard"][field] = bad
+        problems = vp.validate_profiles(data)
+        assert any(field in p for p in problems), field
+
+
+def test_save_refuses_out_of_bounds_knob(tmp_path):
+    data = copy.deepcopy(vp.DEFAULT_PROFILES)
+    data["avatars"]["tahuti"] = {
+        "engine": "piper", "voice": "joe", "pitch_semitones": 0.0,
+        "rate": 1.0, "gain": 9.9,
+    }
+    with pytest.raises(ValueError):
+        vp.save_profiles(data, str(tmp_path / "voice-profiles.json"))
+
+
+def test_profile_without_knob_keys_still_valid():
+    """Files written before the board existed must validate."""
+    data = copy.deepcopy(vp.DEFAULT_PROFILES)
+    assert vp.validate_profiles(data) == []
+    assert vp.knob_values(data["avatars"]["tahuti"])["gain"] == 1.0

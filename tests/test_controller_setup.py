@@ -8,6 +8,8 @@ API rows are exercised only through the key-presence paths).
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import controller_setup as cs  # noqa: E402
@@ -223,3 +225,63 @@ def test_doctor_reports_lifecycle(tmp_path):
     for word in ("talk pop-up on", "stays while working on",
                  "fades when done on", "approval pop-up on"):
         assert word in detail, word
+
+
+# ── voice board ─────────────────────────────────────────────────────
+
+def test_voice_board_doctor_ok(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    vp.save_profiles(vp.load_profiles(path), path)
+    level, label, detail = cs.check_voice_board(path)
+    assert level == cs.OK
+    assert label == "voice board"
+    assert "tahuti" in detail and "gain" in detail
+
+
+def test_voice_board_doctor_reports_tuned_values(tmp_path):
+    path = str(tmp_path / "voice-profiles.json")
+    data = vp.load_profiles(path)
+    data["avatars"]["tahuti"]["bass_db"] = 6.0
+    vp.save_profiles(data, path)
+    level, _, detail = cs.check_voice_board(path)
+    assert level == cs.OK
+    assert "bass +6dB" in detail
+
+
+def test_voice_board_doctor_fails_on_corrupt_file(tmp_path):
+    path = tmp_path / "voice-profiles.json"
+    path.write_text("{not json")
+    level, _, _ = cs.check_voice_board(str(path))
+    assert level == cs.FAIL
+
+
+def test_piper_argv_carries_the_noise_knobs():
+    argv = cs._piper_argv("piper", "model.onnx", "out.wav", 1.25,
+                          {"noise_scale": 0.5, "noise_w": 0.25})
+    assert argv[argv.index("--length-scale") + 1] == "0.8000"
+    assert argv[argv.index("--noise-scale") + 1] == "0.500"
+    assert argv[argv.index("--noise-w-scale") + 1] == "0.250"
+
+
+def test_apply_fx_neutral_copies_render(tmp_path):
+    raw = tmp_path / "raw.wav"
+    raw.write_bytes(b"RIFF-fake-but-bytes")
+    out = tmp_path / "out.wav"
+    profile = {"pitch_semitones": 0.0}
+    assert cs._apply_fx(str(raw), str(out), profile) == str(out)
+    assert out.read_bytes() == b"RIFF-fake-but-bytes"
+
+
+def test_apply_fx_runs_the_chain(tmp_path):
+    np = pytest.importorskip("numpy")
+    sf = pytest.importorskip("soundfile")
+    sr = 24000
+    t = np.arange(sr // 2) / sr
+    tone = (0.4 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    raw = str(tmp_path / "raw.wav")
+    sf.write(raw, tone, sr)
+    out = str(tmp_path / "out.wav")
+    profile = {"pitch_semitones": 0.0, "gain": 0.5}
+    assert cs._apply_fx(raw, out, profile) == out
+    samples, _ = sf.read(out, dtype="float32")
+    assert float(np.max(np.abs(samples))) == pytest.approx(0.2, abs=0.02)

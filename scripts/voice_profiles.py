@@ -50,9 +50,25 @@ Schema (version 1):
   to black once the result lands), popup_on_approval (pop up with
   the approval box whenever approval is needed). Older files
   without these keys merge over the defaults.
-- pitch_semitones: -12..+12 (0 = natural). Kokoro previews apply it by
-  resampling; Piper has no pitch control, so the value is stored and
-  only takes effect on engines that support it.
+- pitch_semitones: -12..+12 (0 = natural). Applied as a post-synthesis
+  resample in the render chain (scripts/voice_fx.py), so it is real on
+  both Kokoro and Piper renders.
+
+Voice-board knobs (Lijah, 2026-10-31: "everything i can edit on a
+voice, i want it editable" -- rotary knobs, no sliders). Every voice
+section (keyboard + each avatar) may also carry:
+- gain: output volume multiplier 0.0..2.0 (1.0 = as synthesized),
+  applied in the voice_fx render chain.
+- bass_db / treble_db: two-band tone, -15..+15 dB (0 = flat), applied
+  in the voice_fx render chain (low shelf ~200 Hz, high shelf
+  ~4 kHz).
+- noise_scale: Piper generator noise 0.0..1.0 (engine default 0.667)
+  -- passed to the piper binary as --noise-scale; Kokoro's ONNX
+  wrapper exposes no equivalent, so it is stored but inert there.
+- noise_w: Piper phoneme-width noise 0.0..1.0 (engine default 0.8)
+  -- passed as --noise-w-scale; same Kokoro note.
+Missing knob keys are neutral (KNOB_DEFAULTS below): older files
+without them load and render exactly as before.
 
 Tahuti's defaults below are Lijah's locked pick of 2026-10-31:
 Kokoro am_onyx, no pitch shift, rate 1.07 (his Osiris-cadence standard).
@@ -72,6 +88,34 @@ ENGINES = ("kokoro", "piper", "edge-tts")
 RATE_MIN, RATE_MAX = 0.5, 2.0
 PITCH_MIN, PITCH_MAX = -12.0, 12.0
 SCALE_MIN, SCALE_MAX = 0.25, 3.0
+
+# ── voice-board knobs ────────────────────────────────────────────────
+# Bounds for the extended per-voice tuning fields. Neutral defaults
+# reproduce the engines' own behavior, so a profile that never opens
+# the voice board sounds exactly as it did before the knobs existed.
+GAIN_MIN, GAIN_MAX, GAIN_DEFAULT = 0.0, 2.0, 1.0
+BASS_MIN, BASS_MAX, BASS_DEFAULT = -15.0, 15.0, 0.0
+TREBLE_MIN, TREBLE_MAX, TREBLE_DEFAULT = -15.0, 15.0, 0.0
+NOISE_SCALE_MIN, NOISE_SCALE_MAX = 0.0, 1.0
+NOISE_SCALE_DEFAULT = 0.667  # the piper binary's own default
+NOISE_W_MIN, NOISE_W_MAX = 0.0, 1.0
+NOISE_W_DEFAULT = 0.8        # the piper binary's own default
+
+KNOB_FIELDS = ("gain", "bass_db", "treble_db", "noise_scale", "noise_w")
+KNOB_DEFAULTS = {
+    "gain": GAIN_DEFAULT,
+    "bass_db": BASS_DEFAULT,
+    "treble_db": TREBLE_DEFAULT,
+    "noise_scale": NOISE_SCALE_DEFAULT,
+    "noise_w": NOISE_W_DEFAULT,
+}
+KNOB_BOUNDS = {
+    "gain": (GAIN_MIN, GAIN_MAX),
+    "bass_db": (BASS_MIN, BASS_MAX),
+    "treble_db": (TREBLE_MIN, TREBLE_MAX),
+    "noise_scale": (NOISE_SCALE_MIN, NOISE_SCALE_MAX),
+    "noise_w": (NOISE_W_MIN, NOISE_W_MAX),
+}
 
 # ── avatar overlay (the "avatar" section) ────────────────────────────
 # Presence is talk-driven (Lijah, 2026-10-31): pressing the
@@ -175,6 +219,7 @@ def validate_profiles(data) -> list:
         if not isinstance(kb.get("pack"), str) or not kb.get("pack"):
             problems.append("keyboard.pack must be a non-empty string")
         _check_rate_pitch(kb, "keyboard", problems)
+        _check_knobs(kb, "keyboard", problems)
 
     avatars = data.get("avatars")
     if not isinstance(avatars, dict):
@@ -192,6 +237,7 @@ def validate_profiles(data) -> list:
             if not isinstance(prof.get("voice"), str) or not prof.get("voice"):
                 problems.append(f"{where}.voice must be a non-empty string")
             _check_rate_pitch(prof, where, problems)
+            _check_knobs(prof, where, problems)
 
     av = data.get("avatar")
     if not isinstance(av, dict):
@@ -245,6 +291,35 @@ def validate_profiles(data) -> list:
             if flag in av and not isinstance(av.get(flag), bool):
                 problems.append(f"avatar.{flag} must be true/false")
     return problems
+
+
+def _check_knobs(section, where, problems):
+    """Voice-board knob fields: checked when present (older files
+    without them stay valid; knob_values() fills the neutrals)."""
+    for field in KNOB_FIELDS:
+        if field not in section:
+            continue
+        lo, hi = KNOB_BOUNDS[field]
+        value = section.get(field)
+        if not _is_number(value) or not (lo <= value <= hi):
+            problems.append(
+                f"{where}.{field} must be a number {lo}..{hi}")
+
+
+def knob_values(profile) -> dict:
+    """All five knob fields for one voice section, neutrals filled in.
+
+    This is the single read path the voice board, the wizard, and the
+    render chain use, so a missing key means the same neutral value
+    everywhere.
+    """
+    values = dict(KNOB_DEFAULTS)
+    if isinstance(profile, dict):
+        for field in KNOB_FIELDS:
+            value = profile.get(field)
+            if _is_number(value):
+                values[field] = float(value)
+    return values
 
 
 def _check_rate_pitch(section, where, problems):
