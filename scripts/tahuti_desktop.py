@@ -137,6 +137,22 @@ def _load_approval_gate():
     module = importlib.util.module_from_spec(spec)
     sys.modules[canonical] = module
     spec.loader.exec_module(module)
+    # Tahuti owns the human-facing approval surface. The gate still owns
+    # scoped-grant semantics; this callback only presents the request and
+    # returns the operator's decision to the same requesting process.
+    if os.environ.get("DISPLAY"):
+        try:
+            avatar_module = _import_from_path(
+                "_tahuti_avatar_ui", Path(__file__).resolve().parent / "tahuti_avatar.py"
+            )
+
+            def _native_prompt(pattern_key, description, **extra):
+                return avatar_module.prompt(pattern_key, description, **extra)
+
+            module.set_explicit_callback(_native_prompt)
+        except Exception:
+            # Keep the gate fail-closed if the visual surface cannot load.
+            pass
     return module
 
 

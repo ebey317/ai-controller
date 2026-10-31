@@ -105,6 +105,30 @@ MODE_FILE = os.path.join(config_dir(), "ptt_mode")
 VOCAB_FILE = os.path.join(config_dir(), "ptt_vocabulary.json")
 INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
 DICTATION_TARGET_FILE = os.path.join(config_dir(), "ai_controller_dictation_target")
+# Live caption for the avatar prompt box (2026-10-31): ptt publishes what it
+# heard + where it went; the avatar pulse displays it so the operator sees
+# words land and render to a model. Never raises.
+CAPTION_FILE = os.path.join(config_dir(), "tahuti_caption.json")
+
+
+def _write_caption(text: str, state: str) -> None:
+    try:
+        with open(CAPTION_FILE, "w", encoding="utf-8") as f:
+            json.dump({"text": text[:300], "state": state,
+                       "time": time.time()}, f)
+    except Exception as exc:
+        log.warning(f"caption write failed: {exc}")
+
+
+def _read_caption(max_age: float = 60.0) -> dict:
+    try:
+        with open(CAPTION_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        if time.time() - float(data.get("time", 0)) > max_age:
+            return {}
+        return data
+    except Exception:
+        return {}
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
 # ---------------------------------------------------------------------------
@@ -1339,6 +1363,9 @@ def stop_and_send():
             # The slide-keyboard AGENT toggle counts as an agent take too.
             agent_take = (_goal_take or file_agent) and bool(transcript)
             goal_text = transcript if (agent_take and transcript) else None
+            if agent_take and goal_text:
+                # Avatar prompt box: show what was heard going to the agent.
+                _write_caption(goal_text, "heard")
 
             # Apply PRO / BUBBLY / CASUAL / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
             if mode in ("bubbly", "casual", "bold", "big") and transcript:
@@ -1472,6 +1499,7 @@ def on_press(key):
         _goal_take = _ctrl_held
         if _goal_take:
             log.info("Ctrl+F13 PRESSED — agent take")
+            _write_caption("", "listening")
             # L+R summons the avatar (2026-10-31): pulse the Tahuti overlay
             # animation so the press is visible. Fire-and-forget — a dead
             # overlay must never break voice.
@@ -1479,7 +1507,7 @@ def on_press(key):
                 subprocess.Popen(
                     ["/usr/bin/python3",
                      os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"),
-                     "--pulse", "6"],
+                     "--pulse", "12"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     start_new_session=True,
                     env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")})
