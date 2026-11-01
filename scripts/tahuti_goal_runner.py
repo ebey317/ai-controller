@@ -327,12 +327,17 @@ FILE_TOOLS = [
             "an absolute path if you know one, or a bare name/relative path "
             "(e.g. \"Downloads\", or \"\" for the home directory itself) and "
             "it resolves under the operator's home automatically. Don't "
-            "guess a generic absolute path like /home/ubuntu or /root."
+            "guess a generic absolute path like /home/ubuntu or /root. "
+            "Dotfiles/dot-directories (app config noise) are hidden by "
+            "default and results are capped -- if you're hunting for a "
+            "specific project, drill into a named subdirectory (e.g. "
+            "\"ai-controller\") rather than re-listing the home root."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Absolute path, or a bare/relative path to resolve under home (empty string = home dir itself)"},
+                "show_hidden": {"type": "boolean", "description": "Include dotfiles/dot-directories (default false)"},
             },
             "required": ["path"],
             "additionalProperties": False,
@@ -756,7 +761,24 @@ def _read_file_tool(path: str, offset: int = 1, limit: Optional[int] = None) -> 
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def _list_dir_tool(path: str) -> dict:
+LIST_DIR_MAX_ENTRIES = 150
+# A bare list_dir("") on this operator's actual home returned ALL 378
+# entries unfiltered (observed live 2026-11-01, during a "find and review
+# the voice bridge code" test) -- 241 of those are dotfiles/dot-dirs
+# (app config noise: .claude*, .master_ai_*, .cache, ...), leaving only 137
+# real project entries the model actually cares about when hunting for
+# code. That one call alone ate a large slice of the whole MAX_TOOL_ROUNDS
+# budget, and the model still had to guess blindly through several more
+# rounds before finding the right folder -- it ran out of rounds before
+# ever reading the file. Hiding dotfiles by default (same as plain `ls`,
+# matching normal filesystem convention) and sorting directories first
+# (what the model actually drills into) turns one noisy dump into a short,
+# navigable list. 150 comfortably covers this exact home (137 real
+# entries) while still capping any single directory that could have far
+# more (a project's own node_modules, say).
+
+
+def _list_dir_tool(path: str, show_hidden: bool = False) -> dict:
     p = Path(path)
     if not p.is_absolute():
         # Same bare-name resolution as _read_file_tool above -- "" or "."
@@ -770,15 +792,34 @@ def _list_dir_tool(path: str) -> dict:
         resolved = p.resolve()
         if not resolved.is_dir():
             return {"ok": False, "error": f"not a directory: {path}"}
+        raw = list(resolved.iterdir())
+        if not show_hidden:
+            raw = [e for e in raw if not e.name.startswith(".")]
+        # Dirs first, then alphabetical within each group -- dirs are what
+        # the model actually needs to drill into next.
+        raw.sort(key=lambda e: (not e.is_dir(), e.name.lower()))
+        total = len(raw)
+        capped = raw[:LIST_DIR_MAX_ENTRIES]
         entries = []
-        for entry in sorted(resolved.iterdir()):
+        for entry in capped:
             try:
                 kind = "dir" if entry.is_dir() else "file"
                 size = entry.stat().st_size if entry.is_file() else 0
                 entries.append({"name": entry.name, "type": kind, "size": size})
             except OSError:
                 entries.append({"name": entry.name, "type": "unknown", "size": 0})
-        return {"ok": True, "path": str(resolved), "entries": entries}
+        result = {"ok": True, "path": str(resolved), "entries": entries}
+        if total > len(capped) or not show_hidden:
+            notes = []
+            if not show_hidden:
+                notes.append("dotfiles/dot-dirs hidden -- pass show_hidden=true to include them")
+            if total > len(capped):
+                notes.append(f"showing {len(capped)} of {total} non-hidden entries; "
+                              "call list_dir on a specific subdirectory name to go deeper")
+            result["note"] = "; ".join(notes)
+            result["shown"] = len(capped)
+            result["total"] = total
+        return result
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -1245,6 +1286,29 @@ def _write_to_agent_thread(name: str, args: dict, result: dict) -> bool:
         return False
 
 
+def _write_answer_to_thread(transcript: str, route: str, text: str) -> None:
+    """Land the model's FINAL synthesized answer in the thread, not just
+    each tool's raw result. Without this, a task that reads a file and
+    writes a review (e.g. "review voice_bridge.py") only ever showed the
+    raw file content in the thread -- the actual review text, the thing
+    worth reading, still only reached the operator by voice/history
+    (observed live 2026-11-01). Reuses _write_to_agent_thread's existing
+    choke point/fallback rather than a separate code path. Best-effort,
+    never raises -- called from three return points (the main loop and
+    both free-fallback branches), so centralizing the try/except here
+    keeps those call sites one line each."""
+    try:
+        landed = _write_to_agent_thread(
+            "tahuti_answer",
+            {"you_said": transcript[:200], "route": route},
+            {"ok": True, "output": text},
+        )
+        if not landed:
+            _pop_text_terminal("answer", f"You said: {transcript[:200]}\n\n{text}")
+    except Exception as exc:
+        logger.warning("agent-thread answer write failed: %s", exc)
+
+
 def _check_email_tool(days: int = 2, unread: bool = True) -> dict:
     """Run the real categorized multi-account check (--check, read-only).
 
@@ -1311,7 +1375,7 @@ def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
             args.get("path", ""), args.get("offset", 1), args.get("limit")
         )
     elif name == "list_dir":
-        result = _list_dir_tool(args.get("path", ""))
+        result = _list_dir_tool(args.get("path", ""), args.get("show_hidden", False))
     elif name == "write_file":
         result = _write_file_tool(
             goal_id,
@@ -1477,7 +1541,19 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
                 # Past MAX_TOOL_ROUNDS, stop offering tools -- forces the
                 # model to write a real text answer from what it already
                 # found instead of trying yet another candidate path.
+                #
+                # allowed_tool_names MUST be recomputed here, not left as
+                # the original full set -- found live 2026-11-01 testing a
+                # vague "review the voice bridge code" request: round 5 and
+                # 6 both sent tools=[] to the API, but the model still
+                # hallucinated real list_dir/read_file calls anyway (same
+                # phenomenon documented on _execute_file_tool), and because
+                # this set was never narrowed to match, the executor let
+                # every one of them through -- the round cap was enforced
+                # in the request payload only, never at the actual
+                # execution point, so it bounded nothing.
                 next_tools = tools if round_num < MAX_TOOL_ROUNDS else []
+                allowed_tool_names = {t.get("name") for t in next_tools if t.get("name")}
                 payload = {
                     "model": model,
                     "previous_response_id": response_id,
@@ -1493,6 +1569,7 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
             elapsed_s = time.time() - t0
             elapsed = f"{elapsed_s:.1f}s"
             logger.info("model %s route %s elapsed %.2fs", model, route, elapsed_s)
+            _write_answer_to_thread(transcript, route, text)
             return text, model, elapsed, elapsed_s, route
     except Exception as exc:
         logger.warning("Meta worker failed, trying free fallback: %s", exc)
@@ -1543,11 +1620,13 @@ def _call_free_fallback(transcript: str, t0: float, route: str = "fallback") -> 
         # spoken/notified answer.
         elapsed_s = time.time() - t0
         elapsed = f"{elapsed_s:.1f}s"
-        return ("I couldn't get an answer from either model just now -- "
-                "try again in a moment."), f"{FALLBACK_MODEL} (empty)", elapsed, elapsed_s, route
+        empty_text = "I couldn't get an answer from either model just now -- try again in a moment."
+        _write_answer_to_thread(transcript, route, empty_text)
+        return empty_text, f"{FALLBACK_MODEL} (empty)", elapsed, elapsed_s, route
     elapsed_s = time.time() - t0
     elapsed = f"{elapsed_s:.1f}s"
     logger.info("Free fallback (%s) answered", FALLBACK_MODEL)
+    _write_answer_to_thread(transcript, route, text)
     return text, FALLBACK_MODEL, elapsed, elapsed_s, route
 
 
