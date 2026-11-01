@@ -21,6 +21,7 @@ import logging
 import logging.handlers
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -1076,7 +1077,6 @@ def _pop_script_terminal(cmd: list[str], title: str) -> None:
     if not os.environ.get("DISPLAY"):
         return
     try:
-        import shlex
         line = " ".join(shlex.quote(c) for c in cmd)
         proc = subprocess.Popen(
             ["gnome-terminal", f"--title={title}", "--", "bash", "-c",
@@ -1091,6 +1091,158 @@ def _pop_script_terminal(cmd: list[str], title: str) -> None:
             pass
     except Exception as exc:
         logger.warning("visible terminal failed: %s", exc)
+
+
+def _pop_text_terminal(title: str, text: str) -> None:
+    """Fallback for _write_to_agent_thread when Sensei's tmux session isn't
+    up: a disposable standalone terminal showing pre-computed text, instead
+    of _pop_script_terminal's "run this live command and watch it" shape
+    (there's no live command here, just a result to display). Same
+    best-effort/never-raise contract, same "no DISPLAY -> do nothing"
+    behavior."""
+    if not os.environ.get("DISPLAY"):
+        return
+    try:
+        _AGENT_THREAD_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _AGENT_THREAD_DIR / f"{title}-{int(time.time() * 1000)}.txt"
+        tmp.write_text(text, encoding="utf-8")
+        subprocess.Popen(
+            ["gnome-terminal", f"--title=Tahuti: {title}", "--", "bash", "-c",
+             f"cat {shlex.quote(str(tmp))}; echo; echo \"— done —\"; exec bash"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+    except Exception as exc:
+        logger.warning("text terminal failed: %s", exc)
+
+
+# ── Agent-framework thread bridge ────────────────────────────────────────
+# Operator's ask (2026-11-01): "if I say check my emails, I'd want to see
+# the result of that in my agent framework thread -- so I could read it or
+# edit it or whatever I wanted to do." Before this, every tool's result
+# only reached the operator as a spoken TTS summary plus a line in
+# ~/.tahuti/conversation_history.json -- nothing landed anywhere scrollable,
+# copyable, or editable. check_email came closest (_pop_script_terminal
+# above) but that pops a brand-new, disposable gnome-terminal window with
+# no connection to Sensei's own tmux session -- not "the agent framework
+# thread" the operator means, and it silently does nothing at all with no
+# DISPLAY set (headless boxes).
+#
+# Deliberately NOT done via tmux send-keys into Sensei's own pane: that
+# pane is a live LLM loop reading its own stdin as real user turns (the
+# existing agent-dictation mode in slide_keyboard.py's _send_to_agent()
+# does exactly that, on purpose, for typed input). Feeding a tool's raw
+# result there -- an email body, a file's contents -- would make Sensei's
+# own model "receive" that content as if the operator said it and try to
+# respond to it: a real indirect-prompt-injection surface (email content
+# could contain instructions) for zero benefit, since nothing here needs
+# a model turn at all.
+#
+# Instead: a dedicated plain-bash WINDOW inside the SAME tmux session
+# Sensei lives in (same session = genuinely "the agent framework thread" in
+# the tmux sense this codebase already uses throughout -- same switchable
+# window list, same lifetime, no DISPLAY/X11 needed at all). Content is
+# written to a file first and only ever reached by that window's own `cat`
+# -- never interpolated into a command string, never seen by any model.
+_AGENT_THREAD_WINDOW = "tahuti"
+_AGENT_THREAD_DIR = Path.home() / ".tahuti" / "thread_output"
+
+
+def _agent_session_name() -> str:
+    """Same lookup order as slide_keyboard.py's _agent_session_name() and
+    master_ai_autostart.sh's $SESSION, so this always targets whichever
+    tmux session Sensei actually started in. Duplicated rather than
+    imported -- these are independent standalone scripts, not a shared
+    module, matching this file's existing convention."""
+    name = os.environ.get("SENSEI_SESSION_NAME", "").strip()
+    if name:
+        return name
+    try:
+        with open(os.path.expanduser("~/.master_ai_session_name"), "r", encoding="utf-8") as f:
+            name = f.read().strip()
+            if name:
+                return name
+    except Exception:
+        pass
+    return "master-ai"
+
+
+def _tmux_session_exists(session: str) -> bool:
+    try:
+        return subprocess.run(
+            ["tmux", "has-session", "-t", session],
+            capture_output=True, timeout=5,
+        ).returncode == 0
+    except Exception:
+        return False
+
+
+def _tmux_window_exists(session: str, window: str) -> bool:
+    try:
+        proc = subprocess.run(
+            ["tmux", "list-windows", "-t", session, "-F", "#{window_name}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return window in (proc.stdout or "").splitlines()
+    except Exception:
+        return False
+
+
+def _format_tool_result_for_thread(name: str, args: dict, result: dict) -> str:
+    """Readable block for one tool call -- prefers a result's own human
+    text (check_email's "output", read_file's "content") over a raw JSON
+    dump, falls back to pretty JSON for everything else (list_dir entries,
+    open_url/open_app confirmations, errors)."""
+    try:
+        header = f"{name}({json.dumps(args, ensure_ascii=False)})"
+    except Exception:
+        header = name
+    if not result.get("ok", False):
+        return f"{header}\n  REFUSED/ERROR: {result.get('error', 'unknown error')}"
+    for key in ("output", "content"):
+        value = result.get(key)
+        if isinstance(value, str) and value:
+            return f"{header}\n{value}"
+    return f"{header}\n{json.dumps(result, indent=2, ensure_ascii=False)}"
+
+
+def _write_to_agent_thread(name: str, args: dict, result: dict) -> bool:
+    """Land one tool call's real result in Sensei's tmux session (see
+    module-level comment above). Best-effort, matches _pop_script_terminal's
+    contract: never raises. Returns False (not an exception) whenever
+    Sensei's tmux session isn't up, so the caller can keep its existing
+    fallback behavior (e.g. check_email's own _pop_script_terminal popup)
+    rather than silently doing nothing."""
+    session = _agent_session_name()
+    if not _tmux_session_exists(session):
+        return False
+    try:
+        _AGENT_THREAD_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        body = _format_tool_result_for_thread(name, args, result)
+        block = f"\n===== TAHUTI: {name}  ({stamp}) =====\n{body.rstrip()}\n"
+        tmp = _AGENT_THREAD_DIR / f"{name}-{int(time.time() * 1000)}.txt"
+        tmp.write_text(block, encoding="utf-8")
+
+        target = f"{session}:{_AGENT_THREAD_WINDOW}"
+        if not _tmux_window_exists(session, _AGENT_THREAD_WINDOW):
+            subprocess.run(
+                ["tmux", "new-window", "-t", session, "-n", _AGENT_THREAD_WINDOW, "bash"],
+                check=False, timeout=5,
+            )
+            time.sleep(0.3)  # let the shell actually start before typing into it
+        # -l sends these exact characters as literal typed input, not a
+        # tmux key name -- the path is the only variable part, and it's
+        # shell-quoted; the tool's actual content never touches this
+        # command line, it only ever reaches `cat`'s own stdout.
+        subprocess.run(
+            ["tmux", "send-keys", "-t", target, "-l", "--", f"cat {shlex.quote(str(tmp))}"],
+            check=False, timeout=5,
+        )
+        subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], check=False, timeout=5)
+        return True
+    except Exception as exc:
+        logger.warning("agent-thread write failed: %s", exc)
+        return False
 
 
 def _check_email_tool(days: int = 2, unread: bool = True) -> dict:
@@ -1113,8 +1265,13 @@ def _check_email_tool(days: int = 2, unread: bool = True) -> dict:
     cmd = ["/usr/bin/python3", EMAIL_CLEANUP_SCRIPT, "--check", "--days", str(days)]
     if unread:
         cmd.append("--unread")
-    # Visible AND captured: terminal pops for watching, capture for speaking.
-    _pop_script_terminal(cmd, "Tahuti email check")
+    # Was: _pop_script_terminal(cmd, ...) here ran this SAME script a
+    # second time just to have something visible, then subprocess.run
+    # below ran it again to capture text for speaking -- two real IMAP
+    # round-trips for one request. The generic choke point in
+    # _execute_file_tool now lands this result in Sensei's own tmux
+    # thread (or a fallback popup) AFTER this single run completes, so
+    # the second run is no longer needed.
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=60)
@@ -1148,26 +1305,42 @@ def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
         args = json.loads(call.get("arguments", "{}"))
     except Exception:
         return {"ok": False, "error": "invalid JSON arguments"}
+
     if name == "read_file":
-        return _read_file_tool(
+        result = _read_file_tool(
             args.get("path", ""), args.get("offset", 1), args.get("limit")
         )
-    if name == "list_dir":
-        return _list_dir_tool(args.get("path", ""))
-    if name == "write_file":
-        return _write_file_tool(
+    elif name == "list_dir":
+        result = _list_dir_tool(args.get("path", ""))
+    elif name == "write_file":
+        result = _write_file_tool(
             goal_id,
             args.get("path", ""),
             args.get("content", ""),
             args.get("reason", ""),
         )
-    if name == "open_url":
-        return _open_url_tool(args.get("url", ""))
-    if name == "open_app":
-        return _open_app_tool(args.get("name", ""))
-    if name == "check_email":
-        return _check_email_tool(args.get("days", 2), args.get("unread", True))
-    return {"ok": False, "error": f"unknown tool: {name}"}
+    elif name == "open_url":
+        result = _open_url_tool(args.get("url", ""))
+    elif name == "open_app":
+        result = _open_app_tool(args.get("name", ""))
+    elif name == "check_email":
+        result = _check_email_tool(args.get("days", 2), args.get("unread", True))
+    else:
+        result = {"ok": False, "error": f"unknown tool: {name}"}
+
+    # Single choke point so every tool (current and future) lands in
+    # Sensei's tmux thread the same way -- see module comment above
+    # _write_to_agent_thread. Best-effort: never lets a thread-write
+    # problem affect the actual answer returned to the model. Falls back
+    # to a disposable popup only when Sensei's own tmux session isn't up
+    # at all -- otherwise the result would reach nowhere visible.
+    try:
+        landed = _write_to_agent_thread(name, args, result)
+        if not landed:
+            _pop_text_terminal(name, _format_tool_result_for_thread(name, args, result))
+    except Exception as exc:
+        logger.warning("agent-thread dispatch failed: %s", exc)
+    return result
 
 
 def _load_conversation_history() -> list[dict]:
