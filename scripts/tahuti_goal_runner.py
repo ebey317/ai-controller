@@ -69,6 +69,16 @@ DONE_DIR = GOALS_DIR / "done"
 FAILED_DIR = GOALS_DIR / "failed"
 LAST_RESPONSE_FILE = Path(ai_controller_paths.config_dir()) / "last_agent_response.md"
 CAPTION_FILE = Path(ai_controller_paths.config_dir()) / "tahuti_caption.json"
+# Persistent conversation memory (2026-11-01): voice replies used to fork
+# between a real Tahuti goal and a separate, stateless inline chat answer
+# in voice_bridge.py -- neither remembered what was said a turn ago, and
+# now that voice_bridge routes everything through here as one path, a
+# rolling history is what actually gives it continuity. Verified live
+# against the real API: the Responses "input" field accepts a list of
+# {"role", "content"} turns in place of a bare string, and the model
+# correctly uses injected history as context.
+CONVERSATION_HISTORY_FILE = Path.home() / ".tahuti" / "conversation_history.json"
+CONVERSATION_HISTORY_MAX_TURNS = int(os.environ.get("TAHUTI_HISTORY_MAX_TURNS", "10"))
 
 
 def _write_caption(text: str, state: str) -> None:
@@ -962,6 +972,35 @@ def _execute_file_tool(goal_id: str, call: dict) -> dict:
     return {"ok": False, "error": f"unknown tool: {name}"}
 
 
+def _load_conversation_history() -> list[dict]:
+    try:
+        data = json.loads(CONVERSATION_HISTORY_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
+
+
+def _save_conversation_turn(user_text: str, assistant_text: str) -> None:
+    """Append this exchange and trim to the last CONVERSATION_HISTORY_MAX_TURNS
+    turns. Best-effort -- memory is a convenience, never a reason to fail a
+    goal that already has its real answer."""
+    if not user_text or not assistant_text:
+        return
+    try:
+        history = _load_conversation_history()
+        history.append({"role": "user", "content": user_text})
+        history.append({"role": "assistant", "content": assistant_text})
+        history = history[-(CONVERSATION_HISTORY_MAX_TURNS * 2):]
+        CONVERSATION_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CONVERSATION_HISTORY_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, CONVERSATION_HISTORY_FILE)
+    except Exception as exc:
+        logger.warning("conversation history save failed: %s", exc)
+
+
 def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[str, str, str, float, str]:
     t0 = time.time()
     model, default_effort, max_tokens, route = _model_for_transcript(transcript)
@@ -1002,10 +1041,12 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
             )
     except Exception:
         pass
+    history = _load_conversation_history()
     payload: dict = {
         "model": model,
         "instructions": instructions,
-        "input": transcript,
+        "input": (history + [{"role": "user", "content": transcript}]
+                  if history else transcript),
         "reasoning": {"effort": effort},
         "tools": tools,
     }
@@ -1508,6 +1549,7 @@ def _process_goal(path: Path) -> None:
                 transcript, goal_id=goal_id,
                 effort=_effort_for_goal(goal, transcript))
             worker = f"tahuti-runner-v1 ({elapsed} {route})"
+            _save_conversation_turn(transcript, response)
         except Exception as exc:
             logger.exception("Model call failed for goal %s", goal_id)
             response = f"I ran into a problem: {exc}"

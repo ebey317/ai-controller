@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -32,7 +33,7 @@ if SCRIPT_DIR not in sys.path:
 # which device is playing or what rate it wants.
 import tts_control  # noqa: E402
 import voice_goal_schema as vgs  # noqa: E402
-from ai_controller_paths import ai_controller_dir, load_env
+from ai_controller_paths import ai_controller_dir, config_dir, load_env
 
 # -----------------------------------------------------------------------------
 # Logging setup — vocal debug output
@@ -92,24 +93,19 @@ def _load_groq_key() -> str:
 GROQ_KEY = _load_groq_key()
 
 
-def _load_meta_key() -> str:
-    """Load the Meta Model API key (env / ai-controller config / master keychain).
-
-    Same 3-source pattern as _load_groq_key. Powers the preferred LLM path
-    (Muse Spark) for voice replies; Groq remains the fallback.
-    """
-    key = os.environ.get("MODEL_API_KEY", "").strip()
+def _load_elevenlabs_key() -> str:
+    """Load the live ElevenLabs key. Same 3-source pattern as _load_groq_key."""
+    key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
     if key and not key.startswith("***") and len(key) > 20:
         return key
-    key = load_env().get("MODEL_API_KEY", "").strip()
+    key = load_env().get("ELEVENLABS_API_KEY", "").strip()
     if key and not key.startswith("***") and len(key) > 20:
         return key
-    # Fallback to the master keychain env file (plain KEY=VALUE format).
     keychain = Path.home() / "Desktop" / "Projects" / "keychain" / "master_ai_keys"
     if keychain.exists():
         try:
             for line in keychain.read_text().splitlines():
-                if line.strip().startswith("MODEL_API_KEY="):
+                if line.strip().startswith("ELEVENLABS_API_KEY="):
                     key = line.split("=", 1)[1].strip().strip('"\'')
                     if key and not key.startswith("***") and len(key) > 20:
                         return key
@@ -118,41 +114,7 @@ def _load_meta_key() -> str:
     return ""
 
 
-META_KEY = _load_meta_key()
-META_RESPONSES_URL = "https://api.meta.ai/v1/responses"
-META_LLM_MODEL = os.environ.get("VOICE_BRIDGE_META_LLM_MODEL", "muse-spark-1.3")
-# Spoken-voice system prompt. Kept short and honest: no tools are wired yet,
-# so she must not claim she can operate the desktop — but live web lookup
-# IS enabled (Responses API web_search), so current-facts questions work.
-VOICE_SYSTEM_PROMPT = os.environ.get("VOICE_BRIDGE_SYSTEM_PROMPT") or (
-    "You are Aria, the voice assistant on the operator's Linux desktop, reached by "
-    "holding a game-controller trigger. Keep every reply under 3 sentences, "
-    "plain words that sound natural spoken aloud, no markdown, no lists. "
-    "You can look things up on the live web when asked about current facts. "
-    "Opening websites and apps is handled by the task agent, not you — if "
-    "asked to open something, tell them to hold L+R and say it as "
-    "a command (for example: open facebook)."
-)
-
-
-def _extract_responses_text(data: dict) -> str:
-    """Pull visible assistant text out of a Responses API response body.
-
-    Takes the LAST message only: tool-grounded turns include progress
-    chatter ("I'll check that for you...") before the final answer, and
-    only the final answer should be spoken.
-    """
-    last = ""
-    try:
-        for item in data.get("output", []):
-            if item.get("type") != "message":
-                continue
-            for block in item.get("content", []):
-                if block.get("type") == "output_text" and block.get("text"):
-                    last = block["text"]
-    except Exception:
-        pass
-    return last.strip()
+ELEVENLABS_KEY = _load_elevenlabs_key()
 
 # -----------------------------------------------------------------------------
 # Triage: task verbs vs chat/lookup
@@ -189,6 +151,40 @@ EDGE_VOICE = "en-US-AriaNeural"
 EDGE_PITCH = "-22Hz"
 EDGE_RATE = "+18%"
 
+# TTS_ENGINE switch (2026-11-01): "elevenlabs" while the operator tunes voice
+# choices for latency + realism, "edge" to go back to the free Microsoft
+# voice above. Override in ~/.config/ai-controller/config.env, no code
+# change needed to flip back.
+TTS_ENGINE = (os.environ.get("TTS_ENGINE", "").strip()
+              or load_env().get("TTS_ENGINE", "elevenlabs").strip()).lower()
+ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
+# Default voice: Sarah (premade, free-tier). Auditioned 2026-11-01 —
+# Rachel (21m00Tcm4TlvDq8ikWAM) is library-gated (paid only, 402
+# payment_required on free). Samples: /tmp/opencode/voice_{Sarah,Laura,
+# EdgeAria}.mp3. Laura is the backup pick. Override ELEVENLABS_VOICE_ID in
+# config.env to switch.
+# Sarah - Mature, Reassuring, Confident:
+ELEVENLABS_VOICE_ID = (os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
+                        or load_env().get("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL").strip())
+# Human-tune (2026-11-01, free-tier Flash): stability 0.5 keeps expression
+# without wobble; similarity_boost 0.75 (docs default); style 0.0 (neutral —
+# raise to ~0.3 only if she sounds flat); use_speaker_boost true (clarity).
+# v4 models drop style/speed — these settings target eleven_flash_v2_5.
+ELEVENLABS_STABILITY = float(os.environ.get("ELEVENLABS_STABILITY", "")
+                             or load_env().get("ELEVENLABS_STABILITY", "0.5"))
+ELEVENLABS_SIMILARITY = float(os.environ.get("ELEVENLABS_SIMILARITY", "")
+                              or load_env().get("ELEVENLABS_SIMILARITY", "0.75"))
+ELEVENLABS_STYLE = float(os.environ.get("ELEVENLABS_STYLE", "")
+                         or load_env().get("ELEVENLABS_STYLE", "0.0"))
+# Free-tier quota guard (Flash = 20k chars/mo). Usage tracked locally;
+# synthesis refuses into Edge fallback past the cap — never a bill.
+ELEVENLABS_QUOTA_FILE = os.path.join(config_dir(), "elevenlabs_usage.json")
+ELEVENLABS_MONTHLY_CAP = 20000
+# Flash model: lowest latency ElevenLabs offers -- this switch's whole point
+# is cutting response time, not just changing the voice.
+ELEVENLABS_MODEL = (os.environ.get("ELEVENLABS_MODEL", "").strip()
+                     or load_env().get("ELEVENLABS_MODEL", "eleven_flash_v2_5").strip())
+
 # Strong refs to in-flight background TTS tasks. asyncio only holds weak refs to
 # tasks, so without this a speak task can be garbage-collected mid-generation.
 _tts_tasks: set = set()
@@ -211,8 +207,74 @@ def _speak_bg(text: str) -> None:
     task.add_done_callback(_tts_tasks.discard)
 
 
+def _generate_edge(spoken: str, mp3_path: str) -> None:
+    """Generate speech via Edge TTS (AriaNeural) with tuned voice settings."""
+    subprocess.run(
+        [sys.executable, "-m", "edge_tts", "--voice", EDGE_VOICE,
+         "--pitch=" + EDGE_PITCH,
+         "--rate=" + EDGE_RATE,
+         "--text", spoken,
+         "--write-media", mp3_path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=True,
+        timeout=30
+    )
+
+
+def _elevenlabs_quota_ok(n_chars: int) -> bool:
+    """Free-tier guard: refuse into Edge fallback past the monthly cap."""
+    import datetime as _dt
+    month = _dt.date.today().strftime("%Y-%m")
+    try:
+        usage = json.loads(Path(ELEVENLABS_QUOTA_FILE).read_text())
+    except Exception:
+        usage = {}
+    if usage.get("month") != month:
+        usage = {"month": month, "chars": 0}
+    if usage.get("chars", 0) + n_chars > ELEVENLABS_MONTHLY_CAP:
+        logger.warning("ElevenLabs quota cap reached — Edge fallback")
+        return False
+    usage["chars"] = usage.get("chars", 0) + n_chars
+    try:
+        Path(ELEVENLABS_QUOTA_FILE).write_text(json.dumps(usage))
+    except Exception as exc:
+        logger.warning("quota write failed: %s", exc)
+    return True
+
+
+def _generate_elevenlabs(spoken: str, mp3_path: str) -> None:
+    """Generate speech via ElevenLabs Flash streaming endpoint.
+
+    Raises on any failure (or quota cap) so the caller falls back to Edge
+    TTS instead of going silent. Measured 2026-11-01: stream total ~0.8s
+    vs batch ~2.2s vs edge batch ~1.4s; first audio ~0.45s.
+    """
+    if not _elevenlabs_quota_ok(len(spoken)):
+        raise RuntimeError("quota cap")
+    # stream endpoint, not convert: chunks arrive while generating.
+    req = {"text": spoken, "model_id": ELEVENLABS_MODEL,
+           "voice_settings": {"stability": ELEVENLABS_STABILITY,
+                              "similarity_boost": ELEVENLABS_SIMILARITY,
+                              "style": ELEVENLABS_STYLE,
+                              "use_speaker_boost": True}}
+    data = json.dumps(req).encode()
+    url = (f"{ELEVENLABS_TTS_URL}/{ELEVENLABS_VOICE_ID}/stream"
+           f"?model_id={ELEVENLABS_MODEL}&output_format=mp3_22050_32")
+    hreq = urllib.request.Request(
+        url, data=data,
+        headers={"xi-api-key": ELEVENLABS_KEY, "Content-Type": "application/json"},
+        method="POST")
+    with urllib.request.urlopen(hreq, timeout=20) as resp:
+        body = resp.read()
+    if len(body) < 1000:
+        raise RuntimeError(f"suspicious reply ({len(body)}B): {body[:120]!r}")
+    Path(mp3_path).write_bytes(body)
+
+
 def _speak(text: str) -> None:
-    """Speak text using Edge TTS (AriaNeural) with tuned voice settings.
+    """Speak text using the configured TTS_ENGINE (elevenlabs, falling back
+    to Edge TTS/AriaNeural on failure; "edge" to use Edge TTS directly).
 
     BLOCKING — never call directly from an async handler. Use _speak_bg().
     """
@@ -226,22 +288,17 @@ def _speak(text: str) -> None:
     t0 = time.time()
     spoken = text[:500].split("\n")[0]
     try:
-        # Use Edge TTS for high-fidelity AriaNeural voice
         mp3_fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
         os.close(mp3_fd)
 
-        # Generate TTS with tuned settings
-        subprocess.run(
-            [sys.executable, "-m", "edge_tts", "--voice", EDGE_VOICE,
-             "--pitch=" + EDGE_PITCH,
-             "--rate=" + EDGE_RATE,
-             "--text", spoken,
-             "--write-media", mp3_path],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-            timeout=30
-        )
+        if TTS_ENGINE == "elevenlabs" and ELEVENLABS_KEY:
+            try:
+                _generate_elevenlabs(spoken, mp3_path)
+            except Exception as exc:
+                logger.warning("ElevenLabs TTS failed (%s) -- falling back to Edge TTS", exc)
+                _generate_edge(spoken, mp3_path)
+        else:
+            _generate_edge(spoken, mp3_path)
 
         try:
             if os.path.getmtime('/tmp/ai_tts_barge') >= t0:
@@ -334,12 +391,6 @@ def _extract_claf_text(payload: dict) -> str:
         if isinstance(block, dict) and block.get("type") == "text":
             return block.get("text", "").strip()
     return ""
-
-
-def _extract_groq_text(payload: dict) -> str:
-    """Pull assistant text out of a Groq chat completion."""
-    choices = payload.get("choices") or [{}]
-    return (choices[0].get("message", {}) or {}).get("content", "").strip()
 
 
 # -----------------------------------------------------------------------------
@@ -435,104 +486,31 @@ async def voice(
             {"transcript": transcript, "response": local, "local": True}
         )
 
-    # ── Triage: task verbs vs chat/lookup ────────────────────────────────────
-    route = vgs.classify_transcript(transcript)
-    if route == "task":
-        goal_type = vgs.task_type(transcript) or "task"
-        goal_path = _write_goal_file(transcript)
-        ack = "On it"
-        logger.info("Task route: %r -> %s", transcript[:80], goal_path)
-        _speak_bg(ack)
-        return JSONResponse(
-            {
-                "transcript": transcript,
-                "response": ack,
-                "routed": "task",
-                "goal_type": goal_type,
-                "goal_path": str(goal_path),
-            }
-        )
-
-    # ── LLM — chat/lookup answered directly by Spark / Groq fallback ─────────
-    # Direct Groq call instead of CLAF local Ollama for speed.
-    #
-    # 2026-09-30: the default was llama-3.3-70b-versatile, which now returns
-    # HTTP 404 -- that model has been decommissioned on this Groq account, as
-    # have llama-3.1-8b-instant, llama-3.2-3b-instant, qwen3-32b and the
-    # llama-4 line. Every dictated request was failing here, so the bridge was
-    # returning an error instead of speaking a reply, and it had been doing so
-    # quietly. Verified reachable on this key: openai/gpt-oss-20b and
-    # openai/gpt-oss-120b. Using the 20b: it is the smaller of the two, and
-    # latency is what matters for a spoken answer.
-    # Still overridable, and worth overriding if a cheaper model appears.
-    GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-    GROQ_LLM_MODEL = os.environ.get("VOICE_BRIDGE_LLM_MODEL", "openai/gpt-oss-20b")
-
-    logger.info("Sending transcript to LLM")
-    response_text = ""
-    async with httpx.AsyncClient(timeout=GROQ_TIMEOUT) as client:
-        # Preferred: Meta Muse Spark via Responses API (system prompt + live
-        # web_search grounding). Falls through to Groq on any failure.
-        if META_KEY and not response_text:
-            try:
-                r = await client.post(
-                    META_RESPONSES_URL,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {META_KEY}",
-                    },
-                    json={
-                        "model": META_LLM_MODEL,
-                        # Voice replies are direct-answer tasks: minimal
-                        # reasoning keeps latency and cost down (docs: use
-                        # the lowest level that gives acceptable results).
-                        "reasoning": {"effort": "minimal"},
-                        "instructions": VOICE_SYSTEM_PROMPT,
-                        "input": transcript,
-                        "tools": [{"type": "web_search"}],
-                    },
-                )
-                r.raise_for_status()
-                response_text = _extract_responses_text(r.json())
-                logger.info("LLM (meta/%s) response: '%s'", META_LLM_MODEL, response_text[:200])
-            except Exception as exc:
-                logger.warning("Meta LLM failed, falling back to Groq: %s", exc)
-        # Fallback: Groq (legacy path, no system prompt).
-        if not response_text:
-            try:
-                r = await client.post(
-                    GROQ_CHAT_URL,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {GROQ_KEY}",
-                    },
-                    json={
-                        "model": GROQ_LLM_MODEL,
-                        "messages": [{"role": "user", "content": transcript}],
-                        "max_tokens": 256,
-                    },
-                )
-                r.raise_for_status()
-                response_text = _extract_groq_text(r.json())
-                logger.info("LLM (groq/%s) response: '%s'", GROQ_LLM_MODEL, response_text[:200])
-            except httpx.HTTPStatusError as exc:
-                logger.error("Groq LLM HTTP %s", exc.response.status_code)
-                return JSONResponse(
-                    {"transcript": transcript, "error": f"Groq LLM HTTP {exc.response.status_code}"},
-                    status_code=502,
-                )
-            except httpx.RequestError as exc:
-                logger.error("Groq LLM request failed: %s", exc)
-                return JSONResponse(
-                    {"transcript": transcript, "error": f"Groq LLM request failed: {exc}"},
-                    status_code=502,
-                )
-
-    # ── TTS — speak response ──────────────────────────────────────────────────
-    logger.info("Speaking response via TTS")
-    _speak_bg(response_text)
-
-    return JSONResponse({"transcript": transcript, "response": response_text})
+    # ── Everything is a Tahuti goal now (2026-11-01) ──────────────────────────
+    # This used to fork here: "task" transcripts got a real goal file, while
+    # "chat"/"lookup" transcripts were answered inline, right here, by a
+    # separate direct LLM call (Meta Spark / Groq fallback below -- removed).
+    # That inline path had no persistent memory and bypassed Tahuti's actual
+    # agent framework entirely (tools, approval gating, the conversation
+    # history Tahuti now keeps across goals) -- a plain conversational
+    # question got a different, thinner path than a task, with no memory of
+    # what either one said a minute ago. One path, one memory, same as every
+    # other goal source (ptt_pynput.py's Ctrl+F13 goal-take already only ever
+    # went this way).
+    goal_type = vgs.task_type(transcript) or vgs.classify_transcript(transcript)
+    goal_path = _write_goal_file(transcript)
+    ack = "On it"
+    logger.info("Goal written: %r -> %s (%s)", transcript[:80], goal_path, goal_type)
+    _speak_bg(ack)
+    return JSONResponse(
+        {
+            "transcript": transcript,
+            "response": ack,
+            "routed": "task",
+            "goal_type": goal_type,
+            "goal_path": str(goal_path),
+        }
+    )
 
 
 @app.post("/speak")
