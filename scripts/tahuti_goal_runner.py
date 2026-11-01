@@ -84,7 +84,24 @@ def _write_caption(text: str, state: str) -> None:
 META_RESPONSES_URL = "https://api.meta.ai/v1/responses"
 DEFAULT_MODEL = os.environ.get("TAHUTI_RUNNER_MODEL", "muse-wonder-1.0")
 CODE_MODEL = "muse-spark-1.1"
+FAST_CHAT_MODEL = os.environ.get("TAHUTI_FAST_CHAT_MODEL", "muse-spark-1.1")
+FAST_LOOKUP_MODEL = os.environ.get("TAHUTI_FAST_LOOKUP_MODEL", "muse-spark-1.2")
+FAST_CHAT_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_CHAT_MAX_TOKENS", "256"))
+FAST_LOOKUP_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_LOOKUP_MAX_TOKENS", "512"))
+FAST_EFFORT = "minimal"
 BRIDGE_URL = (os.environ.get("BRIDGE_URL", "http://127.0.0.1:8002")).rstrip("/")
+
+SIMPLE_LOOKUP_TRIGGERS = {
+    "what", "who", "when", "where", "why", "how",
+    "weather", "news", "time", "date", "define", "meaning",
+    "lookup", "search", "find"
+}
+MULTISTEP_HINTS = {
+    "then", "after that", "step by step", "first", "second", "third",
+    "plan", "research", "analyze", "compare", "summarize",
+    "report", "essay", "build", "create file", "write a file"
+}
+CHAT_SHORT_WORDS = {"hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "yes", "no", "bye", "sup"}
 VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
 
 POLL_INTERVAL = float(os.environ.get("TAHUTI_RUNNER_POLL_INTERVAL", "2"))
@@ -340,12 +357,48 @@ def _load_openrouter_key() -> str:
     return ""
 
 
-def _model_for_transcript(text: str) -> tuple[str, str]:
-    """Return (model, reasoning_effort)."""
+def _is_simple_route(text: str) -> str | None:
+    """Classify simple goals for fast path: 'chat', 'lookup', or None."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    lowered = t.lower()
+    words = lowered.split()
+    if len(t) > 450 or len(words) > 50:
+        return None
+    # multi-step signals -> not simple unless very short
+    if any(h in lowered for h in MULTISTEP_HINTS) and len(words) > 14:
+        return None
+    if _needs_approval(t):
+        return None
+    # code already handled before calling this
+    if any(h in lowered for h in CODE_HINTS):
+        return None
+    # lookup: question or lookup trigger
+    if "?" in t or any(w in lowered for w in SIMPLE_LOOKUP_TRIGGERS):
+        # short lookup
+        if len(words) <= 32:
+            return "lookup"
+    # short chat
+    if len(words) <= 10:
+        return "chat"
+    if len(words) <= 20 and any(c in lowered for c in CHAT_SHORT_WORDS):
+        return "chat"
+    return None
+
+
+def _model_for_transcript(text: str) -> tuple[str, str, int | None, str]:
+    """Return (model, reasoning_effort, max_output_tokens, route)."""
     lowered = text.lower()
     if any(h in lowered for h in CODE_HINTS):
-        return CODE_MODEL, "medium"
-    return DEFAULT_MODEL, "minimal"
+        # code still fast but needs a bit more tokens
+        return CODE_MODEL, "low", 1024, "code-fast"
+    simple = _is_simple_route(text)
+    if simple == "chat":
+        return FAST_CHAT_MODEL, FAST_EFFORT, FAST_CHAT_MAX_TOKENS, "fast-chat"
+    if simple == "lookup":
+        return FAST_LOOKUP_MODEL, FAST_EFFORT, FAST_LOOKUP_MAX_TOKENS, "fast-lookup"
+    return DEFAULT_MODEL, "medium", None, "wonder-multi"
 
 
 # Selective thinking (Master AI's level vocabulary). Meta rejects "none",
@@ -854,14 +907,29 @@ def _execute_file_tool(goal_id: str, call: dict) -> dict:
     return {"ok": False, "error": f"unknown tool: {name}"}
 
 
-def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[str, str, str]:
+def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[str, str, str, float, str]:
     t0 = time.time()
-    model, default_effort = _model_for_transcript(transcript)
+    model, default_effort, max_tokens, route = _model_for_transcript(transcript)
     effort = effort or default_effort
     if not META_KEY:
         raise RuntimeError("MODEL_API_KEY not available")
 
-    tools = _all_tools(transcript)
+    # fast paths skip heavy tool lists to cut latency
+    if route.startswith("fast-"):
+        if route == "fast-lookup":
+            tools: list[dict] = [{"type": "web_search"}] if any(
+                w in transcript.lower() for w in SIMPLE_LOOKUP_TRIGGERS
+            ) or "?" in transcript else []
+            # include email tool if transcript asks email (still fast)
+            if _EMAIL_TRIGGER_RE.search(transcript):
+                tools.append(EMAIL_TOOL)
+        else:  # fast-chat
+            tools = []
+            if _EMAIL_TRIGGER_RE.search(transcript):
+                tools = [EMAIL_TOOL]
+    else:
+        tools = _all_tools(transcript)
+
     instructions = SAFETY_PROMPT
     try:
         pins = sorted(_pin_commands().keys())
@@ -880,10 +948,15 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
         "reasoning": {"effort": effort},
         "tools": tools,
     }
+    if max_tokens:
+        # Responses API uses max_output_tokens
+        payload["max_output_tokens"] = max_tokens
     response_id: Optional[str] = None
 
     try:
-        with httpx.Client(timeout=MODEL_TIMEOUT) as client:
+        # shorter timeout for fast routes
+        timeout = 30.0 if route.startswith("fast-") else MODEL_TIMEOUT
+        with httpx.Client(timeout=timeout) as client:
             while True:
                 r = client.post(
                     META_RESPONSES_URL,
@@ -922,18 +995,22 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
                     "input": outputs,
                     "tools": tools,
                 }
+                if max_tokens:
+                    payload["max_output_tokens"] = max_tokens
 
             text = _extract_responses_text(data)
             if not text:
                 text = "I thought about it, but didn't have a reply."
-            elapsed = f"{time.time() - t0:.1f}s"
-            return text, model, elapsed
+            elapsed_s = time.time() - t0
+            elapsed = f"{elapsed_s:.1f}s"
+            logger.info("model %s route %s elapsed %.2fs", model, route, elapsed_s)
+            return text, model, elapsed, elapsed_s, route
     except Exception as exc:
         logger.warning("Meta worker failed, trying free fallback: %s", exc)
-        return _call_free_fallback(transcript, t0)
+        return _call_free_fallback(transcript, t0, route)
 
 
-def _call_free_fallback(transcript: str, t0: float) -> tuple[str, str, str]:
+def _call_free_fallback(transcript: str, t0: float, route: str = "fallback") -> tuple[str, str, str, float, str]:
     """Direct-answer fallback on OpenRouter :free models. No tools by design.
 
     FALLBACK_MODEL is a reasoning model: it spends tokens on an internal
@@ -975,12 +1052,14 @@ def _call_free_fallback(transcript: str, t0: float) -> tuple[str, str, str]:
         # Both the primary worker and the fallback came up empty -- say so
         # plainly instead of surfacing a Python exception string as the
         # spoken/notified answer.
-        elapsed = f"{time.time() - t0:.1f}s"
+        elapsed_s = time.time() - t0
+        elapsed = f"{elapsed_s:.1f}s"
         return ("I couldn't get an answer from either model just now -- "
-                "try again in a moment."), f"{FALLBACK_MODEL} (empty)", elapsed
-    elapsed = f"{time.time() - t0:.1f}s"
+                "try again in a moment."), f"{FALLBACK_MODEL} (empty)", elapsed, elapsed_s, route
+    elapsed_s = time.time() - t0
+    elapsed = f"{elapsed_s:.1f}s"
     logger.info("Free fallback (%s) answered", FALLBACK_MODEL)
-    return text, FALLBACK_MODEL, elapsed
+    return text, FALLBACK_MODEL, elapsed, elapsed_s, route
 
 
 def _post_speak(text: str) -> None:
@@ -1048,6 +1127,8 @@ def _archive(
     response: str = "",
     error: str = "",
     model: str = "",
+    elapsed_s: float | None = None,
+    route: str = "",
 ) -> None:
     dest_dir = DONE_DIR if status == "done" else FAILED_DIR
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -1058,6 +1139,8 @@ def _archive(
         "response": response,
         "error": error,
         "model": model,
+        "elapsed_s": elapsed_s,
+        "route": route,
         "archived_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
@@ -1336,6 +1419,8 @@ def _process_goal(path: Path) -> None:
     response = ""
     worker = ""
     model: Optional[str] = None
+    elapsed_s: float | None = None
+    route: str = ""
 
     if approval:
         pattern = f"tahuti:{_verb_for_approval(transcript)}:background"
@@ -1358,10 +1443,10 @@ def _process_goal(path: Path) -> None:
                 worker = "tahuti-runner-v1 (approval gate)"
     if not approval and not response:
         try:
-            response, model, elapsed = _call_model(
+            response, model, elapsed, elapsed_s, route = _call_model(
                 transcript, goal_id=goal_id,
                 effort=_effort_for_goal(goal, transcript))
-            worker = f"tahuti-runner-v1 ({elapsed})"
+            worker = f"tahuti-runner-v1 ({elapsed} {route})"
         except Exception as exc:
             logger.exception("Model call failed for goal %s", goal_id)
             response = f"I ran into a problem: {exc}"
@@ -1387,6 +1472,8 @@ def _process_goal(path: Path) -> None:
         response=response,
         error="" if (approval or model) else "model call failed",
         model=model or ("approval-gate" if approval else "unknown"),
+        elapsed_s=elapsed_s,
+        route=route,
     )
     # Hold-to-show (2026-10-31): job over = window gone. The spoken answer
     # and response file carry the result; next claim raises the next window.
