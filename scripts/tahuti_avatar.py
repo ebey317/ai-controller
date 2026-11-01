@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -333,8 +336,26 @@ else:  # pragma: no cover
     TahutiBox = None  # type: ignore
 
 
+@dataclass
+class _PendingRequest:
+    card: dict[str, str]
+    settings: dict[str, Any]
+    completed: threading.Event
+    verdict: str = "deny"
+
+
 _BOX: Any = None
 _PROMPT_ACTIVE = False
+_PROMPT_LOCK = threading.RLock()
+_PENDING: deque[_PendingRequest] = deque()
+
+
+def _resolve_pending_as_denied() -> None:
+    with _PROMPT_LOCK:
+        while _PENDING:
+            request = _PENDING.popleft()
+            request.verdict = "deny"
+            request.completed.set()
 
 
 def _get_box() -> Any:
@@ -356,26 +377,35 @@ def _reset_box() -> None:
 
 
 def prompt(pattern_key: str, description: str, **extra: Any) -> str:
-    """Return once/session/deny. Close and timeout deny. Fail closed.
-
-    The query is presented inside Tahuti's one box — the avatar's own
-    window. One query at a time: a second request while the box is busy
-    denies rather than stacking another surface.
-    """
+    """Present queued requests one at a time in Tahuti's single window."""
     global _PROMPT_ACTIVE
     if not GTK_AVAILABLE or not os.environ.get("DISPLAY"):
-        return "deny"
-    if _PROMPT_ACTIVE:
         return "deny"
     try:
         settings = get_avatar_settings(load_profiles())
         if not settings.get("approval_box", True) or not settings.get("popup_on_approval", True):
             return "deny"
-        card = card_details(pattern_key, description, extra)
-        _PROMPT_ACTIVE = True
-        try:
-            return _get_box().present(card, settings, TIMEOUT_SECONDS)
-        finally:
-            _PROMPT_ACTIVE = False
+        request = _PendingRequest(card_details(pattern_key, description, extra), settings, threading.Event())
+        with _PROMPT_LOCK:
+            driver = not _PROMPT_ACTIVE
+            _PENDING.append(request)
+            if driver:
+                _PROMPT_ACTIVE = True
+        if not driver:
+            request.completed.wait()
+            return request.verdict
+        while True:
+            with _PROMPT_LOCK:
+                if not _PENDING:
+                    _PROMPT_ACTIVE = False
+                    return request.verdict
+                active = _PENDING.popleft()
+            try:
+                active.verdict = _get_box().present(active.card, active.settings, TIMEOUT_SECONDS)
+            except Exception:
+                active.verdict = "deny"
+            finally:
+                active.completed.set()
     except Exception:
+        _resolve_pending_as_denied()
         return "deny"

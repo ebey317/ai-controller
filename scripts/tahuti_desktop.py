@@ -98,6 +98,24 @@ def _import_from_path(name: str, path: Path):
     return module
 
 
+def _install_tahuti_callback(gate) -> None:
+    """Install Tahuti's native prompt on either a fresh or preloaded gate."""
+    if not os.environ.get("DISPLAY"):
+        return
+    try:
+        avatar_module = _import_from_path(
+            "_tahuti_avatar_ui", Path(__file__).resolve().parent / "tahuti_avatar.py"
+        )
+
+        def _native_prompt(pattern_key, description, **extra):
+            return avatar_module.prompt(pattern_key, description, **extra)
+
+        gate.set_explicit_callback(_native_prompt)
+    except Exception:
+        # A missing visual surface must leave the shared gate fail-closed.
+        return
+
+
 def _load_approval_gate():
     """Import master-ai-cli's shared approval gate.
 
@@ -123,6 +141,7 @@ def _load_approval_gate():
     canonical = "approval_gate"
     existing = sys.modules.get(canonical)
     if existing is not None:
+        _install_tahuti_callback(existing)
         return existing
 
     path = _MASTER_AI_CLI / "scripts" / "approval_gate.py"
@@ -137,22 +156,7 @@ def _load_approval_gate():
     module = importlib.util.module_from_spec(spec)
     sys.modules[canonical] = module
     spec.loader.exec_module(module)
-    # Tahuti owns the human-facing approval surface. The gate still owns
-    # scoped-grant semantics; this callback only presents the request and
-    # returns the operator's decision to the same requesting process.
-    if os.environ.get("DISPLAY"):
-        try:
-            avatar_module = _import_from_path(
-                "_tahuti_avatar_ui", Path(__file__).resolve().parent / "tahuti_avatar.py"
-            )
-
-            def _native_prompt(pattern_key, description, **extra):
-                return avatar_module.prompt(pattern_key, description, **extra)
-
-            module.set_explicit_callback(_native_prompt)
-        except Exception:
-            # Keep the gate fail-closed if the visual surface cannot load.
-            pass
+    _install_tahuti_callback(module)
     return module
 
 

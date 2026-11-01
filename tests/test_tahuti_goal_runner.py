@@ -144,16 +144,15 @@ def test_list_dir_tool_rejects_outside_home(monkeypatch):
 def test_write_file_tool_queues_approval(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "_is_under_home", lambda p: True)
     monkeypatch.setattr(runner, "APPROVALS_DIR", tmp_path)
-    def simulate_ui(*args, **kwargs):
-        for pending in tmp_path.glob('*.pending.json'):
-            receipt = pending.with_name(pending.name.replace('.pending.json', '.resolved.json'))
-            receipt.write_text(json.dumps({'status': 'executed', 'decision': 'once'}))
-    monkeypatch.setattr(runner.subprocess, 'Popen', simulate_ui)
+    # The approval box answers "once": the write executes and the queued
+    # record remains as the audit trail.
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
     target = tmp_path / "out.txt"
     result = runner._write_file_tool("g1", str(target), "new content", "create file")
     assert result["ok"] is True
     assert result["status"] == "executed"
     assert result["decision"] == "once"
+    assert target.read_text(encoding="utf-8") == "new content"
     pending = list(tmp_path.glob("*.pending.json"))
     assert len(pending) == 1
     data = json.loads(pending[0].read_text())
@@ -282,11 +281,7 @@ def test_call_model_executes_read_file_tool_and_follows_up(monkeypatch):
 
 def test_call_model_queues_write_file_tool_and_follows_up(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "APPROVALS_DIR", tmp_path)
-    def simulate_ui(*args, **kwargs):
-        for pending in tmp_path.glob('*.pending.json'):
-            receipt = pending.with_name(pending.name.replace('.pending.json', '.resolved.json'))
-            receipt.write_text(json.dumps({'status': 'executed', 'decision': 'once'}))
-    monkeypatch.setattr(runner.subprocess, 'Popen', simulate_ui)
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
     fake = _FakeClient(
         [
             _function_call_response(
@@ -314,6 +309,108 @@ def test_call_model_queues_write_file_tool_and_follows_up(monkeypatch, tmp_path)
     data = json.loads(pending[0].read_text())
     assert data["path"] == "/home/elijah/notes.txt"
     assert data["content"] == "proposed"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Goal-level approval must reach the avatar's one box (2026-10-31 bug):
+# a gated question queued a .pending.json file and spoke "queued for
+# you", but nothing ever presented the box, so no decision could happen.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _approval_goal(tmp_path, monkeypatch, transcript, outcome, calls):
+    """A gated goal with every side effect stubbed; outcome is the box's."""
+    monkeypatch.setattr(runner, "GOALS_DIR", tmp_path / "goals")
+    monkeypatch.setattr(runner, "DONE_DIR", tmp_path / "goals" / "done")
+    monkeypatch.setattr(runner, "FAILED_DIR", tmp_path / "goals" / "failed")
+    monkeypatch.setattr(runner, "APPROVALS_DIR", tmp_path / "approvals")
+    monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
+    monkeypatch.setattr(runner, "_post_speak", lambda text: None)
+    monkeypatch.setattr(runner, "_write_last_response", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_notify", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_write_caption", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_show_work_avatar", lambda: None)
+
+    def fake_model(text, goal_id=None, effort=None):
+        calls.append(text)
+        return "done it", "fake-model", "1s"
+
+    monkeypatch.setattr(runner, "_call_model", fake_model)
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: outcome)
+
+    goal_path = runner.GOALS_DIR / "gated1.json"
+    goal_path.parent.mkdir(parents=True, exist_ok=True)
+    goal_path.write_text(
+        json.dumps(
+            {
+                "id": "gated1",
+                "transcript": transcript,
+                "type": "write",
+                "time": "2026-10-31T09:00:00-0400",
+                "source": "voice_bridge",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return goal_path
+
+
+def test_approval_box_yes_runs_the_goal(tmp_path, monkeypatch):
+    calls = []
+    goal_path = _approval_goal(
+        tmp_path, monkeypatch, "run the backup please", "once", calls)
+    runner._process_goal(goal_path)
+    assert calls == ["run the backup please"]
+
+
+def test_approval_box_deny_never_runs_the_goal(tmp_path, monkeypatch):
+    calls = []
+    goal_path = _approval_goal(
+        tmp_path, monkeypatch, "run the backup please", "deny", calls)
+    runner._process_goal(goal_path)
+    assert calls == []
+
+
+def test_approval_without_a_box_queues_as_before(tmp_path, monkeypatch):
+    calls = []
+    goal_path = _approval_goal(
+        tmp_path, monkeypatch, "run the backup please", None, calls)
+    runner._process_goal(goal_path)
+    assert calls == []
+    pending = list(runner.APPROVALS_DIR.glob("*.pending.json"))
+    assert len(pending) == 1
+
+
+def test_present_approval_maps_avatar_verdicts(monkeypatch):
+    """The avatar surface answers once/session/always/deny on stdout."""
+    monkeypatch.setenv("DISPLAY", ":0")
+
+    class _R:
+        def __init__(self, out):
+            self.stdout = out
+
+    for spoken, expected in (("once", "once"), ("always", "session"),
+                             ("session", "session"), ("deny", "deny"),
+                             ("garbage", None)):
+        monkeypatch.setattr(
+            runner.subprocess, "run",
+            lambda *a, _o=spoken, **k: _R(_o + "\n"))
+        assert runner._present_approval("tahuti:run:background", "run it") == expected
+
+
+def test_present_approval_headless_has_no_card(monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    assert runner._present_approval("tahuti:run:background", "run it") is None
+
+
+def test_approval_box_always_saves_a_grant(tmp_path, monkeypatch):
+    calls = []
+    goal_path = _approval_goal(
+        tmp_path, monkeypatch, "run the backup please", "session", calls)
+    runner._process_goal(goal_path)
+    assert calls == ["run the backup please"]
+    grants = json.loads(runner.GRANTS_FILE.read_text(encoding="utf-8"))
+    assert grants["patterns"]["tahuti:run:background"] == "always"
 
 
 def test_all_tools_includes_web_search_for_questions():

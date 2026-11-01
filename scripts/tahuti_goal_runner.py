@@ -96,23 +96,26 @@ DEFAULT_MODEL = os.environ.get("TAHUTI_RUNNER_MODEL", "muse-wonder-1.0")
 CODE_MODEL = "muse-spark-1.1"
 FAST_CHAT_MODEL = os.environ.get("TAHUTI_FAST_CHAT_MODEL", "muse-spark-1.1")
 FAST_LOOKUP_MODEL = os.environ.get("TAHUTI_FAST_LOOKUP_MODEL", "muse-spark-1.2")
-FAST_CHAT_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_CHAT_MAX_TOKENS", "1024"))
+FAST_CHAT_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_CHAT_MAX_TOKENS", "1536"))
 # Same reasoning-starves-the-budget failure as FAST_LOOKUP_MAX_TOKENS below,
 # found live 2026-11-01 while verifying the tool-allowlist/honesty-prompt
 # fix: at 256, "reasoning" alone (even effort="minimal") used the whole
 # budget and the response came back with ZERO message text ("status":
 # "incomplete" on the reasoning item) -- the model never got to write its
 # honest "I have no tools this turn" answer, it just came back empty and
-# fell through to "I thought about it, but didn't have a reply." Verified
-# live at 1024 that the exact same request completes reasoning AND writes
-# the real answer.
+# fell through to "I thought about it, but didn't have a reply." 1024
+# fixed the no-tools case but a real tool round (reasoning + function_call
+# + a second reasoning pass + the final message, all sharing one budget)
+# still starved intermittently -- observed live, ~1/3 of real open_url
+# calls, same "incomplete" reasoning / zero-text shape. Bumped to 1536 and
+# re-verified: 5/5 live open_url calls completed with real answer text.
 # 512 starved on anything needing a second tool round (open_url then a
 # web_search to verify/summarize): the model spent the whole budget on
 # reasoning + the search calls and never reached the final text, coming
 # back as "I thought about it, but didn't have a reply." -- observed and
-# fixed 2026-11-01 alongside the open_url hallucination bug above. 1024
-# verified live to leave room for both rounds plus real answer text.
-FAST_LOOKUP_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_LOOKUP_MAX_TOKENS", "1024"))
+# fixed 2026-11-01 alongside the open_url hallucination bug above. 1536
+# verified live, same round-trip pattern as FAST_CHAT_MAX_TOKENS above.
+FAST_LOOKUP_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_LOOKUP_MAX_TOKENS", "1536"))
 FAST_EFFORT = "minimal"
 BRIDGE_URL = (os.environ.get("BRIDGE_URL", "http://127.0.0.1:8002")).rstrip("/")
 
