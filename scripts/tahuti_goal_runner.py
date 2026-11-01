@@ -87,7 +87,13 @@ CODE_MODEL = "muse-spark-1.1"
 FAST_CHAT_MODEL = os.environ.get("TAHUTI_FAST_CHAT_MODEL", "muse-spark-1.1")
 FAST_LOOKUP_MODEL = os.environ.get("TAHUTI_FAST_LOOKUP_MODEL", "muse-spark-1.2")
 FAST_CHAT_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_CHAT_MAX_TOKENS", "256"))
-FAST_LOOKUP_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_LOOKUP_MAX_TOKENS", "512"))
+# 512 starved on anything needing a second tool round (open_url then a
+# web_search to verify/summarize): the model spent the whole budget on
+# reasoning + the search calls and never reached the final text, coming
+# back as "I thought about it, but didn't have a reply." -- observed and
+# fixed 2026-11-01 alongside the open_url hallucination bug above. 1024
+# verified live to leave room for both rounds plus real answer text.
+FAST_LOOKUP_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_LOOKUP_MAX_TOKENS", "1024"))
 FAST_EFFORT = "minimal"
 BRIDGE_URL = (os.environ.get("BRIDGE_URL", "http://127.0.0.1:8002")).rstrip("/")
 
@@ -242,6 +248,23 @@ FILE_TOOLS = [
         },
     },
 ]
+
+# Pulled out of FILE_TOOLS for reuse: the fast-chat/fast-lookup lanes strip
+# FILE_TOOLS down to almost nothing for latency, but open_url/open_app are
+# cheap single-shot calls, not the multi-step file browsing those lanes are
+# actually too thin for -- so they get added back in when the transcript
+# asks to open something (see OPEN_TRIGGER_WORDS / _call_model below), the
+# same accommodation EMAIL_TOOL already gets.
+#
+# Real bug this fixes (observed 2026-11-01): a fast-lookup goal asking to
+# "open up a website" had NO open_url tool in its tools list at all, yet
+# the model answered "Opened a beginner-friendly site for you... The page
+# is now open in your browser" with a fabricated page title -- a clean
+# hallucinated tool-use success, not a hedge. It kept the story going
+# ("I open sites with my open_url tool...") until asked a third time,
+# then admitted "I didn't open a site yet in this chat." The fix is
+# giving the tool back, not teaching the model to hedge better.
+OPEN_TOOLS = [t for t in FILE_TOOLS if t["name"] in ("open_url", "open_app")]
 
 # check_email lives outside FILE_TOOLS and is only offered to the model when
 # the transcript itself plausibly asks about email (see _all_tools below).
@@ -465,6 +488,13 @@ def _is_under_home(path: Path) -> bool:
 
 _EMAIL_TRIGGER_RE = re.compile(
     r"\b(" + "|".join(EMAIL_TRIGGER_WORDS) + r")\b", re.IGNORECASE
+)
+
+OPEN_TRIGGER_WORDS = {
+    "open", "launch", "pull up", "go to", "navigate to", "visit", "bring up",
+}
+_OPEN_TRIGGER_RE = re.compile(
+    r"\b(" + "|".join(OPEN_TRIGGER_WORDS) + r")\b", re.IGNORECASE
 )
 
 
@@ -952,6 +982,12 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
             tools = []
             if _EMAIL_TRIGGER_RE.search(transcript):
                 tools = [EMAIL_TOOL]
+        # open_url/open_app back in when actually asked -- cheap single-shot
+        # calls, not what the fast lanes are too thin for. Without this the
+        # model hallucinates having opened something it was never given the
+        # tool to open (see OPEN_TOOLS comment above).
+        if _OPEN_TRIGGER_RE.search(transcript):
+            tools.extend(_tools_with_live_open_app(OPEN_TOOLS))
     else:
         tools = _all_tools(transcript)
 
