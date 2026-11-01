@@ -357,6 +357,29 @@ def _load_openrouter_key() -> str:
     return ""
 
 
+def _contains_hint(lowered: str, word_set: set[str], hints: set[str]) -> bool:
+    """Word-boundary-safe hint match.
+
+    Plain `h in lowered` matches a single-word hint as a SUBSTRING, so
+    "read" matches inside "reading", "no" inside "know", "how" inside
+    "however" -- a real bug observed 2026-11-01: a plain research request
+    ("...reading my repos and documents...") got misrouted to the
+    reduced-capability code-fast lane purely because it contains "read",
+    then came back empty because that lane's token/effort budget is too
+    small for an open-ended task. Single-word hints now require a whole-
+    word match against word_set; multi-word phrases ("step by step",
+    "thank you") keep substring matching -- a full phrase colliding with
+    unrelated text is negligible risk, unlike a single common word.
+    """
+    for h in hints:
+        if " " in h:
+            if h in lowered:
+                return True
+        elif h in word_set:
+            return True
+    return False
+
+
 def _is_simple_route(text: str) -> str | None:
     """Classify simple goals for fast path: 'chat', 'lookup', or None."""
     t = (text or "").strip()
@@ -364,25 +387,26 @@ def _is_simple_route(text: str) -> str | None:
         return None
     lowered = t.lower()
     words = lowered.split()
+    word_set = set(re.findall(r"[a-z']+", lowered))
     if len(t) > 450 or len(words) > 50:
         return None
     # multi-step signals -> not simple unless very short
-    if any(h in lowered for h in MULTISTEP_HINTS) and len(words) > 14:
+    if _contains_hint(lowered, word_set, MULTISTEP_HINTS) and len(words) > 14:
         return None
     if _needs_approval(t):
         return None
     # code already handled before calling this
-    if any(h in lowered for h in CODE_HINTS):
+    if _contains_hint(lowered, word_set, CODE_HINTS):
         return None
     # lookup: question or lookup trigger
-    if "?" in t or any(w in lowered for w in SIMPLE_LOOKUP_TRIGGERS):
+    if "?" in t or _contains_hint(lowered, word_set, SIMPLE_LOOKUP_TRIGGERS):
         # short lookup
         if len(words) <= 32:
             return "lookup"
     # short chat
     if len(words) <= 10:
         return "chat"
-    if len(words) <= 20 and any(c in lowered for c in CHAT_SHORT_WORDS):
+    if len(words) <= 20 and _contains_hint(lowered, word_set, CHAT_SHORT_WORDS):
         return "chat"
     return None
 
@@ -390,7 +414,8 @@ def _is_simple_route(text: str) -> str | None:
 def _model_for_transcript(text: str) -> tuple[str, str, int | None, str]:
     """Return (model, reasoning_effort, max_output_tokens, route)."""
     lowered = text.lower()
-    if any(h in lowered for h in CODE_HINTS):
+    word_set = set(re.findall(r"[a-z']+", lowered))
+    if _contains_hint(lowered, word_set, CODE_HINTS):
         # code still fast but needs a bit more tokens
         return CODE_MODEL, "low", 1024, "code-fast"
     simple = _is_simple_route(text)
