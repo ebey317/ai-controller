@@ -96,7 +96,16 @@ DEFAULT_MODEL = os.environ.get("TAHUTI_RUNNER_MODEL", "muse-wonder-1.0")
 CODE_MODEL = "muse-spark-1.1"
 FAST_CHAT_MODEL = os.environ.get("TAHUTI_FAST_CHAT_MODEL", "muse-spark-1.1")
 FAST_LOOKUP_MODEL = os.environ.get("TAHUTI_FAST_LOOKUP_MODEL", "muse-spark-1.2")
-FAST_CHAT_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_CHAT_MAX_TOKENS", "256"))
+FAST_CHAT_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_CHAT_MAX_TOKENS", "1024"))
+# Same reasoning-starves-the-budget failure as FAST_LOOKUP_MAX_TOKENS below,
+# found live 2026-11-01 while verifying the tool-allowlist/honesty-prompt
+# fix: at 256, "reasoning" alone (even effort="minimal") used the whole
+# budget and the response came back with ZERO message text ("status":
+# "incomplete" on the reasoning item) -- the model never got to write its
+# honest "I have no tools this turn" answer, it just came back empty and
+# fell through to "I thought about it, but didn't have a reply." Verified
+# live at 1024 that the exact same request completes reasoning AND writes
+# the real answer.
 # 512 starved on anything needing a second tool round (open_url then a
 # web_search to verify/summarize): the model spent the whole budget on
 # reasoning + the search calls and never reached the final text, coming
@@ -123,27 +132,87 @@ VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
 POLL_INTERVAL = float(os.environ.get("TAHUTI_RUNNER_POLL_INTERVAL", "2"))
 MODEL_TIMEOUT = float(os.environ.get("TAHUTI_RUNNER_MODEL_TIMEOUT", "120"))
 
-SAFETY_PROMPT = (
+SAFETY_PROMPT_HEAD = (
     "You are Tahuti, the headless agent on the operator's Linux desktop — "
-    "a model with live tools, and you know your framework. YOUR TOOLS: "
-    "open_url (open any website now), open_app (chrome, thunderbird, "
-    "terminal, files, code — the coding agent), check_email (read-only "
-    "inbox check), read_file and list_dir (home directory only), "
-    "write_file (queues an approval request, never writes directly), "
-    "web_search (offered on lookup tasks). Decide per task which tool fits "
-    "and act immediately on safe, reversible ones — no approval needed. "
-    "YOUR HARNESS: controller L+R and the keyboard AGENT toggle file goals "
-    "to ~/.tahuti/goals; anything you cannot do waits in ~/.tahuti/approvals "
-    "for the operator; your final message is spoken aloud and saved. CLAF "
-    "(tiered model router) and the Hermes gateway also live on this machine, "
-    "but you cannot call them — never claim otherwise. "
+    "a model with live tools, and you know your framework. "
+)
+
+# Per-tool one-liners for the dynamic "YOUR TOOLS this turn" sentence built
+# in _tools_sentence() below. Keep these in sync with FILE_TOOLS/EMAIL_TOOL
+# descriptions -- this dict exists only to render a short prompt clause.
+TOOL_DESCRIPTIONS = {
+    "read_file": "read_file (read a text file, home directory only)",
+    "list_dir": "list_dir (list a directory, home directory only)",
+    "write_file": "write_file (queues an approval request in ~/.tahuti/approvals, never writes directly)",
+    "open_url": "open_url (open any website now)",
+    "open_app": "open_app (launch an app now)",
+    "check_email": "check_email (read-only inbox check)",
+}
+
+SAFETY_PROMPT_TAIL = (
+    "Decide per task which tool fits and act immediately on safe, reversible "
+    "ones — no approval needed. YOUR HARNESS: controller L+R and the keyboard "
+    "AGENT toggle file goals to ~/.tahuti/goals; anything you cannot do waits "
+    "in ~/.tahuti/approvals for the operator; your final message is spoken "
+    "aloud and saved. CLAF (tiered model router) and the Hermes gateway also "
+    "live on this machine, but you cannot call them — never claim otherwise. "
     "The native coding agent is Master AI Sensei — always name it exactly "
     "that, never Claude or another agent. "
     "HARD NOS: no shell or terminal, no clicking or typing, no services, "
     "no installs, no deletes, no sending or buying. Route those to approval "
-    "with a one-line reason. Replies concise, plain spoken words, under 3 "
-    "sentences."
+    "with a one-line reason. "
+    "HONESTY RULE: never describe a tool action as done unless a real tool "
+    "result from THIS turn actually says it succeeded. A tool call that "
+    "errors, comes back refused ('not available for this request'), or that "
+    "you never actually made is NOT a success — if that happens, say so "
+    "plainly ('that didn't work' / 'I don't have a way to do that right "
+    "now') instead of inventing a plausible-sounding outcome, a fake "
+    "approval entry, or an app you didn't really open. "
+    "Replies concise, plain spoken words, under 3 sentences."
 )
+
+# Static fallback text for _call_free_fallback, which has no live tools list
+# to describe (it is a last-resort, tool-free path) -- kept separate from the
+# dynamic per-request prompt built by _tools_sentence() in _call_model.
+SAFETY_PROMPT = (
+    SAFETY_PROMPT_HEAD
+    + "YOU HAVE NO TOOLS on this path — this is a text-only fallback. "
+      "Answer from what you already know; never claim to open, read, check, "
+      "or send anything. "
+    + SAFETY_PROMPT_TAIL
+)
+
+
+def _tools_sentence(tools: list[dict]) -> str:
+    """Build the "YOUR TOOLS this turn" prompt clause from the tools actually
+    declared in THIS request's "tools" array, instead of the old hardcoded
+    sentence that told the model it always had write_file/open_app/etc.
+    regardless of what this round's tools list actually contained.
+
+    That mismatch was the root cause of the fabricated "queued for
+    approval"/"opened Master AI Sensei" claims observed 2026-11-01: fast-chat
+    sends tools=[], the model hallucinated a tool call anyway, the executor
+    correctly refused it post-allowlist-fix, but the prompt still told the
+    model unconditionally that write_file/open_app existed -- so its recovery
+    text fabricated a plausible success instead of admitting neither tool
+    was ever on the table this turn.
+    """
+    names = [t.get("name") for t in tools if t.get("name")]
+    has_web_search = any(t.get("type") == "web_search" for t in tools)
+    parts = [TOOL_DESCRIPTIONS[n] for n in names if n in TOOL_DESCRIPTIONS]
+    if has_web_search:
+        parts.append("web_search (offered on lookup tasks)")
+    if not parts:
+        return (
+            "YOUR TOOLS this turn: none. You can only answer from what you "
+            "already know for this request — say so plainly if that's not "
+            "enough. Don't pretend to check, open, read, or queue anything."
+        )
+    return (
+        "YOUR TOOLS this turn: " + ", ".join(parts) + ". "
+        "Nothing else is real for this request, no matter what it looked "
+        "like you could do a moment ago."
+    )
 
 APPROVAL_VERBS = {
     "start", "run", "execute", "click", "type", "press",
@@ -1084,17 +1153,21 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
     else:
         tools = _all_tools(transcript)
 
-    instructions = SAFETY_PROMPT
-    try:
-        pins = sorted(_pin_commands().keys())
-        if pins:
-            instructions += (
-                " Coding agents you can open by name right now: "
-                + ", ".join(pins)
-                + ". The native one is 'code' (Master AI Sensei)."
-            )
-    except Exception:
-        pass
+    instructions = SAFETY_PROMPT_HEAD + _tools_sentence(tools) + " " + SAFETY_PROMPT_TAIL
+    # Only mention pin names when open_app is actually offered this round --
+    # same bug class as the tools sentence above: naming an app you can't
+    # actually launch this turn invites the same kind of fabricated claim.
+    if any(t.get("name") == "open_app" for t in tools):
+        try:
+            pins = sorted(_pin_commands().keys())
+            if pins:
+                instructions += (
+                    " Coding agents you can open by name right now: "
+                    + ", ".join(pins)
+                    + ". The native one is 'code' (Master AI Sensei)."
+                )
+        except Exception:
+            pass
     history = _load_conversation_history()
     payload: dict = {
         "model": model,
