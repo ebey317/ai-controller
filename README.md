@@ -2,6 +2,8 @@
 
 > **Control your entire Linux desktop with an Xbox controller.** Push-to-talk dictation, floating keyboard, mouse, scroll, and HUD overlay — built for couch use, bed use, and limited mobility.
 
+![AI Controller — calm at the board](assets/ai-controller-ops-room.webp)
+
 [![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](https://github.com/ebey317/ai-controller/releases/tag/v1.0.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue.svg)]()
