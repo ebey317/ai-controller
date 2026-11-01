@@ -307,3 +307,88 @@ def test_doctor_edge_demo_missing_voice_warns_not_fails(tmp_path):
     level, _, detail = cs.check_edge_demo(path, voice_names=[])
     assert level == cs.WARN  # optional bridge: never a hard failure
     assert "en-US-ChristopherNeural" in detail
+
+
+def test_ptt_pynput_flock_failure_reports_warn_not_ok(tmp_path, monkeypatch):
+    import fcntl
+    script = tmp_path / "ptt_pynput.py"
+    script.write_text("# present\n")
+    monkeypatch.setattr(cs, "_script_path", lambda name: str(script))
+    monkeypatch.setattr(cs.os.path, "exists", lambda _path: True)
+    monkeypatch.setattr(cs.os, "open", lambda _path, _flags: 42)
+    monkeypatch.setattr(cs.os, "close", lambda _fd: None)
+
+    def broken_flock(_fd, _op):
+        raise OSError("simulated flock failure")
+
+    monkeypatch.setattr(fcntl, "flock", broken_flock)
+    monkeypatch.setattr(fcntl, "LOCK_EX", 2)
+    monkeypatch.setattr(fcntl, "LOCK_NB", 4)
+    monkeypatch.setattr(fcntl, "LOCK_UN", 8)
+    level, label, detail = cs.check_ptt_pynput()
+    assert level == cs.WARN
+    assert label == "ptt pynput"
+    assert "singleton lock probe failed" in detail
+    assert "simulated flock failure" in detail
+
+
+# ── Kokoro subprocess environment isolation ───────────────────────────
+
+def test_kokoro_probe_env_excludes_pythonpath(tmp_path, monkeypatch):
+    """The Kokoro import probe must not inherit Hermes's PYTHONPATH."""
+    import os as _os
+    monkeypatch.setenv("PYTHONPATH", "/bad/python3.14/site-packages")
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "kokoro-v1.0.onnx").write_text("model")
+    (tmp_path / "models" / "voices-v1.0.bin").write_text("voices")
+    (tmp_path / "venv" / "bin").mkdir(parents=True)
+    (tmp_path / "venv" / "bin" / "python").write_text("# fake venv python")
+
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured["env"] = kwargs.get("env")
+        captured["args"] = args[0] if args else None
+        class _Result:
+            returncode = 0
+            stderr = b""
+        return _Result()
+
+    monkeypatch.setattr(cs.subprocess, "run", fake_run)
+    level, _, _ = cs.check_kokoro(str(tmp_path))
+    assert level == cs.OK
+    assert captured["env"] is not None
+    assert "PYTHONPATH" not in captured["env"]
+    # All other environment must be preserved.
+    assert captured["env"].get("PATH") == _os.environ.get("PATH")
+
+
+def test_speak_preview_kokoro_env_excludes_pythonpath(tmp_path, monkeypatch):
+    """The Kokoro preview render subprocess must not inherit PYTHONPATH."""
+    import os as _os
+    monkeypatch.setenv("PYTHONPATH", "/bad/python3.14/site-packages")
+
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured["env"] = kwargs.get("env")
+        captured["args"] = args[0] if args else None
+        class _Result:
+            returncode = 0
+            stderr = ""
+        return _Result()
+
+    monkeypatch.setattr(cs.subprocess, "run", fake_run)
+    monkeypatch.setattr(cs, "_apply_fx", lambda raw, out, profile: out)
+    monkeypatch.setattr(cs, "_play", lambda path: None)
+
+    profile = {
+        "engine": "kokoro",
+        "voice": "af_bella",
+        "rate": 1.0,
+        "pitch_semitones": 0.0,
+    }
+    assert cs.speak_preview(profile, "tahuti", text="hello") is True
+    assert captured["env"] is not None
+    assert "PYTHONPATH" not in captured["env"]
+    assert captured["env"].get("PATH") == _os.environ.get("PATH")

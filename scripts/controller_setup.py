@@ -19,9 +19,12 @@ Stdlib-only at import; engines (Kokoro/Piper/edge-tts) are reached via
 subprocesses so setup itself stays light.
 """
 
+import ast
+import collections
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -35,6 +38,20 @@ import voice_profiles as vp  # noqa: E402
 from ai_controller_paths import ai_controller_dir, config_dir, load_env  # noqa: E402
 
 OK, WARN, FAIL = "OK", "WARN", "FAIL"
+
+
+def _env_for_subprocess():
+    """Copy of the current environment with PYTHONPATH removed.
+
+    Hermes inherits a PYTHONPATH that points at a Python 3.14 site-packages
+    tree. Passing it to Tahuti's Python 3.10 venv subprocess makes the venv
+    interpreter try to load incompatible modules (e.g. NumPy). Drop only
+    PYTHONPATH, keep everything else.
+    """
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    return env
+
 
 # ── Telegram bot command menu ─────────────────────────────────────────
 # Every entry here is backed by a real handler in master-ai-cli's
@@ -63,6 +80,7 @@ GATEWAY_HANDLED_COMMANDS = {name for name, _ in EXPECTED_BOT_COMMANDS}
 SERVICES = [
     "ai-slide-keyboard.service",
     "voice-bridge.service",
+    "ptt-pynput.service",
     "master-ai-scheduler.service",
     "telegram-gateway.service",
 ]
@@ -339,6 +357,7 @@ def check_kokoro(home=None):
         r = subprocess.run(
             [venv_py, "-c", "import kokoro_onnx, soundfile"],
             capture_output=True, timeout=60,
+            env=_env_for_subprocess(),
         )
         if r.returncode != 0:
             return (FAIL, "kokoro",
@@ -451,13 +470,221 @@ def check_keyboard_voice():
             f"packs: {', '.join(packs)}; toggle state: {active or '(unset)'}")
 
 
+def _script_path(name) -> str:
+    return os.path.join(SCRIPT_DIR, name)
+
+
+def check_voice_bridge():
+    """Doctor row for the voice bridge FastAPI backend (scripts/voice_bridge.py)."""
+    script = _script_path("voice_bridge.py")
+    if not os.path.exists(script):
+        return (FAIL, "voice bridge",
+                "voice_bridge.py missing from canonical tree -- supported live backend is absent")
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        sock.connect(("127.0.0.1", 8002))
+        sock.close()
+        return (OK, "voice bridge",
+                "voice_bridge.py present; localhost:8002 is responding")
+    except Exception:
+        return (WARN, "voice bridge",
+                "voice_bridge.py present but localhost:8002 is not responding -- "
+                "start: systemctl --user start voice-bridge.service")
+
+
+def check_ptt_pynput():
+    """Doctor row for the ptt_pynput push-to-talk typing daemon."""
+    script = _script_path("ptt_pynput.py")
+    if not os.path.exists(script):
+        return (FAIL, "ptt pynput",
+                "ptt_pynput.py missing from canonical tree -- supported live backend is absent")
+    lock = "/tmp/ptt_pynput.lock"
+    if not os.path.exists(lock):
+        return (WARN, "ptt pynput",
+                "ptt_pynput.py present but /tmp/ptt_pynput.lock absent -- "
+                "daemon not running; start: systemctl --user start ptt-pynput.service")
+    try:
+        import fcntl
+    except Exception as exc:
+        return (WARN, "ptt pynput",
+                f"cannot import fcntl module: {exc}")
+    try:
+        fd = os.open(lock, os.O_RDONLY)
+    except Exception as exc:
+        return (WARN, "ptt pynput",
+                f"cannot open singleton lock {lock}: {exc}")
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            return (WARN, "ptt pynput",
+                    "ptt_pynput.py present but singleton lock is free -- "
+                    "daemon not running; start: systemctl --user start ptt-pynput.service")
+        except BlockingIOError:
+            return (OK, "ptt pynput",
+                    "ptt_pynput.py present; singleton lock is held")
+        except Exception as exc:
+            return (WARN, "ptt pynput",
+                    f"singleton lock probe failed: {exc}")
+    finally:
+        os.close(fd)
+
+
+def check_tahuti_desktop():
+    """Doctor row for the Tahuti desktop backend (scripts/tahuti_desktop.py)."""
+    script = _script_path("tahuti_desktop.py")
+    if not os.path.exists(script):
+        return (FAIL, "tahuti desktop",
+                "tahuti_desktop.py missing from canonical tree -- "
+                "supported live backend is absent")
+    return (WARN, "tahuti desktop",
+            "tahuti_desktop.py present in canonical tree; "
+            "static source presence is not live verification")
+
+
+def check_tahuti_mcp():
+    """Doctor row for the Tahuti MCP backend (scripts/tahuti_mcp.py)."""
+    script = _script_path("tahuti_mcp.py")
+    if not os.path.exists(script):
+        return (FAIL, "tahuti mcp",
+                "tahuti_mcp.py missing from canonical tree -- "
+                "supported live backend is absent")
+    return (WARN, "tahuti mcp",
+            "tahuti_mcp.py present in canonical tree; "
+            "static source presence is not live verification")
+
+
+def check_sensei_bridge():
+    """Doctor row for the Sensei bridge at localhost:8791 (external)."""
+    url = "http://127.0.0.1:8791/health"
+    try:
+        with urllib.request.urlopen(url, timeout=2) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        return (WARN, "sensei bridge",
+                f"{url} not reachable ({e}) -- external Sensei bridge "
+                "may not be running")
+    if not isinstance(data, dict) or not data.get("ok"):
+        ok_val = data.get("ok") if isinstance(data, dict) else None
+        return (WARN, "sensei bridge",
+                f"{url} responded but ok={ok_val} -- external Sensei bridge "
+                "returned unexpected health data")
+    return (OK, "sensei bridge",
+            f"{url} ok=True; model={data.get('model')} "
+            f"vision_model={data.get('vision_model')}")
+
+
+def check_diagnostics():
+    """Doctor row for the bundled diagnostics script.
+
+    This is a read-only source/syntax probe of scripts/voice_stt_health_check.py.
+    The full diagnostic is intentionally NOT run here because it would trigger
+    TTS, STT, network requests and service state changes.
+    """
+    script = _script_path("voice_stt_health_check.py")
+    if not os.path.exists(script):
+        return (FAIL, "diagnostics",
+                "voice_stt_health_check.py missing from canonical tree -- "
+                "supported diagnostic script is absent")
+    try:
+        with open(script, "rb") as f:
+            ast.parse(f.read())
+    except SyntaxError as e:
+        return (FAIL, "diagnostics",
+                f"voice_stt_health_check.py has a syntax error: {e}")
+    return (WARN, "diagnostics",
+            "voice_stt_health_check.py present and syntactically valid; "
+            "static source presence is not live verification")
+
+
+# ── framework registry: supported live backend vs external/missing/not configured
+
+CATEGORIES = {
+    "controller": "Controller",
+    "audio-voice": "Audio/Voice",
+    "tahuti": "Tahuti",
+    "sensei-master-ai": "Sensei/Master AI",
+    "services": "Services",
+    "integrations": "Integrations",
+    "diagnostics": "Diagnostics",
+}
+
+Backend = collections.namedtuple(
+    "Backend", ["name", "category", "source", "check_fn"]
+)
+
+# Source taxonomy:
+#   live      - source file is part of the canonical /home/elijah/projects/ai-controller tree
+#   external  - lives outside this tree (network API, sibling project, runtime dependency)
+#   optional  - external runtime dependency that may be missing without breaking the core
+BACKENDS = [
+    Backend("voice-profiles", "controller", "live", check_profile_file),
+    Backend("avatar", "controller", "live", check_avatar),
+    Backend("voice-board", "controller", "live", check_voice_board),
+    Backend("config-env", "controller", "live", check_config_env),
+    Backend("keyboard-voice", "controller", "live", check_keyboard_voice),
+    Backend("piper", "audio-voice", "optional", check_piper),
+    Backend("kokoro", "audio-voice", "live", check_kokoro),
+    Backend("edge-demo", "audio-voice", "external", check_edge_demo),
+    Backend("voice-bridge", "audio-voice", "live", check_voice_bridge),
+    Backend("ptt-pynput", "audio-voice", "live", check_ptt_pynput),
+    Backend("tahuti-desktop", "tahuti", "live", check_tahuti_desktop),
+    Backend("tahuti-mcp", "tahuti", "live", check_tahuti_mcp),
+    Backend("sensei-bridge", "sensei-master-ai", "external", check_sensei_bridge),
+    Backend("services", "services", "external", check_services),
+    Backend("telegram", "integrations", "external", telegram_audit),
+    Backend("diagnostics", "diagnostics", "live", check_diagnostics),
+]
+
+
+def _validate_backends(backends, categories):
+    """Fail fast on registry construction if a backend has an unknown category."""
+    for backend in backends:
+        if backend.category not in categories:
+            raise ValueError(
+                f"Backend {backend.name!r} has unknown category "
+                f"{backend.category!r}; must be one of "
+                f"{sorted(categories)}"
+            )
+
+
+_validate_backends(BACKENDS, CATEGORIES)
+
+
+def backend_status(name):
+    """Return (source, category, row_or_rows) for a registered backend by short name.
+
+    source is one of: live, external, optional.
+    category is one of the CATEGORIES keys.
+    The third element is the check result (or list of results) from the
+    registered check function. Checker exceptions are contained and
+    returned as a FAIL row. Unknown backends return (None, None, None).
+    """
+    for backend in BACKENDS:
+        if backend.name == name:
+            try:
+                result = backend.check_fn()
+            except Exception as exc:
+                result = (FAIL, backend.name, f"check crashed: {exc}")
+            return backend.source, backend.category, result
+    return None, None, None
+
+
 def run_doctor():
-    rows = [check_profile_file(), check_avatar(), check_voice_board(),
-            check_config_env(),
-            check_piper(), check_kokoro(), check_edge_demo(),
-            check_keyboard_voice()]
-    rows += check_services()
-    rows += [r for r in telegram_audit() if r[0] != "INFO"]
+    rows = []
+    for backend in BACKENDS:
+        try:
+            result = backend.check_fn()
+        except Exception as exc:
+            result = (FAIL, backend.name, f"check crashed: {exc}")
+        if isinstance(result, list):
+            rows.extend(result)
+        else:
+            rows.append(result)
+    # telegram is registered as external; its audit already ran above.
+    # Keep the historical behaviour of suppressing INFO rows in doctor mode.
+    rows = [r for r in rows if r[0] != "INFO"]
     return rows
 
 
@@ -564,7 +791,6 @@ def speak_preview(profile, name, text=None):
     text = text or vp.preview_line(name)
     engine = profile.get("engine", "piper")
     rate = float(profile.get("rate", 1.0))
-    pitch = float(profile.get("pitch_semitones", 0.0))
     knobs = vp.knob_values(profile)
     out = os.path.join(tempfile.gettempdir(), f"aic_preview_{name}.wav")
     raw = os.path.join(tempfile.gettempdir(), f"aic_preview_{name}_raw.wav")
@@ -584,6 +810,7 @@ def speak_preview(profile, name, text=None):
                 [os.path.join(home, "venv", "bin", "python"), helper,
                  json.dumps(cfg)],
                 capture_output=True, text=True, timeout=120,
+                env=_env_for_subprocess(),
             )
             if r.returncode != 0:
                 print("Kokoro preview failed:", r.stderr.strip()[-300:])

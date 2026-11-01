@@ -48,11 +48,13 @@ import focus_guard
 import voice_toggle
 from ai_controller_paths import config_dir, ensure_config_dir
 from text_styles import to_bold, to_cursive, to_old_english
+from theme import load_theme, next_theme, save_theme
 
 # Shared with ptt_pynput.py: PRO = plain text, BUBBLY = cursive + emoji
 ensure_config_dir()
 PTT_MODE_FILE = os.path.join(config_dir(), "ptt_mode")
 INPUT_TARGET_FILE = os.path.join(config_dir(), "ai_controller_input_target")
+DICTATION_TARGET_FILE = os.path.join(config_dir(), "ai_controller_dictation_target")
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
 # Persistent snippet pins — separate from the OS clipboard (which a single
@@ -64,13 +66,13 @@ PINS_FILE = os.path.join(config_dir(), "pinned_snippets.json")
 # = 15 columns, same width as row 0's number row.
 PIN_SLOTS = 7
 DEFAULT_PINS = [
-    {"label": "hermes", "text": "hermes --tui"},
-    {"label": "claude", "text": "claude"},
-    {"label": "desktop", "text": "hermes desktop"},
-    {"label": "dashboard", "text": "python3 /home/elijah/generate_dashboard.py && xdg-open /home/elijah/dashboard_demo.html"},
-    {"label": "qwen", "text": "qwen"},
-    {"label": "dashboard", "text": "xdg-open /home/elijah/dashboard_live.html", "exec": True},
-    {"label": "sensei", "text": "~/scripts/update_master_ai.sh", "exec": True},
+    {"label": "hermes", "text": "gnome-terminal -- hermes --tui", "exec": True},
+    {"label": "claude", "text": "gnome-terminal -- claude", "exec": True},
+    {"label": "desktop", "text": "gnome-terminal -- hermes desktop", "exec": True},
+    {"label": "sensei", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
+    {"label": "qwen", "text": "gnome-terminal -- qwen", "exec": True},
+    {"label": "dashboard", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
+    {"label": "update", "text": "~/scripts/update_master_ai.sh", "exec": True},
 ]
 
 # 2026-09-24: automatic per-pin variant discovery (Elijah: "we don't want to
@@ -146,48 +148,54 @@ def _modifier_state():
         return False, False, False
 
 
-HUD_ORANGE = "#FF6A00"
+HUD_ORANGE = load_theme().accent  # used by the "Typing…" markup strings
 
-CSS = b"""
-window { background-color: transparent; }
-#panel {
-    background-color: rgba(13,13,18,0.94);
-    border: 2px solid #FF6A00;
+
+def _build_css(theme):
+    hud = theme.accent
+    return f"""
+window {{ background-color: transparent; }}
+#panel {{
+    background-color: {theme.background};
+    border: 2px solid {hud};
     border-radius: 16px;
-}
-#drag-handle {
-    background-color: rgba(26,26,32,0.85);
-    border: 1px solid #3a3a44;
+}}
+#drag-handle {{
+    background-color: {theme.surface};
+    border: 1px solid {theme.border};
     border-radius: 8px;
-}
-.handle-label {
-    color: #8a8a92;
+}}
+.handle-label {{
+    color: {theme.text_secondary};
     font-family: monospace;
     font-size: 9px;
-}
-button {
+}}
+button {{
     background-image: none;
-    background-color: #23232b;
-    color: #e8e8e8;
-    border: 1px solid #3a3a44;
+    background-color: {theme.surface};
+    color: {theme.text};
+    border: 1px solid {theme.border};
     border-radius: 5px;
     font-family: monospace;
     font-size: 11px;
     min-width: 26px;
     min-height: 26px;
     padding: 2px;
-}
-button:hover { background-color: #2f2f3a; }
-button.special { background-color: #1a2226; color: #FF6A00; border-color: #4a3318; }
-button.mode { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; padding: 1px 7px; }
-button.mode-active { background-color: #FF6A00; color: #0d0d12; border-color: #FF6A00; font-weight: bold; padding: 1px 7px; }
-button.mode-toggle { background-color: #2a1a0a; color: #FF6A00; border-color: #FF6A00; font-weight: bold; font-size: 20px; letter-spacing: 2px; min-width: 100px; min-height: 34px; padding: 3px 10px; }
-.shelf-title { color: #FF6A00; font-weight: bold; font-size: 9px; margin-bottom: 3px; }
-button.pin { background-color: #0f2a24; color: #3ddc97; border-color: #1f5c4a; font-size: 9px; }
-button.pin:hover { background-color: #163a30; }
-button.pin-add { background-color: #23232b; color: #6a6a72; border-color: #3a3a44; }
-button.pin-add:hover { background-color: #2f2f3a; color: #3ddc97; }
-"""
+}}
+button:hover {{ background-color: {theme.border}; }}
+button.special {{ background-color: {theme.surface}; color: {hud}; border-color: {hud}; }}
+button.mode {{ background-color: {theme.surface}; color: {hud}; border-color: {hud}; font-weight: bold; padding: 1px 7px; }}
+button.mode-active {{ background-color: {hud}; color: {theme.surface}; border-color: {hud}; font-weight: bold; padding: 1px 7px; }}
+button.mode-toggle {{ background-color: {theme.surface}; color: {hud}; border-color: {hud}; font-weight: bold; font-size: 20px; letter-spacing: 2px; min-width: 100px; min-height: 34px; padding: 3px 10px; }}
+.shelf-title {{ color: {hud}; font-weight: bold; font-size: 9px; margin-bottom: 3px; }}
+button.pin {{ background-color: {theme.surface}; color: {theme.pin}; border-color: {theme.border}; font-size: 9px; }}
+button.pin:hover {{ background-color: {theme.border}; }}
+button.pin-add {{ background-color: {theme.surface}; color: {theme.text_secondary}; border-color: {theme.border}; }}
+button.pin-add:hover {{ background-color: {theme.border}; color: {theme.pin}; }}
+""".encode()
+
+
+CSS = _build_css(load_theme())
 
 
 _AUTH_PROMPT_CLASSES = {"gcr-prompter", "polkit-gnome-authentication-agent-1"}
@@ -263,6 +271,67 @@ def send(key, ctrl=False, alt=False, shift=False, target_win=None):
             focus_guard.guarded_type(target_win, key)
     except focus_guard.FocusLostError as exc:
         log.warning(f"{exc} — key '{key}' not sent")
+
+
+# tmux's named-key spellings differ from xdotool's (SPECIAL above uses
+# xdotool names, e.g. "Return"/"BackSpace") -- only maps the keys SPECIAL
+# already defines, plus the one modifier combo it already handles.
+_TMUX_KEY_NAMES = {
+    "Escape": "Escape", "BackSpace": "BSpace", "Tab": "Tab",
+    "Return": "Enter", "space": "Space",
+    "Left": "Left", "Right": "Right", "Up": "Up", "Down": "Down",
+    "shift+Tab": "S-Tab",
+}
+
+
+def _agent_session_name() -> str:
+    """Same lookup order as master_ai_autostart.sh, so this always targets
+    whichever session that script actually started Sensei in."""
+    name = os.environ.get("SENSEI_SESSION_NAME", "").strip()
+    if name:
+        return name
+    try:
+        with open(os.path.expanduser("~/.master_ai_session_name"), "r", encoding="utf-8") as f:
+            name = f.read().strip()
+            if name:
+                return name
+    except Exception:
+        pass
+    return "master-ai"
+
+
+def _send_to_agent(key, ctrl=False, alt=False, shift=False) -> None:
+    """Forward a slide-keyboard keystroke into the Sensei terminal (a tmux
+    session, see _agent_session_name) instead of injecting it into
+    whatever X11 window has focus -- the 'agent' input-target mode.
+
+    tmux send-keys uses its own C-/M-/S- modifier syntax, not xdotool's
+    "ctrl+"/"alt+"/"shift+" prefixes send() above uses, so this builds its
+    own key-spec rather than reusing send()'s. Plain text (a single
+    character, or a whole pinned snippet) goes through -l so tmux treats
+    it as literal typed text and never tries to interpret it as a key
+    name.
+    """
+    if key == "shift":
+        return
+    session = _agent_session_name()
+    try:
+        if key in SPECIAL or ctrl or alt:
+            if key in SPECIAL:
+                name = _TMUX_KEY_NAMES.get(SPECIAL[key], SPECIAL[key])
+            elif shift:
+                name = key.upper()
+            else:
+                name = key.lower()
+            prefix = ("C-" if ctrl else "") + ("M-" if alt else "")
+            subprocess.run(["tmux", "send-keys", "-t", session, prefix + name],
+                            check=False)
+        else:
+            text = key.upper() if shift and len(key) == 1 else key
+            subprocess.run(["tmux", "send-keys", "-t", session, "-l", "--", text],
+                            check=False)
+    except Exception:
+        log.warning("agent-target send failed", exc_info=True)
 
 
 _VARIANT_DISCOVERY_PROMPT = """Task: read a CLI tool's --help text and pull out its alternate launch
@@ -410,10 +479,10 @@ class SlideKeyboard(Gtk.Window):
         if visual:
             self.set_visual(visual)
 
-        css = Gtk.CssProvider()
-        css.load_from_data(CSS)
+        self.css_provider = Gtk.CssProvider()
+        self.css_provider.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(
-            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            screen, self.css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         self.shift_on = False
 
@@ -497,6 +566,12 @@ class SlideKeyboard(Gtk.Window):
         self.target_btn.get_style_context().add_class("mode")
         self.target_btn.connect("clicked", self._on_target_toggle)
         self.mode_bar.pack_end(self.target_btn, False, False, 0)
+
+        # Theme toggle: cycles through the 7 belts live (no restart).
+        self.theme_btn = Gtk.Button(label="🎨 " + load_theme().name)
+        self.theme_btn.get_style_context().add_class("mode")
+        self.theme_btn.connect("clicked", self._on_theme_toggle)
+        self.mode_bar.pack_end(self.theme_btn, False, False, 0)
 
         self.grid = Gtk.Grid(column_spacing=4, row_spacing=4)
         self.grid.set_margin_start(6)
@@ -707,13 +782,54 @@ class SlideKeyboard(Gtk.Window):
         with open(INPUT_TARGET_FILE, "w", encoding="utf-8") as f:
             f.write(target)
 
+    def _load_dictation_target(self) -> str:
+        # Shared with ptt_pynput.py: 'agent' routes takes to the agent
+        # (bridge execute + spoken response); anything else types.
+        try:
+            with open(DICTATION_TARGET_FILE, "r", encoding="utf-8") as f:
+                t = f.read().strip().lower()
+                if t in ("type", "agent"):
+                    return t
+        except Exception:
+            pass
+        return "type"
+
+    def _save_dictation_target(self, target: str) -> None:
+        os.makedirs(os.path.dirname(DICTATION_TARGET_FILE), exist_ok=True)
+        with open(DICTATION_TARGET_FILE, "w", encoding="utf-8") as f:
+            f.write(target)
+
     def _target_label(self) -> str:
+        if self._load_dictation_target() == "agent":
+            return "AGENT"
         return "CLIPBOARD" if self._load_input_target() == "clipboard" else "TYPE"
 
     def _on_target_toggle(self, _widget):
-        new_target = "clipboard" if self._load_input_target() == "type" else "type"
-        self._save_input_target(new_target)
+        # 3-state cycle: TYPE → CLIPBOARD → AGENT → TYPE. AGENT persists
+        # ai_controller_dictation_target (ptt_pynput.py routes takes to the
+        # agent); TYPE/CLIPBOARD persist ai_controller_input_target and clear
+        # the dictation file back to type.
+        if self._load_dictation_target() == "agent":
+            self._save_dictation_target("type")
+            self._save_input_target("type")
+        elif self._load_input_target() == "clipboard":
+            self._save_dictation_target("agent")
+        else:
+            self._save_input_target("clipboard")
         self.target_btn.set_label(self._target_label())
+
+    def _on_theme_toggle(self, _widget):
+        """Cycle to the next belt, re-apply the keyboard CSS live, and sync the legend."""
+        nxt = next_theme(load_theme())
+        save_theme(nxt.name)
+        self.css_provider.load_from_data(_build_css(nxt))
+        self.theme_btn.set_label("🎨 " + nxt.name)
+        # The legend HUD is a separate process that resolves its colors at
+        # startup — restart it so it picks up the same belt (brief flicker).
+        try:
+            subprocess.Popen(["systemctl", "--user", "restart", "controller-legend.service"])
+        except Exception as exc:
+            logging.warning("legend theme sync failed: %s", exc)
 
     def _voice_label(self) -> str:
         """Show the active voice name with a speaker icon."""
@@ -726,32 +842,17 @@ class SlideKeyboard(Gtk.Window):
         return f"🔊 {name}"
 
     def _on_setup(self, _widget):
-        """Launch the AI Controller setup wizard in a fresh terminal.
+        """Open the separate Setup Center without changing this keyboard.
 
-        The wizard is scripts/controller_setup.py (interactive setup +
-        doctor). It edits the shared voice profile both the keyboard and
-        the avatars read. Falls back across the terminal emulators this
-        box actually has; logs and gives up quietly if none exist.
+        The live keyboard retains its own theme, pins, and layout.  The
+        Setup Center runs in its own focus-disabled GTK process so Cinnamon
+        can layer it visibly above other windows without moving typing focus.
         """
-        script = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "controller_setup.py"
-        )
-        inner = (
-            f"cd {shlex.quote(os.path.dirname(script))} && "
-            f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash"
-        )
-        for term_cmd in (
-            ["gnome-terminal", "--", "bash", "-lc", inner],
-            ["x-terminal-emulator", "-e", "bash", "-lc", inner],
-            ["xterm", "-e", "bash", "-lc", inner],
-        ):
-            if shutil.which(term_cmd[0]):
-                try:
-                    subprocess.Popen(term_cmd)
-                except Exception:
-                    log.warning("SETUP launch failed", exc_info=True)
-                return
-        log.warning("SETUP button: no terminal emulator found")
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setup_panel.py")
+        try:
+            subprocess.Popen([sys.executable, script])
+        except Exception as exc:
+            log.warning("SETUP panel failed to open: %s", exc)
 
     def _on_voice_toggle(self, _widget):
         """Cycle to the next unlocked voice and speak a confirmation."""
@@ -801,8 +902,14 @@ class SlideKeyboard(Gtk.Window):
             self._build_keys()
             return
         ctrl, alt, shift = _modifier_state()
-        target = _resolve_target(self._focus_target_win)
-        send(key, ctrl=ctrl, alt=alt, shift=shift, target_win=target)
+        # Same toggle state the mode button already cycles (see
+        # _on_target_toggle): "agent" routes keystrokes -- Ctrl+C and all
+        # -- into the Sensei terminal instead of the X11-focused window.
+        if self._load_dictation_target() == "agent":
+            _send_to_agent(key, ctrl=ctrl, alt=alt, shift=shift)
+        else:
+            target = _resolve_target(self._focus_target_win)
+            send(key, ctrl=ctrl, alt=alt, shift=shift, target_win=target)
         if self.shift_on:
             self.shift_on = False
             self._build_keys()
@@ -914,11 +1021,20 @@ class SlideKeyboard(Gtk.Window):
                 try:
                     # Run exec pins with shell=False and a tokenized command to
                     # avoid shell-injection if the pin file is ever tampered.
+                    # Popen, not run(): this fires on the GTK main thread, so a
+                    # blocking wait (even with a timeout) freezes the whole
+                    # keyboard -- unclosable, undraggable -- for as long as the
+                    # command takes. Fire-and-forget matches what every exec
+                    # pin actually needs (launch and move on), the same way
+                    # gnome-terminal itself returns immediately regardless of
+                    # how long the thing inside the new window runs.
                     cmd = shlex.split(os.path.expanduser(text))
                     if cmd:
-                        subprocess.run(cmd, shell=False, check=False, timeout=60)
+                        subprocess.Popen(cmd, start_new_session=True)
                 except Exception:
                     log.warning("exec pin failed", exc_info=True)
+            elif self._load_dictation_target() == "agent":
+                _send_to_agent(text)
             else:
                 target = _resolve_target(self._focus_target_win)
                 send(text, target_win=target)
