@@ -273,6 +273,67 @@ def send(key, ctrl=False, alt=False, shift=False, target_win=None):
         log.warning(f"{exc} — key '{key}' not sent")
 
 
+# tmux's named-key spellings differ from xdotool's (SPECIAL above uses
+# xdotool names, e.g. "Return"/"BackSpace") -- only maps the keys SPECIAL
+# already defines, plus the one modifier combo it already handles.
+_TMUX_KEY_NAMES = {
+    "Escape": "Escape", "BackSpace": "BSpace", "Tab": "Tab",
+    "Return": "Enter", "space": "Space",
+    "Left": "Left", "Right": "Right", "Up": "Up", "Down": "Down",
+    "shift+Tab": "S-Tab",
+}
+
+
+def _agent_session_name() -> str:
+    """Same lookup order as master_ai_autostart.sh, so this always targets
+    whichever session that script actually started Sensei in."""
+    name = os.environ.get("SENSEI_SESSION_NAME", "").strip()
+    if name:
+        return name
+    try:
+        with open(os.path.expanduser("~/.master_ai_session_name"), "r", encoding="utf-8") as f:
+            name = f.read().strip()
+            if name:
+                return name
+    except Exception:
+        pass
+    return "master-ai"
+
+
+def _send_to_agent(key, ctrl=False, alt=False, shift=False) -> None:
+    """Forward a slide-keyboard keystroke into the Sensei terminal (a tmux
+    session, see _agent_session_name) instead of injecting it into
+    whatever X11 window has focus -- the 'agent' input-target mode.
+
+    tmux send-keys uses its own C-/M-/S- modifier syntax, not xdotool's
+    "ctrl+"/"alt+"/"shift+" prefixes send() above uses, so this builds its
+    own key-spec rather than reusing send()'s. Plain text (a single
+    character, or a whole pinned snippet) goes through -l so tmux treats
+    it as literal typed text and never tries to interpret it as a key
+    name.
+    """
+    if key == "shift":
+        return
+    session = _agent_session_name()
+    try:
+        if key in SPECIAL or ctrl or alt:
+            if key in SPECIAL:
+                name = _TMUX_KEY_NAMES.get(SPECIAL[key], SPECIAL[key])
+            elif shift:
+                name = key.upper()
+            else:
+                name = key.lower()
+            prefix = ("C-" if ctrl else "") + ("M-" if alt else "")
+            subprocess.run(["tmux", "send-keys", "-t", session, prefix + name],
+                            check=False)
+        else:
+            text = key.upper() if shift and len(key) == 1 else key
+            subprocess.run(["tmux", "send-keys", "-t", session, "-l", "--", text],
+                            check=False)
+    except Exception:
+        log.warning("agent-target send failed", exc_info=True)
+
+
 _VARIANT_DISCOVERY_PROMPT = """Task: read a CLI tool's --help text and pull out its alternate launch
 subcommands as a JSON array. A "launch subcommand" is any line in the
 Commands/Usage list that starts a genuinely different mode of the same
@@ -856,8 +917,14 @@ class SlideKeyboard(Gtk.Window):
             self._build_keys()
             return
         ctrl, alt, shift = _modifier_state()
-        target = _resolve_target(self._focus_target_win)
-        send(key, ctrl=ctrl, alt=alt, shift=shift, target_win=target)
+        # Same toggle state the mode button already cycles (see
+        # _on_target_toggle): "agent" routes keystrokes -- Ctrl+C and all
+        # -- into the Sensei terminal instead of the X11-focused window.
+        if self._load_dictation_target() == "agent":
+            _send_to_agent(key, ctrl=ctrl, alt=alt, shift=shift)
+        else:
+            target = _resolve_target(self._focus_target_win)
+            send(key, ctrl=ctrl, alt=alt, shift=shift, target_win=target)
         if self.shift_on:
             self.shift_on = False
             self._build_keys()
@@ -981,6 +1048,8 @@ class SlideKeyboard(Gtk.Window):
                         subprocess.Popen(cmd, start_new_session=True)
                 except Exception:
                     log.warning("exec pin failed", exc_info=True)
+            elif self._load_dictation_target() == "agent":
+                _send_to_agent(text)
             else:
                 target = _resolve_target(self._focus_target_win)
                 send(text, target_win=target)
