@@ -934,7 +934,17 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
 
 
 def _call_free_fallback(transcript: str, t0: float) -> tuple[str, str, str]:
-    """Direct-answer fallback on OpenRouter :free models. No tools by design."""
+    """Direct-answer fallback on OpenRouter :free models. No tools by design.
+
+    FALLBACK_MODEL is a reasoning model: it spends tokens on an internal
+    chain-of-thought (OpenRouter's "reasoning" field) before ever writing
+    the user-facing "content" field. At max_tokens=512 that reasoning ate
+    the entire budget and finish_reason came back "length" with content
+    null -- the thinking never got to finish, not a real empty answer
+    (observed 2026-11-01, during a live 400 from the primary Meta worker).
+    2048 gives it room for both; verified live: finish_reason "stop" with
+    real content at 2048 on the same prompt that starved at 512.
+    """
     key = _load_openrouter_key()
     if not key:
         raise RuntimeError("Meta failed and no OPENROUTER_API_KEY available")
@@ -944,7 +954,7 @@ def _call_free_fallback(transcript: str, t0: float) -> tuple[str, str, str]:
             {"role": "system", "content": SAFETY_PROMPT},
             {"role": "user", "content": transcript},
         ],
-        "max_tokens": 512,
+        "max_tokens": 2048,
     }).encode()
     req = urllib.request.Request(
         FALLBACK_CHAT_URL, data=body,
@@ -959,9 +969,15 @@ def _call_free_fallback(transcript: str, t0: float) -> tuple[str, str, str]:
             raise RuntimeError(f"fallback error: {data['error'].get('message', data['error'])}")
         text = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
     except Exception as exc:
-        raise RuntimeError(f"Free fallback failed: {exc}") from exc
+        logger.warning("Free fallback call failed: %s", exc)
+        text = ""
     if not text:
-        raise RuntimeError("Free fallback returned empty text")
+        # Both the primary worker and the fallback came up empty -- say so
+        # plainly instead of surfacing a Python exception string as the
+        # spoken/notified answer.
+        elapsed = f"{time.time() - t0:.1f}s"
+        return ("I couldn't get an answer from either model just now -- "
+                "try again in a moment."), f"{FALLBACK_MODEL} (empty)", elapsed
     elapsed = f"{time.time() - t0:.1f}s"
     logger.info("Free fallback (%s) answered", FALLBACK_MODEL)
     return text, FALLBACK_MODEL, elapsed

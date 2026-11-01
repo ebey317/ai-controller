@@ -18,5 +18,25 @@ WorkingDirectory=%h/ai-controller
 Restart=on-failure
 RestartSec=5
 KillMode=mixed
+# Sandbox (2026-10-31): the runner executes model-influenced actions, so
+# it runs contained. PrivateTmp hides the shared /tmp; the X11 socket is
+# bound back in because scrot/xdotool and the avatar card need the real
+# desktop. Kernel surfaces are locked down and no new privileges can be
+# gained. Home stays writable on purpose: the read/list/write file tools
+# and the GUI apps this runner launches (browsers, file manager) live
+# there -- ProtectHome/ProtectSystem would break them, so containment
+# here is kernel + tmp + privileges, not filesystem read-only.
+# NOT ProtectKernelModules / ProtectClock / ProtectHostname: bisected
+# 2026-10-31 -- each makes this user manager fail the spawn with
+# "Failed at step CAPABILITIES ... Operation not permitted" (218), even
+# though the same set passes under systemd-run. Do not re-add blindly.
+NoNewPrivileges=true
+PrivateTmp=true
+BindPaths=/tmp/.X11-unix
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 # No [Install] section => never autostart.
