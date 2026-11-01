@@ -247,11 +247,29 @@ def _tools_sentence(tools: list[dict]) -> str:
             "already know for this request — say so plainly if that's not "
             "enough. Don't pretend to check, open, read, or queue anything."
         )
-    return (
+    sentence = (
         "YOUR TOOLS this turn: " + ", ".join(parts) + ". "
         "Nothing else is real for this request, no matter what it looked "
         "like you could do a moment ago."
     )
+    # Tell the model the real home path instead of making it guess one --
+    # the bare-filename auto-resolve fix in _read_file_tool/_list_dir_tool
+    # (2026-11-01) covers a plain filename, but the model still needs the
+    # literal path for anything it wants to state as absolute, or to
+    # reason about a specific subdirectory by name. Without this it
+    # reliably guessed wrong generic Linux homes (/home/ubuntu, /root,
+    # /tmp, ...) for a machine it's never actually seen.
+    if any(n in ("read_file", "list_dir", "write_file") for n in names):
+        sentence += (
+            f" The operator's home directory is literally {Path.home()} — "
+            "that's the real path on THIS machine, not a guess. A bare "
+            "filename or relative path (e.g. \"test.py\", \"Downloads\") "
+            "resolves there automatically, so you never need to spell out "
+            "the full path yourself. Never guess a different system's home "
+            "(/home/ubuntu, /home/user, /root, /tmp, ...) — that's not this "
+            "machine and will always be refused."
+        )
+    return sentence
 
 APPROVAL_VERBS = {
     "start", "run", "execute", "click", "type", "press",
