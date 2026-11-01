@@ -1554,6 +1554,34 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
                 # execution point, so it bounded nothing.
                 next_tools = tools if round_num < MAX_TOOL_ROUNDS else []
                 allowed_tool_names = {t.get("name") for t in next_tools if t.get("name")}
+                if tools and not next_tools:
+                    # Just-in-time instruction at the exact moment tools get
+                    # withheld, instead of relying on the static honesty
+                    # rule stated once at the very start of the request
+                    # (many tokens and several rounds ago by now). Found
+                    # live 2026-11-01: without this, once calls started
+                    # getting refused post-cap, the model didn't admit it
+                    # ran out of search budget -- it fabricated a DIFFERENT,
+                    # plausible-sounding but false excuse instead ("my file
+                    # reader hit a limit on that file size," which never
+                    # happened in that trace). The existing honesty rule
+                    # only covers claiming false SUCCESS; this covers
+                    # claiming a false REASON for a real failure.
+                    outputs.append({
+                        "role": "user",
+                        "content": (
+                            "You've used your search/tool budget for this "
+                            "request -- no further tool call will work from "
+                            "here, any you try will be refused. Write your "
+                            "real answer now from only what you actually "
+                            "found above. If you didn't find or finish what "
+                            "was asked, say exactly that -- you ran out of "
+                            "search attempts -- do NOT invent a different "
+                            "reason (a file-size limit, an API error, a "
+                            "permission issue, anything else) that did not "
+                            "actually happen in this conversation."
+                        ),
+                    })
                 payload = {
                     "model": model,
                     "previous_response_id": response_id,
