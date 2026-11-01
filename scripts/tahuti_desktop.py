@@ -99,13 +99,34 @@ def _import_from_path(name: str, path: Path):
 
 
 def _install_tahuti_callback(gate) -> None:
-    """Install Tahuti's native prompt on either a fresh or preloaded gate."""
+    """Install Tahuti's native prompt on either a fresh or preloaded gate.
+
+    Skips installing a callback at all when the operator has turned off
+    the avatar's approval popup (approval_box / popup_on_approval in
+    voice_profiles.py, toggled from setup_panel.py's "Approval box" /
+    "Pop up on approval" switches). Before this, a disabled popup still
+    installed a callback that unconditionally returns "deny" -- that
+    callback becomes THE explicit callback for approval_gate.request_approval(),
+    which hands it every pattern regardless of each call's own
+    fail_closed_when_no_human setting. A caller that explicitly opted into
+    permissive "--yolo" behavior for the no-human case (fail_closed_when_no_human=False)
+    would still get silently forced to deny, purely because of an unrelated
+    avatar display preference. Registering no callback instead lets
+    request_approval() fall through to its own documented no-callback
+    branch, which already does the right thing per call (deny by default,
+    permissive only where a caller explicitly asked for it) -- found and
+    fixed 2026-11-01 while auditing the new setup_panel.py toggles.
+    """
     if not os.environ.get("DISPLAY"):
         return
     try:
         avatar_module = _import_from_path(
             "_tahuti_avatar_ui", Path(__file__).resolve().parent / "tahuti_avatar.py"
         )
+
+        settings = avatar_module.get_avatar_settings(avatar_module.load_profiles())
+        if not settings.get("approval_box", True) or not settings.get("popup_on_approval", True):
+            return
 
         def _native_prompt(pattern_key, description, **extra):
             return avatar_module.prompt(pattern_key, description, **extra)
