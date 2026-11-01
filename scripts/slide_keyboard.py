@@ -842,32 +842,17 @@ class SlideKeyboard(Gtk.Window):
         return f"🔊 {name}"
 
     def _on_setup(self, _widget):
-        """Launch the AI Controller setup wizard in a fresh terminal.
+        """Open the separate Setup Center without changing this keyboard.
 
-        The wizard is scripts/controller_setup.py (interactive setup +
-        doctor). It edits the shared voice profile both the keyboard and
-        the avatars read. Falls back across the terminal emulators this
-        box actually has; logs and gives up quietly if none exist.
+        The live keyboard retains its own theme, pins, and layout.  The
+        Setup Center runs in its own focus-disabled GTK process so Cinnamon
+        can layer it visibly above other windows without moving typing focus.
         """
-        script = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "controller_setup.py"
-        )
-        inner = (
-            f"cd {shlex.quote(os.path.dirname(script))} && "
-            f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash"
-        )
-        for term_cmd in (
-            ["gnome-terminal", "--", "bash", "-lc", inner],
-            ["x-terminal-emulator", "-e", "bash", "-lc", inner],
-            ["xterm", "-e", "bash", "-lc", inner],
-        ):
-            if shutil.which(term_cmd[0]):
-                try:
-                    subprocess.Popen(term_cmd)
-                except Exception:
-                    log.warning("SETUP launch failed", exc_info=True)
-                return
-        log.warning("SETUP button: no terminal emulator found")
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setup_panel.py")
+        try:
+            subprocess.Popen([sys.executable, script])
+        except Exception as exc:
+            log.warning("SETUP panel failed to open: %s", exc)
 
     def _on_voice_toggle(self, _widget):
         """Cycle to the next unlocked voice and speak a confirmation."""
