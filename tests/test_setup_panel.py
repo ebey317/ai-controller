@@ -201,53 +201,27 @@ def test_open_wizard_in_terminal_returns_message_when_no_terminal(monkeypatch):
 
 # ── slide-keyboard wiring ─────────────────────────────────────────────
 
-def test_slide_keyboard_imports_setup_panel():
-    import slide_keyboard as sk  # noqa: F401
-    assert "setup_panel" in sk.__dict__ or hasattr(sk, "setup_panel")
-
-
-def test_slide_keyboard_setup_method_uses_public_entry_point(monkeypatch):
-    """The SETUP button must open the Setup Center through setup_panel.show_setup_panel.
-
-    We avoid instantiating the full GTK keyboard by patching the public
-    entry point. No focus-raising method (present/grab_focus) may be called.
-    The fake public entry does not have to call show_all; this test checks
-    the launcher, not the panel's internal mapping.
-    """
-    import types
-
+def test_slide_keyboard_launcher_keeps_keyboard_source_separate():
+    """The themed keyboard launches a separate page, not an imported overlay."""
     import slide_keyboard as sk
 
-    calls = []
+    source = open(sk.__file__, encoding="utf-8").read()
+    assert '"setup_panel.py"' in source
+    assert "subprocess.Popen" in source
+    assert "import setup_panel" not in source
 
-    class FakePanel:
-        def __init__(self, parent):
-            calls.append(("init", parent))
 
-        def present(self):
-            calls.append("present")
+def test_slide_keyboard_setup_method_launches_page_process(monkeypatch):
+    """SETUP starts the standalone settings page without mutating the keyboard."""
+    import slide_keyboard as sk
 
-        def grab_focus(self):
-            calls.append("grab_focus")
+    launches = []
+    monkeypatch.setattr(sk.subprocess, "Popen", lambda args: launches.append(args))
 
-    def fake_show_setup_panel(parent=None):
-        calls.append(("show_setup_panel", parent))
-        return FakePanel(parent)
-
-    class FakeParent:
-        pass
-
-    fake_module = types.ModuleType("setup_panel")
-    fake_module.show_setup_panel = fake_show_setup_panel
-    fake_module.SetupPanel = FakePanel
-    monkeypatch.setattr(sk, "setup_panel", fake_module)
-
-    parent = FakeParent()
-    sk.SlideKeyboard._on_setup(parent, None)
-    assert any(c[0] == "show_setup_panel" and c[1] is parent for c in calls)
-    assert any(c[0] == "init" and c[1] is parent for c in calls)
-    assert "present" not in calls
-    assert "grab_focus" not in calls
+    sk.SlideKeyboard._on_setup(object(), None)
+    assert len(launches) == 1
+    assert launches[0][0] == sk.sys.executable
+    assert launches[0][1].endswith("scripts/setup_panel.py")
 
 
 def test_unbacked_setup_controls_are_read_only(monkeypatch, tmp_path):
@@ -334,42 +308,6 @@ def test_apply_setting_backed_controls_round_trip(monkeypatch, tmp_path):
     reloaded = vp.load_profiles(str(profile_path))
     assert reloaded["keyboard"]["rate"] == pytest.approx(1.5)
     assert reloaded["avatar"]["size_px"] == 250
-
-
-def test_slide_keyboard_setup_panel_is_reused(monkeypatch):
-    """Repeated SETUP taps should reuse the same panel instance."""
-    import types
-
-    import slide_keyboard as sk
-
-    init_calls = []
-    instance = None
-
-    class FakePanel:
-        def __init__(self, _parent):
-            init_calls.append("init")
-
-        def show_all(self):
-            pass
-
-    def fake_show_setup_panel(parent=None):
-        nonlocal instance
-        if instance is None:
-            instance = FakePanel(parent)
-        return instance
-
-    class FakeParent:
-        pass
-
-    fake_module = types.ModuleType("setup_panel")
-    fake_module.show_setup_panel = fake_show_setup_panel
-    fake_module.SetupPanel = FakePanel
-    monkeypatch.setattr(sk, "setup_panel", fake_module)
-
-    parent = FakeParent()
-    sk.SlideKeyboard._on_setup(parent, None)
-    sk.SlideKeyboard._on_setup(parent, None)
-    assert init_calls == ["init"]
 
 
 # ── UI quality/safety fixes ────────────────────────────────────────────
