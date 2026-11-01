@@ -12,7 +12,12 @@ Environment=DISPLAY=:0
 Environment=XAUTHORITY=%h/.Xauthority
 Environment=BRIDGE_URL=http://127.0.0.1:8002
 EnvironmentFile=%h/.config/ai-controller/config.env
-EnvironmentFile=%h/.hermes/.env
+# ~/.hermes/.env uses `export FOO=bar` lines, which systemd's
+# EnvironmentFile= cannot parse (it would read the var name as literally
+# "export FOO" and drop every assignment -- observed 2026-11-01). Point
+# at the generated, export-stripped companion file instead.
+# Regenerate after editing ~/.hermes/.env:  bash ~/scripts/goal_runner_env.sh
+EnvironmentFile=-%h/.hermes/goal-runner.env
 ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/tahuti_goal_runner.py
 WorkingDirectory=%h/ai-controller
 Restart=on-failure
