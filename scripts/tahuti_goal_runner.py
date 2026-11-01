@@ -172,6 +172,8 @@ TOOL_DESCRIPTIONS = {
     "open_url": "open_url (open any website now)",
     "open_app": "open_app (launch an app now)",
     "check_email": "check_email (read-only inbox check)",
+    "check_commits": "check_commits (read-only recent git commits across your repos)",
+    "request_approval": "request_approval (raise the operator's REAL approval card for a gated action)",
 }
 
 SAFETY_PROMPT_TAIL = (
@@ -450,6 +452,39 @@ EMAIL_TOOL = {
 
 EMAIL_TRIGGER_WORDS = {"email", "emails", "mail", "inbox", "gmail", "aol", "outlook"}
 
+# Added 2026-11-01: "tell me my recent commits" had NO tool to answer with
+# at all -- the model honestly said it needed approval, but there was (and
+# still is, for everything except file writes) no actual way to file an
+# approval request, so nothing ever reached ~/.tahuti/approvals and no box
+# ever appeared. Checking commit history is read-only and safe (same
+# category as check_email), so the real fix is giving it a tool rather
+# than building out generic approval-filing for something that doesn't
+# need approval in the first place.
+COMMIT_TOOL = {
+    "type": "function",
+    "name": "check_commits",
+    "description": (
+        "Check recent git commits across the operator's repositories NOW "
+        "(live, read-only, no approval needed). Scans repos under the "
+        "home directory (or a specific one if named) and returns recent "
+        "commit summaries (hash, date, message). Never commits, pushes, "
+        "or modifies anything -- read-only `git log` only. Only call this "
+        "when the operator has clearly asked about commits, repos, or "
+        "recent code changes."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "A specific repo name/relative path to check (optional -- default scans repos found under home)"},
+            "days": {"type": "integer", "description": "How many days back to look (1-90, default 14)"},
+            "limit": {"type": "integer", "description": "Max commits per repo (1-50, default 10)"},
+        },
+        "additionalProperties": False,
+    },
+}
+
+COMMIT_TRIGGER_WORDS = {"commit", "commits", "repo", "repos", "repository", "repositories"}
+
 _running = True
 
 
@@ -677,6 +712,10 @@ _EMAIL_TRIGGER_RE = re.compile(
     r"\b(" + "|".join(EMAIL_TRIGGER_WORDS) + r")\b", re.IGNORECASE
 )
 
+_COMMIT_TRIGGER_RE = re.compile(
+    r"\b(" + "|".join(COMMIT_TRIGGER_WORDS) + r")\b", re.IGNORECASE
+)
+
 OPEN_TRIGGER_WORDS = {
     "open", "launch", "pull up", "go to", "navigate to", "visit", "bring up",
 }
@@ -721,6 +760,8 @@ def _all_tools(transcript: str) -> list[dict]:
         tools.append({"type": "web_search"})
     if _EMAIL_TRIGGER_RE.search(transcript):
         tools.append(EMAIL_TOOL)
+    if _COMMIT_TRIGGER_RE.search(transcript):
+        tools.append(COMMIT_TOOL)
     return tools
 
 
@@ -1349,6 +1390,128 @@ def _check_email_tool(days: int = 2, unread: bool = True) -> dict:
     return {"ok": True, "output": out}
 
 
+MAX_COMMIT_REPOS_SCANNED = 60
+# Discovery (os.walk + a stat per candidate dir) is cheap -- measured
+# ~0.01s for this operator's whole home -- so this cap exists only as a
+# sane outer bound, not a performance lever. Raised 25 -> 60 live
+# 2026-11-01: with unsorted os.walk order and a cap of 25, the walk hit
+# the cap on template/pack repos (ad-video-skills, manim-skills, ...)
+# and refactor-staging mirrors before ever reaching ai-controller itself
+# -- the single most relevant repo on this machine was silently missing
+# from its own results. The actually expensive part is running `git log`
+# once per found repo, which is capped separately by running them in
+# parallel below rather than by scanning fewer directories.
+MAX_COMMIT_WALK_DEPTH = 2
+# Covers the real layout observed on this operator's machine: standalone
+# repos directly under home (depth 1: ai-controller, master-ai-cli, ...)
+# AND repos nested one level inside a container folder (depth 2:
+# projects/tahuti, workspace/ai-controller, repos/no-mistakes, ...).
+# Deeper than that risks scanning into a repo's own vendored/nested
+# checkouts; stops descending the moment a .git is found at any level.
+
+
+def _find_git_repos_under_home() -> list[Path]:
+    home = Path.home()
+    found: list[Path] = []
+    if (home / ".git").is_dir():
+        found.append(home)
+    for root, dirs, _files in os.walk(home):
+        rel = Path(root).relative_to(home)
+        depth = 0 if str(rel) == "." else len(rel.parts)
+        # Prune hidden dirs (dotfile noise, same convention as list_dir)
+        # and anything past the depth cap, before os.walk descends further.
+        # Sorted for deterministic, reproducible results -- os.walk's raw
+        # order depends on filesystem/inode ordering, not anything
+        # meaningful to the operator.
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and depth < MAX_COMMIT_WALK_DEPTH)
+        if depth == 0:
+            continue  # home itself already handled above
+        if (Path(root) / ".git").is_dir():
+            found.append(Path(root))
+            dirs[:] = []  # a repo's own subdirs aren't separate repos to scan
+        if len(found) >= MAX_COMMIT_REPOS_SCANNED:
+            break
+    return found
+
+
+def _check_commits_tool(repo: str = "", days: int = 14, limit: int = 10) -> dict:
+    """Read-only `git log` across the operator's repos -- never commits,
+    pushes, or modifies anything. Added 2026-11-01: "tell me my recent
+    commits" previously had no tool to answer with at all, so the model
+    correctly said it needed approval but had no way to actually file
+    one -- no box ever appeared. This is read-only and safe, same
+    category as check_email, so it just runs immediately like that does.
+    """
+    try:
+        days = max(1, min(90, int(days)))
+    except Exception:
+        days = 14
+    try:
+        limit = max(1, min(50, int(limit)))
+    except Exception:
+        limit = 10
+
+    if repo:
+        p = Path(repo)
+        if not p.is_absolute():
+            p = Path.home() / p
+        if not _is_under_home(p):
+            return {"ok": False, "error": "path outside home directory refused"}
+        if not (p / ".git").is_dir():
+            return {"ok": False, "error": f"not a git repo: {repo}"}
+        candidates = [p]
+    else:
+        candidates = _find_git_repos_under_home()
+        if not candidates:
+            return {"ok": True, "output": "No git repositories found under your home directory."}
+
+    since = f"--since={days} days ago"
+
+    def _log_one(repo_dir: Path) -> Optional[str]:
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(repo_dir), "log", since, f"-{limit}",
+                 "--pretty=format:%h %ad %s", "--date=short"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception:
+            return None
+        if proc.returncode != 0:
+            return None
+        lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+        if not lines:
+            return None
+        # Relative-to-home path, not bare .name -- this operator has
+        # multiple distinct repos sharing the same basename (both
+        # ~/ai-controller and ~/projects/ai-controller are real, separate
+        # clones), and bare .name made both show up as an identical,
+        # unanswerable "## ai-controller" header. Falls back to "~" for
+        # home itself, which has no meaningful relative path.
+        try:
+            rel = repo_dir.relative_to(Path.home())
+            label = "~" if str(rel) == "." else str(rel)
+        except ValueError:
+            label = str(repo_dir)
+        return f"## {label}\n" + "\n".join(f"  {ln}" for ln in lines)
+
+    # Parallel, not sequential -- with MAX_COMMIT_REPOS_SCANNED raised to
+    # 60, running `git log` one repo at a time (even at a quick 5s
+    # timeout each) could add up; this keeps wall-clock latency close to
+    # the single slowest repo instead of the sum of all of them.
+    sections: list[str] = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for result in pool.map(_log_one, candidates):
+            if result:
+                sections.append(result)
+
+    if not sections:
+        return {
+            "ok": True,
+            "output": f"No commits in the last {days} day(s) across {len(candidates)} repo(s) checked.",
+        }
+    return {"ok": True, "output": "\n\n".join(sections)}
+
+
 def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
     """Execute one tool call and return a JSON-serializable result.
 
@@ -1389,6 +1552,10 @@ def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
         result = _open_app_tool(args.get("name", ""))
     elif name == "check_email":
         result = _check_email_tool(args.get("days", 2), args.get("unread", True))
+    elif name == "check_commits":
+        result = _check_commits_tool(
+            args.get("repo", ""), args.get("days", 14), args.get("limit", 10)
+        )
     else:
         result = {"ok": False, "error": f"unknown tool: {name}"}
 
@@ -1452,10 +1619,14 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
             # include email tool if transcript asks email (still fast)
             if _EMAIL_TRIGGER_RE.search(transcript):
                 tools.append(EMAIL_TOOL)
+            if _COMMIT_TRIGGER_RE.search(transcript):
+                tools.append(COMMIT_TOOL)
         else:  # fast-chat
             tools = []
             if _EMAIL_TRIGGER_RE.search(transcript):
                 tools = [EMAIL_TOOL]
+            if _COMMIT_TRIGGER_RE.search(transcript):
+                tools.append(COMMIT_TOOL)
         # open_url/open_app back in when actually asked -- cheap single-shot
         # calls, not what the fast lanes are too thin for. Without this the
         # model hallucinates having opened something it was never given the
