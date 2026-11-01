@@ -496,6 +496,43 @@ def _is_under_home(path: Path) -> bool:
         return False
 
 
+# Secret-path fence (2026-11-01): _read_file_tool had no equivalent of
+# Master AI's own _read_path_ok secret-path blocking -- "under home" was
+# the only check, and ~/.master_ai_keys, ~/.ssh, etc. are all under home.
+# A transcript asking to "read Master AI Keychain" sailed straight through
+# with zero gating: APPROVAL_VERBS is action-verb based ("run"/"delete"/
+# "send"), never matches a bare read, and this tool itself refused nothing.
+# Resolved once at import time (not per-call) -- these paths don't move.
+_SECRET_PATHS = [
+    p.resolve() for p in (
+        Path.home() / ".ssh",
+        Path.home() / ".aws",
+        Path.home() / ".master_ai_keys",
+        Path.home() / "Desktop" / "Projects" / "keychain",
+        Path.home() / ".config" / "email_mcp" / "credentials.json",
+        Path.home() / ".hermes" / ".env",
+        Path.home() / ".config" / "ai-controller" / "config.env",
+    )
+]
+
+
+def _is_secret_path(path: Path) -> bool:
+    """True if path resolves to, or inside, a known secret location.
+    Checks the RESOLVED path so a symlink into a secret directory can't
+    bypass this by pointing somewhere that looks innocuous."""
+    try:
+        resolved = path.resolve()
+    except (OSError, ValueError):
+        return False
+    for secret in _SECRET_PATHS:
+        try:
+            resolved.relative_to(secret)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 _EMAIL_TRIGGER_RE = re.compile(
     r"\b(" + "|".join(EMAIL_TRIGGER_WORDS) + r")\b", re.IGNORECASE
 )
@@ -553,6 +590,8 @@ def _read_file_tool(path: str, offset: int = 1, limit: Optional[int] = None) -> 
         return {"ok": False, "error": "path must be absolute"}
     if not _is_under_home(p):
         return {"ok": False, "error": "path outside home directory refused"}
+    if _is_secret_path(p):
+        return {"ok": False, "error": "refused: this path holds credentials, never readable by this tool"}
     try:
         resolved = p.resolve()
         if resolved.is_symlink() and not _is_under_home(resolved):
@@ -580,6 +619,8 @@ def _list_dir_tool(path: str) -> dict:
         return {"ok": False, "error": "path must be absolute"}
     if not _is_under_home(p):
         return {"ok": False, "error": "path outside home directory refused"}
+    if _is_secret_path(p):
+        return {"ok": False, "error": "refused: this path holds credentials, never listable by this tool"}
     try:
         resolved = p.resolve()
         if not resolved.is_dir():
@@ -943,9 +984,22 @@ def _check_email_tool(days: int = 2, unread: bool = True) -> dict:
     return {"ok": True, "output": out}
 
 
-def _execute_file_tool(goal_id: str, call: dict) -> dict:
-    """Execute one tool call and return a JSON-serializable result."""
+def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
+    """Execute one tool call and return a JSON-serializable result.
+
+    allowed_names is the set of tool names actually declared in THIS
+    request's "tools" array (fast-chat/fast-lookup declare a reduced
+    set for latency). Without this check this function dispatched any
+    recognized tool name regardless of what was declared -- the model
+    reliably hallucinates calls to read_file/list_dir even when "tools"
+    was sent as an empty list (reproduced live 2026-11-01, twice,
+    identical hallucinated calls with empty arguments both times), so
+    the per-route tool restriction was enforced in name only. Refusing
+    here, not just omitting the schema, is the actual enforcement point.
+    """
     name = call.get("name")
+    if name not in allowed_names:
+        return {"ok": False, "error": f"tool '{name}' not available for this request"}
     try:
         args = json.loads(call.get("arguments", "{}"))
     except Exception:
@@ -1055,6 +1109,7 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
         payload["max_output_tokens"] = max_tokens
     response_id: Optional[str] = None
 
+    allowed_tool_names = {t.get("name") for t in tools if t.get("name")}
     try:
         # shorter timeout for fast routes
         timeout = 30.0 if route.startswith("fast-") else MODEL_TIMEOUT
@@ -1082,7 +1137,7 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
 
                 outputs = []
                 for call in function_calls:
-                    result = _execute_file_tool(goal_id, call)
+                    result = _execute_file_tool(goal_id, call, allowed_tool_names)
                     outputs.append(
                         {
                             "type": "function_call_output",
