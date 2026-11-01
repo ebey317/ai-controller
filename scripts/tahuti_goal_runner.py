@@ -667,7 +667,14 @@ def _reachable_pin_names() -> list[str]:
 
 def _launch_visible(argv: list[str], tag: str) -> dict:
     """Launch a GUI program visibly. Records PID so 'show me your work'
-    can raise the window. Fire-and-forget; never blocks."""
+    can raise the window. Fire-and-forget; never blocks.
+
+    Headless (no DISPLAY): a GUI app has nothing to render into, so this
+    fails honestly instead of returning ok:True with a pid that opens
+    nothing anyone can see.
+    """
+    if not os.environ.get("DISPLAY"):
+        return {"ok": False, "error": f"no display available (headless) -- can't open {tag}"}
     try:
         proc = subprocess.Popen(
             argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -722,6 +729,8 @@ def _open_app_tool(name: str) -> dict:
     # via _pop_script_terminal elsewhere in this file.
     pins = _pin_commands()
     if key in pins:
+        if not os.environ.get("DISPLAY"):
+            return {"ok": False, "error": f"no display available (headless) -- can't open pin {key}"}
         text = pins[key]
         self_visible = text.strip().startswith(("gnome-terminal", "xdg-open"))
         try:
@@ -761,6 +770,8 @@ def _pop_script_terminal(cmd: list[str], title: str) -> None:
     Best-effort — a headless capture still delivers the summary if no
     display is present. Never raises.
     """
+    if not os.environ.get("DISPLAY"):
+        return
     try:
         import shlex
         line = " ".join(shlex.quote(c) for c in cmd)
@@ -1192,13 +1203,19 @@ def _write_approval_request(goal_id: str, goal: dict) -> None:
 def _show_work_avatar() -> None:
     """Raise the avatar for the duration of a job (2026-10-31): the animation
     shows WHILE working, fed live by the caption file (working/done states).
-    Kills any previous pulse so windows never stack. Fire-and-forget."""
+    Kills any previous pulse so windows never stack. Fire-and-forget.
+
+    Headless (no DISPLAY): nothing to raise -- skip the spawn outright
+    instead of letting it fail inside the try/except below.
+    """
     pidfile = Path("/tmp/tahuti-pulse.pid")
     try:
         old = int(pidfile.read_text(encoding="utf-8").strip())
         os.kill(old, 9)
     except Exception:
         pass
+    if not os.environ.get("DISPLAY"):
+        return
     try:
         proc = subprocess.Popen(
             ["/usr/bin/python3",
@@ -1217,22 +1234,33 @@ def _process_show() -> str:
 
     Watching-it-work means seeing the session, not a markdown file. Falls
     back to opening the last response file when no terminal is tracked.
+
+    Headless (no DISPLAY): there's no window or viewer to raise or open --
+    read back the last response's own text instead of claiming something
+    rendered when nothing could have.
     """
-    if _raise_last_term():
-        return "Showing my work — that's the live session."
+    if os.environ.get("DISPLAY"):
+        if _raise_last_term():
+            return "Showing my work — that's the live session."
+        try:
+            if LAST_RESPONSE_FILE.exists():
+                subprocess.Popen(
+                    ["xdg-open", str(LAST_RESPONSE_FILE)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return "Showing my work."
+        except Exception as exc:
+            logger.warning("show failed: %s", exc)
     try:
         if LAST_RESPONSE_FILE.exists():
-            subprocess.Popen(
-                ["xdg-open", str(LAST_RESPONSE_FILE)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            return "Showing my work."
-        return "No work yet — give me a task first."
+            text = LAST_RESPONSE_FILE.read_text(encoding="utf-8").strip()
+            if text:
+                return text[:1000]
     except Exception as exc:
-        logger.warning("show failed: %s", exc)
-        return "I couldn't open it, but the last answer is saved."
+        logger.warning("show (headless) failed to read last response: %s", exc)
+    return "No work yet — give me a task first."
 
 
 def _process_goal(path: Path) -> None:
