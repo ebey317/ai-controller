@@ -96,6 +96,16 @@ DEFAULT_MODEL = os.environ.get("TAHUTI_RUNNER_MODEL", "muse-wonder-1.0")
 CODE_MODEL = "muse-spark-1.1"
 FAST_CHAT_MODEL = os.environ.get("TAHUTI_FAST_CHAT_MODEL", "muse-spark-1.1")
 FAST_LOOKUP_MODEL = os.environ.get("TAHUTI_FAST_LOOKUP_MODEL", "muse-spark-1.2")
+# code-fast was hardcoded at 1024 inline in _model_for_transcript (not an
+# env-overridable constant like the other two fast lanes) and had NEVER
+# been bumped -- audited 2026-11-01 after fixing the same bug on
+# fast-chat/fast-lookup, found this lane dead-ending on EVERY real tool
+# round: "read the file test.py for me" and "fix the bug in my script
+# please" both hit "I thought about it, but didn't have a reply." 4/4
+# live runs. Worse than the other two lanes because code-fast gets the
+# FULL tool set (_all_tools, not a reduced list) plus effort="low" (more
+# reasoning than "minimal") -- more budget pressure, same 1024 cap.
+CODE_FAST_MAX_TOKENS = int(os.environ.get("TAHUTI_CODE_FAST_MAX_TOKENS", "2048"))
 FAST_CHAT_MAX_TOKENS = int(os.environ.get("TAHUTI_FAST_CHAT_MAX_TOKENS", "1536"))
 # Same reasoning-starves-the-budget failure as FAST_LOOKUP_MAX_TOKENS below,
 # found live 2026-11-01 while verifying the tool-allowlist/honesty-prompt
@@ -134,6 +144,17 @@ VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
 
 POLL_INTERVAL = float(os.environ.get("TAHUTI_RUNNER_POLL_INTERVAL", "2"))
 MODEL_TIMEOUT = float(os.environ.get("TAHUTI_RUNNER_MODEL_TIMEOUT", "120"))
+# Caps tool-call rounds in _call_model's loop -- no max_output_tokens number
+# fixes an open-ended search: "read the file test.py" with no exact match
+# had the model trying more and more candidate directories round after
+# round regardless of budget (observed live 2026-11-01, code-fast route,
+# 6+ rounds, 90-96s, still spiraling even after the home-directory-guessing
+# bug above was fixed). After MAX_TOOL_ROUNDS rounds, the next request's
+# "tools" is sent as [] -- the model can no longer call anything and MUST
+# write a real text answer from what it already found. See the hard
+# ceiling in _call_model for the (rare) case it still emits a function_call
+# despite that.
+MAX_TOOL_ROUNDS = int(os.environ.get("TAHUTI_MAX_TOOL_ROUNDS", "4"))
 
 SAFETY_PROMPT_HEAD = (
     "You are Tahuti, the headless agent on the operator's Linux desktop — "
@@ -180,7 +201,12 @@ SAFETY_PROMPT_TAIL = (
     "actually made is NOT a success — if that happens, say so plainly "
     "('that didn't work' / 'I don't have a way to do that right now') "
     "instead of inventing a plausible-sounding outcome, a fake approval "
-    "entry, or an app you didn't really open. "
+    "entry, or an app you didn't really open. SCOPE: report ONLY the exact "
+    "tool calls you actually made this turn, for ONLY what THIS message "
+    "asked — never pad your answer with extra apps/files/approvals you "
+    "didn't call just because earlier conversation turns mentioned them. "
+    "Never invent a PID, a path, a filename, or any other specific detail "
+    "that didn't come back in a real tool result this turn. "
     "Replies concise, plain spoken words, under 3 sentences."
 )
 
@@ -247,14 +273,19 @@ FILE_TOOLS = [
         "type": "function",
         "name": "read_file",
         "description": (
-            "Read a text file at an absolute path and return its contents. "
+            "Read a text file and return its contents. "
             "Use this to inspect code, logs, notes, or documents. "
-            "Only paths inside the user's home directory are allowed."
+            "Only the user's home directory is allowed -- give an absolute "
+            "path if you know one, or just a bare filename/relative path "
+            "(e.g. \"test.py\" or \"notes/todo.txt\") and it resolves under "
+            "the operator's home directory automatically. Don't guess a "
+            "generic absolute path like /home/ubuntu or /root -- you don't "
+            "know this machine's layout, a bare name is always safer."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Absolute file path"},
+                "path": {"type": "string", "description": "Absolute path, or a bare filename/relative path to resolve under home"},
                 "offset": {
                     "type": "integer",
                     "description": "1-indexed line to start from (default 1)",
@@ -272,14 +303,17 @@ FILE_TOOLS = [
         "type": "function",
         "name": "list_dir",
         "description": (
-            "List the entries in a directory at an absolute path. "
-            "Use this to explore the workspace. "
-            "Only paths inside the user's home directory are allowed."
+            "List the entries in a directory. Use this to explore the "
+            "workspace. Only the user's home directory is allowed -- give "
+            "an absolute path if you know one, or a bare name/relative path "
+            "(e.g. \"Downloads\", or \"\" for the home directory itself) and "
+            "it resolves under the operator's home automatically. Don't "
+            "guess a generic absolute path like /home/ubuntu or /root."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Absolute directory path"},
+                "path": {"type": "string", "description": "Absolute path, or a bare/relative path to resolve under home (empty string = home dir itself)"},
             },
             "required": ["path"],
             "additionalProperties": False,
@@ -532,7 +566,7 @@ def _model_for_transcript(text: str) -> tuple[str, str, int | None, str]:
     word_set = set(re.findall(r"[a-z']+", lowered))
     if _contains_hint(lowered, word_set, CODE_HINTS):
         # code still fast but needs a bit more tokens
-        return CODE_MODEL, "low", 1024, "code-fast"
+        return CODE_MODEL, "low", CODE_FAST_MAX_TOKENS, "code-fast"
     simple = _is_simple_route(text)
     if simple == "chat":
         return FAST_CHAT_MODEL, FAST_EFFORT, FAST_CHAT_MAX_TOKENS, "fast-chat"
@@ -669,7 +703,15 @@ def _all_tools(transcript: str) -> list[dict]:
 def _read_file_tool(path: str, offset: int = 1, limit: Optional[int] = None) -> dict:
     p = Path(path)
     if not p.is_absolute():
-        return {"ok": False, "error": "path must be absolute"}
+        # Bare filename ("test.py") resolves under the operator's home
+        # instead of refusing -- refusing used to force the model to guess
+        # an absolute path for a system it's never seen, and it reliably
+        # guessed wrong ones (/home/ubuntu, /root, /tmp, ...), burning a
+        # full multi-round tool-call spiral before ever answering (observed
+        # live 2026-11-01, 5-6 rounds, eventually escalating to opening an
+        # app as a last-ditch "find it another way"). _is_under_home below
+        # still gates the resolved path, so "../../etc/passwd" still refuses.
+        p = Path.home() / p
     if not _is_under_home(p):
         return {"ok": False, "error": "path outside home directory refused"}
     if _is_secret_path(p):
@@ -698,7 +740,9 @@ def _read_file_tool(path: str, offset: int = 1, limit: Optional[int] = None) -> 
 def _list_dir_tool(path: str) -> dict:
     p = Path(path)
     if not p.is_absolute():
-        return {"ok": False, "error": "path must be absolute"}
+        # Same bare-name resolution as _read_file_tool above -- "" or "."
+        # also lands here and correctly resolves to the home dir itself.
+        p = Path.home() / p
     if not _is_under_home(p):
         return {"ok": False, "error": "path outside home directory refused"}
     if _is_secret_path(p):
@@ -1199,8 +1243,15 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
     try:
         # shorter timeout for fast routes
         timeout = 30.0 if route.startswith("fast-") else MODEL_TIMEOUT
+        round_num = 0
+        # Absolute stop regardless of what the model keeps sending -- covers
+        # the model still emitting a function_call even after tools=[] (the
+        # same hallucinated-call behavior seen elsewhere in this file), so
+        # the loop can never spin forever no matter what the response shape is.
+        hard_round_ceiling = MAX_TOOL_ROUNDS + 2
         with httpx.Client(timeout=timeout) as client:
             while True:
+                round_num += 1
                 r = client.post(
                     META_RESPONSES_URL,
                     headers={
@@ -1218,7 +1269,7 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
                     for item in data.get("output", [])
                     if isinstance(item, dict) and item.get("type") == "function_call"
                 ]
-                if not function_calls:
+                if not function_calls or round_num >= hard_round_ceiling:
                     break
 
                 outputs = []
@@ -1232,11 +1283,15 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
                         }
                     )
 
+                # Past MAX_TOOL_ROUNDS, stop offering tools -- forces the
+                # model to write a real text answer from what it already
+                # found instead of trying yet another candidate path.
+                next_tools = tools if round_num < MAX_TOOL_ROUNDS else []
                 payload = {
                     "model": model,
                     "previous_response_id": response_id,
                     "input": outputs,
-                    "tools": tools,
+                    "tools": next_tools,
                 }
                 if max_tokens:
                     payload["max_output_tokens"] = max_tokens
