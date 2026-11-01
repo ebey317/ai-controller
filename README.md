@@ -10,6 +10,8 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)]()
 [![Last Commit](https://img.shields.io/github/last-commit/ebey317/ai-controller)](https://github.com/ebey317/ai-controller)
 
+![AI Controller — one controller runs the whole operation](assets/ai-controller-hero.webp)
+
 ---
 
 ## What is AI Controller?

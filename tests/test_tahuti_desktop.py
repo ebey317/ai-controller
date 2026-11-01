@@ -51,7 +51,13 @@ class _FakeGate:
         return self.verdict
 
     def set_explicit_callback(self, cb):
-        pass
+        self.callback = cb
+
+
+class _AvatarModule:
+    @staticmethod
+    def prompt(pattern_key, description, **extra):
+        return "once"
 
 
 @pytest.fixture
@@ -64,6 +70,14 @@ def gate(monkeypatch):
 # ──────────────────────────────────────────────────────────────────────
 # Approval gate
 # ──────────────────────────────────────────────────────────────────────
+
+
+def test_native_callback_installs_on_existing_gate(monkeypatch):
+    gate = _FakeGate()
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(desktop, "_import_from_path", lambda *_: _AvatarModule())
+    desktop._install_tahuti_callback(gate)
+    assert gate.callback("cua:type:foreground", "Type 1 character", action="type") == "once"
 
 
 def test_pattern_key_is_scoped_by_action_and_mode():
