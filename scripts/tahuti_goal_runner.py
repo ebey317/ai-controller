@@ -48,21 +48,31 @@ from ptt_notify import notify_hermex as notify_hermex_bg
 import voice_goal_schema as vgs  # noqa: E402
 
 LOG_DIR = Path(ai_controller_paths.ai_controller_dir()) / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "tahuti-goal-runner.log"
+
+# Log-stream separation (2026-11-02, 11-01 incident fallout): the rotating
+# FILE handler attaches only when this file runs AS the runner (systemd
+# service or foreground). Test harnesses that import this module used to
+# write into the service log — during the YouTube-spam triage that made
+# direct _call_model calls indistinguishable from real service traffic.
+# Imports get the stream handler only.
+_LOG_HANDLERS: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+if __name__ == "__main__":
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _LOG_HANDLERS.append(
+        logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3
+        )
+    )
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.handlers.RotatingFileHandler(
-            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3
-        ),
-        logging.StreamHandler(sys.stdout),
-    ],
+    handlers=_LOG_HANDLERS,
 )
 logger = logging.getLogger(__name__)
-logger.info("Tahuti goal runner starting — logs at %s", LOG_FILE)
+if __name__ == "__main__":
+    logger.info("Tahuti goal runner starting — logs at %s", LOG_FILE)
 
 GOALS_DIR = Path.home() / ".tahuti" / "goals"
 APPROVALS_DIR = Path.home() / ".tahuti" / "approvals"
