@@ -1,0 +1,9 @@
+# no-mistakes gate configuration.
+# Reference: https://kunchenguid.github.io/no-mistakes/reference/repo-config/
+#
+# commands.test is TARGETED local validation for the change, not a
+# repository-wide regression walk (broad regression belongs in remote CI).
+# For this repo the targeted suite is the packaged-update integrity fixture
+# suite: offline, file:// fixtures, fake systemctl, real services untouched.
+commands:
+  test: "bash tests/test_update_sh_integrity.sh"

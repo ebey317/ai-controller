@@ -8,6 +8,8 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)]()
 [![Last Commit](https://img.shields.io/github/last-commit/ebey317/ai-controller)](https://github.com/ebey317/ai-controller)
 
+![AI Controller — one controller runs the whole operation](assets/ai-controller-hero.webp)
+
 ---
 
 ## What is AI Controller?
@@ -274,8 +276,8 @@ For screenshots, demo GIFs, and a polished product overview, visit:
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Format Python: `black scripts/ tests/`
-4. Run linters: `ruff check . && black --check . && shellcheck *.sh`
+3. Format Python: `black scripts/ tests/ && isort scripts/ tests/`
+4. Run the lint/format gate: `pre-commit run --all-files` (black, isort, ruff, markdownlint, shellcheck with `bash` over `scripts/*.sh`, `tests/*.sh` and root `*.sh`, and mypy).
 5. Commit, push, and open a Pull Request
 
 ---

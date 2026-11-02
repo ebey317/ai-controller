@@ -10,7 +10,7 @@ from pathlib import Path
 # Make scripts/ importable without installing the package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from ai_controller_paths import ai_controller_dir
+from ai_controller_paths import ai_controller_dir  # noqa: E402
 
 
 def test_ai_controller_dir_respects_env():

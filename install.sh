@@ -30,6 +30,36 @@ SERVICES=(
     ai-controller-goal-runner.service
 )
 
+# Optional services are only advertised/installed when their unit templates
+# are present in this checkout. This keeps a partial source tree honest while
+# preserving launcher-only startup for every installed unit.
+OPTIONAL_SERVICES=(
+    ptt-pynput-headless.service
+    voice-bridge-headless.service
+    ai-controller-goal-runner.service
+)
+for svc in "${OPTIONAL_SERVICES[@]}"; do
+    if [[ -f "${REPO_DIR}/systemd/${svc}" ]]; then
+        SERVICES+=("${svc}")
+    else
+        case "${svc}" in
+            ai-controller-goal-runner.service)
+                echo "WARNING: Tahuti goal runner not installed: missing systemd/${svc}; this checkout does not provide the service unit." >&2
+                ;;
+            *)
+                echo "WARNING: optional headless service not installed: missing systemd/${svc}." >&2
+                ;;
+        esac
+    fi
+done
+
+for svc in "${SERVICES[@]}"; do
+    if [[ ! -f "${REPO_DIR}/systemd/${svc}" ]]; then
+        echo "ERROR: required systemd template missing: systemd/${svc}" >&2
+        exit 1
+    fi
+done
+
 echo "======================================"
 echo "  AI Controller Installer"
 echo "======================================"
