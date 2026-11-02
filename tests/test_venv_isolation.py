@@ -11,8 +11,21 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 WRAPPER = REPO / "scripts" / "run-tests.sh"
+VENV_PY = REPO / ".venv" / "bin" / "python3"
+
+requires_canonical_venv = pytest.mark.skipif(
+    not VENV_PY.exists(),
+    reason=(
+        "no canonical .venv -- this covers scripts/run-tests.sh, a LOCAL "
+        "dev-only wrapper around Hermes Agent's PYTHONPATH leak. CI's "
+        "ci.yml invokes pytest directly via actions/setup-python and never "
+        "creates this venv, so there is nothing for the wrapper to find."
+    ),
+)
 
 
 def test_run_tests_wrapper_exists_and_is_executable():
@@ -21,6 +34,7 @@ def test_run_tests_wrapper_exists_and_is_executable():
     assert os.access(WRAPPER, os.X_OK), f"wrapper is not executable: {WRAPPER}"
 
 
+@requires_canonical_venv
 def test_run_tests_wrapper_collects_despite_leaked_pythonpath(tmp_path):
     """A leaked external PYTHONPATH must not break pytest collection."""
     bogus = tmp_path / "bogus"
@@ -45,6 +59,7 @@ def test_run_tests_wrapper_collects_despite_leaked_pythonpath(tmp_path):
     assert "error" not in result.stderr.lower()
 
 
+@requires_canonical_venv
 def test_canonical_python_imports_fastapi_when_pythonpath_unset():
     """The canonical venv python can import core packages with no PYTHONPATH."""
     venv_python = REPO / ".venv" / "bin" / "python3"
