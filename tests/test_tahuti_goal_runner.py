@@ -113,10 +113,34 @@ def test_read_file_tool_rejects_outside_home(monkeypatch):
     assert "outside home" in result["error"]
 
 
-def test_read_file_tool_rejects_relative_path():
+def test_read_file_tool_resolves_bare_filename_under_home(monkeypatch, tmp_path):
+    """2026-11-01 contract change: a bare filename resolves under the
+    operator's home instead of refusing — refusing forced the model to
+    guess absolute paths and burn whole tool-call spirals guessing wrong."""
+    note = tmp_path / "note.txt"
+    note.write_text("resolved")
+
+    def fake_home():
+        return tmp_path
+
+    monkeypatch.setattr(runner.Path, "home", staticmethod(fake_home))
+    # Bug fixed 2026-11-01: this used to check against the REAL home
+    # while Path.home() was patched to tmp_path -- the resolved path
+    # (under tmp_path) could never satisfy a check anchored on the real
+    # home, so the test failed regardless of whether the contract itself
+    # worked. Must check against the same fake home _read_file_tool
+    # actually resolves against.
+    monkeypatch.setattr(runner, "_is_under_home", lambda p: tmp_path in p.parents or p == tmp_path)
     result = runner._read_file_tool("note.txt")
+    assert result["ok"] is True
+    assert result["content"] == "resolved"
+
+
+def test_read_file_tool_still_refuses_home_escape(monkeypatch):
+    monkeypatch.setattr(runner, "_is_under_home", lambda p: False)
+    result = runner._read_file_tool("../../etc/passwd")
     assert result["ok"] is False
-    assert "absolute" in result["error"]
+    assert "outside home" in result["error"]
 
 
 def test_list_dir_tool_lists_entries(tmp_path, monkeypatch):
@@ -180,7 +204,8 @@ def test_execute_file_tool_runs_read_file(tmp_path, monkeypatch):
     note = tmp_path / "note.txt"
     note.write_text("dispatch ok")
     result = runner._execute_file_tool(
-        "g1", {"name": "read_file", "arguments": json.dumps({"path": str(note)})}
+        "g1", {"name": "read_file", "arguments": json.dumps({"path": str(note)})},
+        {"read_file"},
     )
     assert result["ok"] is True
     assert result["content"] == "dispatch ok"
@@ -188,7 +213,7 @@ def test_execute_file_tool_runs_read_file(tmp_path, monkeypatch):
 
 def test_execute_file_tool_rejects_unknown_tool():
     result = runner._execute_file_tool(
-        "g1", {"name": "delete_file", "arguments": "{}"}
+        "g1", {"name": "delete_file", "arguments": "{}"}, {"delete_file"}
     )
     assert result["ok"] is False
     assert "unknown" in result["error"]
@@ -196,7 +221,7 @@ def test_execute_file_tool_rejects_unknown_tool():
 
 def test_execute_file_tool_handles_bad_arguments():
     result = runner._execute_file_tool(
-        "g1", {"name": "read_file", "arguments": "not-json"}
+        "g1", {"name": "read_file", "arguments": "not-json"}, {"read_file"}
     )
     assert result["ok"] is False
     assert "invalid JSON" in result["error"]
@@ -242,7 +267,7 @@ def test_process_goal_missing_id_archives_failed(tmp_path, monkeypatch):
 def test_call_model_returns_text_without_tool_calls(monkeypatch):
     fake = _FakeClient([_text_response("hello there", "r1")])
     monkeypatch.setattr(runner.httpx, "Client", lambda **kwargs: fake)
-    text, model, elapsed = runner._call_model("say hi")
+    text, model, elapsed, elapsed_s, route = runner._call_model("say hi")
     assert text == "hello there"
     assert len(fake.calls) == 1
 
@@ -267,7 +292,7 @@ def test_call_model_executes_read_file_tool_and_follows_up(monkeypatch):
             "content": "note content",
         },
     )
-    text, model, elapsed = runner._call_model("read my note", goal_id="g1")
+    text, model, elapsed, elapsed_s, route = runner._call_model("read my note", goal_id="g1")
     assert text == "I read the note."
     assert len(fake.calls) == 2
     second_payload = fake.calls[1][1]["json"]
@@ -302,7 +327,7 @@ def test_call_model_queues_write_file_tool_and_follows_up(monkeypatch, tmp_path)
     )
     monkeypatch.setattr(runner.httpx, "Client", lambda **kwargs: fake)
     monkeypatch.setattr(runner, "_is_under_home", lambda p: True)
-    text, model, elapsed = runner._call_model("write a note", goal_id="g2")
+    text, model, elapsed, elapsed_s, route = runner._call_model("write a note", goal_id="g2")
     assert text == "Queued for approval."
     pending = list(tmp_path.glob("*.pending.json"))
     assert len(pending) == 1
@@ -425,6 +450,116 @@ def test_all_tools_includes_file_tools_for_plain_requests():
     assert any(t.get("name") == "list_dir" for t in tools)
     assert any(t.get("name") == "write_file" for t in tools)
     assert not any(t.get("type") == "web_search" for t in tools)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# request_approval: the model's seam to the operator's real card
+# (2026-11-01) — before this tool existed, anything gated that was
+# phrased without an APPROVAL_VERB dead-ended in a text refusal and
+# no box ever appeared.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_request_approval_once_returns_ok(monkeypatch):
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
+    result = runner._request_approval_tool(
+        "g1", "restart the voice service", "it is a gated service action")
+    assert result["ok"] is True
+    assert result["decision"] == "once"
+
+
+def test_request_approval_deny_fails_closed(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "deny")
+    result = runner._request_approval_tool(
+        "g1", "delete notes.txt", "irreversible delete")
+    assert result["ok"] is False
+    assert result["decision"] == "deny"
+
+
+def test_request_approval_headless_unavailable(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: None)
+    result = runner._request_approval_tool(
+        "g1", "install vlc", "needs install rights")
+    assert result["ok"] is False
+    assert result["decision"] == "unavailable"
+
+
+def test_request_approval_session_never_persists_grant(monkeypatch, tmp_path):
+    """A session verdict must not silently become a permanent grant: the
+    card's session and always buttons currently map to the same internal
+    value, so persisting here would turn 'session' into 'always'."""
+    monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "session")
+    result = runner._request_approval_tool(
+        "g1", "restart voice service", "gated service action")
+    assert result["ok"] is True
+    assert result["decision"] == "session"
+    assert not (tmp_path / "grants.json").exists()
+
+
+def test_request_approval_skips_card_when_grant_covers(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
+    (tmp_path / "grants.json").write_text(json.dumps(
+        {"patterns": {"tahuti:install:background": "always"}}))
+
+    def boom(*a, **k):
+        raise AssertionError("the card must not be raised for a covered grant")
+
+    monkeypatch.setattr(runner, "_present_approval", boom)
+    result = runner._request_approval_tool(
+        "g1", "install vlc", "needs install rights")
+    assert result["ok"] is True
+    assert result["decision"] == "already-granted"
+
+
+def test_request_approval_requires_action():
+    result = runner._request_approval_tool("g1", "", "why")
+    assert result["ok"] is False
+    assert "action required" in result["error"]
+
+
+def test_request_approval_offered_on_every_route():
+    names = {t.get("name") for t in runner._all_tools("summarize my notes")}
+    assert "request_approval" in names
+    # fast lanes append it inside _call_model; assert the tool exists and
+    # the prompt points the model at it.
+    assert runner.REQUEST_APPROVAL_TOOL["name"] == "request_approval"
+    assert "request_approval" in runner.SAFETY_PROMPT_TAIL
+
+
+def test_request_approval_dispatched_through_execute_tool(monkeypatch):
+    monkeypatch.setattr(
+        runner, "_request_approval_tool",
+        lambda gid, action, reason: {"ok": True, "decision": "once"})
+    result = runner._execute_file_tool(
+        "g9",
+        {"name": "request_approval",
+         "arguments": json.dumps({"action": "restart service",
+                                  "reason": "gated"})},
+        {"request_approval"},
+    )
+    assert result["ok"] is True
+    assert result["decision"] == "once"
+
+
+def test_request_approval_refused_when_not_declared(monkeypatch):
+    monkeypatch.setattr(
+        runner, "_request_approval_tool", lambda *a, **k: {"ok": True})
+    result = runner._execute_file_tool(
+        "g9", {"name": "request_approval", "arguments": "{}"}, set())
+    assert result["ok"] is False
+    assert "not available" in result["error"]
+
+
+def test_fast_chat_lane_offers_request_approval(monkeypatch):
+    fake = _FakeClient([_text_response("hi there", "r1")])
+    monkeypatch.setattr(runner.httpx, "Client", lambda **kwargs: fake)
+    runner._call_model("say hi")
+    payload = fake.calls[0][1]["json"]
+    names = {t.get("name") for t in payload["tools"]}
+    assert "request_approval" in names
 
 
 if __name__ == "__main__":
