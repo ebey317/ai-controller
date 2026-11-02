@@ -3,7 +3,7 @@
 
 **Talk to your computer from the couch. No keyboard. No mouse. Just a controller and headphones.**
 
-Plug in any corded or Bluetooth controller — Xbox, PlayStation, DualShock, or generic USB — put on a headset, and run your entire desktop by voice. Press a trigger to talk. A floating keyboard and controller legend keep you in control without getting up.
+Plug in a tested wired Xbox Series X/S controller — put on a headset, and run your entire desktop by voice. Press a trigger to talk. A floating keyboard and controller legend keep you in control without getting up.
 
 ---
 
@@ -14,7 +14,7 @@ At the base tier, the computer **listens and types**. It does not talk back.
 - **Microphone push-to-talk** with plain dynamic text output
 - **Floating on-screen keyboard**
 - **Floating controller legend**
-- **Universal controller support** — Xbox, PlayStation, DualShock, USB, Bluetooth
+- **Verified target hardware** — wired Xbox Series X/S controller on Linux X11; other controllers are not yet certified
 - **Power-loss safe** systemd services
 
 ---
