@@ -194,9 +194,15 @@ SAFETY_PROMPT_TAIL = (
     "The native coding agent is Master AI Sensei — always name it exactly "
     "that, never Claude or another agent. "
     "HARD NOS: no shell or terminal, no clicking or typing, no services, "
-    "no installs, no deletes, no sending or buying. Route those to approval "
-    "with a one-line reason — reason given in your reply, not a tool call, "
-    "unless write_file is actually available to you this turn. "
+    "no installs, no deletes, no sending or buying — you have no tools "
+    "that do those. If the operator's task needs one, call request_approval "
+    "NOW with the action and a one-line reason: the operator's approval "
+    "card appears on their screen and the tool result tells you their real "
+    "decision. Never claim the operator approved anything unless "
+    "request_approval's result THIS turn says so; if it comes back denied "
+    "or unavailable, say that plainly. If request_approval is not in your "
+    "tools this turn, say the task needs the operator's approval and stop "
+    "there — never fabricate a decision. "
     "HONESTY RULE: never describe ANY tool action as done — opened, read, "
     "checked, queued, filed, added, noted — unless a real tool result from "
     "THIS turn actually says it succeeded. A tool call that errors, comes "
@@ -485,6 +491,49 @@ COMMIT_TOOL = {
 
 COMMIT_TRIGGER_WORDS = {"commit", "commits", "repo", "repos", "repository", "repositories"}
 
+# Added 2026-11-01: the model previously had NO way to raise the operator's
+# approval card mid-goal -- the goal-level keyword gate fires before the
+# model is ever called, and write_file is the only tool that shows the box.
+# Anything gated but phrased without an APPROVAL_VERB dead-ended in a text
+# refusal ("needs approval and I don't have a way to file it"), so the box
+# never appeared and the operator never got asked. This tool IS the missing
+# seam: the model calls it, the real card appears, the real verdict comes
+# back. Fail-closed on every path -- deny, timeout, and headless all return
+# {"ok": False} so the model can only ever report the operator's decision.
+REQUEST_APPROVAL_TOOL = {
+    "type": "function",
+    "name": "request_approval",
+    "description": (
+        "Raise the operator's REAL approval card NOW for one action you "
+        "cannot take without permission (shell/terminal, installs, deletes, "
+        "sends, services, or anything irreversible). The card appears on "
+        "the operator's screen with what you asked and why; the result "
+        "tells you their actual decision. Approving authorizes you to "
+        "proceed ONLY with the tools you actually have this turn -- if "
+        "none of your tools can perform the action, say that plainly "
+        "after the decision instead of pretending it ran. Never claim the "
+        "operator approved anything unless this tool's result says so."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": (
+                    "Short verb phrase naming the gated action, e.g. "
+                    "'restart the voice service', 'delete notes.txt'"
+                ),
+            },
+            "reason": {
+                "type": "string",
+                "description": "One plain sentence: why this needs the operator's go-ahead",
+            },
+        },
+        "required": ["action", "reason"],
+        "additionalProperties": False,
+    },
+}
+
 _running = True
 
 
@@ -588,12 +637,36 @@ def _contains_hint(lowered: str, word_set: set[str], hints: set[str]) -> bool:
     return False
 
 
+_CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z])(?=[A-Z])")
+
+
+def _split_camel_case(text: str) -> str:
+    """Insert a space at lower->upper letter transitions.
+
+    STT sometimes glues a trigger word directly onto the next word with
+    no space -- observed live 2026-11-01: a spoken "open facebook.com"
+    transcribed as "OpenFacebook.com." (one unbroken run of letters).
+    Every word-boundary-anchored regex and tokenized hint set in this
+    file (_OPEN_TRIGGER_RE, _EMAIL_TRIGGER_RE, _COMMIT_TRIGGER_RE,
+    CODE_HINTS, SIMPLE_LOOKUP_TRIGGERS, MULTISTEP_HINTS, CHAT_SHORT_WORDS,
+    APPROVAL_VERBS) requires a real word boundary to fire, so "open" never
+    matched inside "OpenFacebook" -- zero tools got offered, and the model
+    was left honestly saying "needs approval" with nothing to actually
+    call. Call this on the transcript BEFORE any of that matching, not on
+    what gets sent to the model or saved to history/thread -- it's a
+    matching-only normalization, not a rewrite of what was actually said.
+    """
+    return _CAMEL_SPLIT_RE.sub(" ", text)
+
+
 def _is_simple_route(text: str) -> str | None:
     """Classify simple goals for fast path: 'chat', 'lookup', or None."""
     t = (text or "").strip()
     if not t:
         return None
-    lowered = t.lower()
+    # Length/word-count checks use the real transcript; matching below
+    # uses the camelCase-split version (see _split_camel_case).
+    lowered = _split_camel_case(t).lower()
     words = lowered.split()
     word_set = set(re.findall(r"[a-z']+", lowered))
     if len(t) > 450 or len(words) > 50:
@@ -621,7 +694,7 @@ def _is_simple_route(text: str) -> str | None:
 
 def _model_for_transcript(text: str) -> tuple[str, str, int | None, str]:
     """Return (model, reasoning_effort, max_output_tokens, route)."""
-    lowered = text.lower()
+    lowered = _split_camel_case(text).lower()
     word_set = set(re.findall(r"[a-z']+", lowered))
     if _contains_hint(lowered, word_set, CODE_HINTS):
         # code still fast but needs a bit more tokens
@@ -752,16 +825,19 @@ def _all_tools(transcript: str) -> list[dict]:
     """Tools offered for this transcript: file tools plus optional web search
     and, only when the transcript itself plausibly mentions email, check_email."""
     tools: list[dict] = _tools_with_live_open_app(FILE_TOOLS)
-    lowered = transcript.lower()
+    lowered = _split_camel_case(transcript).lower()
     if "?" in transcript or any(
         w in lowered
         for w in {"weather", "news", "lookup", "find", "search", "what", "who", "when", "where", "why", "how"}
     ):
         tools.append({"type": "web_search"})
-    if _EMAIL_TRIGGER_RE.search(transcript):
+    if _EMAIL_TRIGGER_RE.search(lowered):
         tools.append(EMAIL_TOOL)
-    if _COMMIT_TRIGGER_RE.search(transcript):
+    if _COMMIT_TRIGGER_RE.search(lowered):
         tools.append(COMMIT_TOOL)
+    # Always offered: the model's only way to raise the operator's card
+    # for anything gated, regardless of how the request was phrased.
+    tools.append(REQUEST_APPROVAL_TOOL)
     return tools
 
 
@@ -1512,6 +1588,61 @@ def _check_commits_tool(repo: str = "", days: int = 14, limit: int = 10) -> dict
     return {"ok": True, "output": "\n\n".join(sections)}
 
 
+def _request_approval_tool(goal_id: str, action: str, reason: str) -> dict:
+    """Raise the operator's real approval card for one gated action.
+
+    The model's only seam to the box: instead of dead-ending in a text
+    refusal, it calls this and the actual card appears. Fail-closed on
+    every path -- deny, timeout, and headless all come back {"ok": False}
+    so the model can only ever report the operator's real decision.
+
+    A "session" verdict deliberately does NOT write a persistent grant:
+    the operator's card offers session and always as separate buttons but
+    _present_approval maps both to "session", so persisting here would
+    silently turn a session approval into a permanent one. Until that
+    mapping is fixed, this tool treats session as approved-for-this-call
+    only and never writes the grants file.
+    """
+    action = (action or "").strip()
+    reason = (reason or "").strip()
+    if not action:
+        return {"ok": False, "error": "action required: name the gated action"}
+    words = re.findall(r"[a-z]+", action.lower())
+    # Same vocabulary as the goal-level gate: an APPROVAL_VERB in the
+    # phrase wins so a grant here covers the same scope the goal gate
+    # would have used; otherwise the first word labels the pattern.
+    verb_hits = [w for w in words if w in APPROVAL_VERBS]
+    verb = verb_hits[0] if verb_hits else (words[0] if words else "action")
+    pattern = f"tahuti:{verb}:background"
+    if _is_granted(pattern):
+        return {"ok": True, "decision": "already-granted",
+                "note": f"a permanent grant already covers {pattern}; "
+                        "proceed with the tools you actually have"}
+    logger.info("model requested approval for %s (goal %s)", pattern, goal_id)
+    outcome = _present_approval(
+        pattern,
+        action,
+        why=reason or "the model asked for the operator's go-ahead",
+        how="Tahuti goal runner (model-requested approval)",
+    )
+    if outcome == "once":
+        return {"ok": True, "decision": "once",
+                "note": "the operator approved this one request; proceed "
+                        "only with the tools you actually have this turn, "
+                        "and say so plainly if none can perform the action"}
+    if outcome == "session":
+        return {"ok": True, "decision": "session",
+                "note": "the operator approved it for this session; proceed "
+                        "only with the tools you actually have this turn, "
+                        "and say so plainly if none can perform the action"}
+    if outcome == "deny":
+        return {"ok": False, "decision": "deny",
+                "note": "the operator denied it; do not attempt the action"}
+    return {"ok": False, "decision": "unavailable",
+            "note": "no approval card could be shown, so nothing was "
+                    "approved; do not attempt the action"}
+
+
 def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
     """Execute one tool call and return a JSON-serializable result.
 
@@ -1555,6 +1686,10 @@ def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
     elif name == "check_commits":
         result = _check_commits_tool(
             args.get("repo", ""), args.get("days", 14), args.get("limit", 10)
+        )
+    elif name == "request_approval":
+        result = _request_approval_tool(
+            goal_id, args.get("action", ""), args.get("reason", "")
         )
     else:
         result = {"ok": False, "error": f"unknown tool: {name}"}
@@ -1612,27 +1747,38 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
 
     # fast paths skip heavy tool lists to cut latency
     if route.startswith("fast-"):
+        # Match against the camelCase-split transcript, not the raw one --
+        # see _split_camel_case. Real live bug 2026-11-01: a spoken "open
+        # facebook.com" came back from STT as "OpenFacebook.com." with no
+        # space, so _OPEN_TRIGGER_RE's word-boundary match never fired,
+        # open_url/open_app never got offered, and the model was left
+        # honestly saying "needs approval" with literally nothing to call.
+        matching_text = _split_camel_case(transcript)
         if route == "fast-lookup":
             tools: list[dict] = [{"type": "web_search"}] if any(
-                w in transcript.lower() for w in SIMPLE_LOOKUP_TRIGGERS
+                w in matching_text.lower() for w in SIMPLE_LOOKUP_TRIGGERS
             ) or "?" in transcript else []
             # include email tool if transcript asks email (still fast)
-            if _EMAIL_TRIGGER_RE.search(transcript):
+            if _EMAIL_TRIGGER_RE.search(matching_text):
                 tools.append(EMAIL_TOOL)
-            if _COMMIT_TRIGGER_RE.search(transcript):
+            if _COMMIT_TRIGGER_RE.search(matching_text):
                 tools.append(COMMIT_TOOL)
         else:  # fast-chat
             tools = []
-            if _EMAIL_TRIGGER_RE.search(transcript):
+            if _EMAIL_TRIGGER_RE.search(matching_text):
                 tools = [EMAIL_TOOL]
-            if _COMMIT_TRIGGER_RE.search(transcript):
+            if _COMMIT_TRIGGER_RE.search(matching_text):
                 tools.append(COMMIT_TOOL)
         # open_url/open_app back in when actually asked -- cheap single-shot
         # calls, not what the fast lanes are too thin for. Without this the
         # model hallucinates having opened something it was never given the
         # tool to open (see OPEN_TOOLS comment above).
-        if _OPEN_TRIGGER_RE.search(transcript):
+        if _OPEN_TRIGGER_RE.search(matching_text):
             tools.extend(_tools_with_live_open_app(OPEN_TOOLS))
+        # The approval seam must exist on EVERY route, including the thin
+        # fast lanes: a text refusal with no card is exactly the dead end
+        # this tool exists to remove.
+        tools.append(REQUEST_APPROVAL_TOOL)
     else:
         tools = _all_tools(transcript)
 
@@ -2041,7 +2187,7 @@ def _save_grant(pattern_key: str) -> None:
 
 
 def _needs_approval(transcript: str) -> bool:
-    words = set(re.findall(r"[a-z]+", transcript.lower()))
+    words = set(re.findall(r"[a-z]+", _split_camel_case(transcript).lower()))
     return bool(words & APPROVAL_VERBS)
 
 
