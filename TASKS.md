@@ -1,5 +1,15 @@
 # AI Controller — Task Queue
 
+## Release blockers / verification required
+
+- [ ] Run a clean Linux Mint X11 install and capture installer logs.
+- [ ] Verify wired Xbox Series X/S controls and headset input on actual hardware.
+- [ ] Test push-to-talk rapid trigger press/release, recording cancellation, and lock contention.
+- [ ] Test floating keyboard focus and drag behavior on multiple applications.
+- [ ] Test signed packaged update, invalid signature rejection, interrupted update, and recovery.
+- [ ] Confirm paid distribution/licensing terms; MIT permits redistribution.
+- [ ] Verify CI on the release branch before merging.
+
 ## In Progress / Maintenance
 
 - [ ] Keep `AGENTS.md` and `TASKS.md` accurate as the repo evolves.
