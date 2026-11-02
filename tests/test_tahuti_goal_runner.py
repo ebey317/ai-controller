@@ -406,21 +406,27 @@ def test_approval_without_a_box_queues_as_before(tmp_path, monkeypatch):
     assert len(pending) == 1
 
 
-def test_present_approval_maps_avatar_verdicts(monkeypatch):
-    """The avatar surface answers once/session/always/deny on stdout."""
+def test_present_approval_maps_avatar_verdicts(tmp_path, monkeypatch):
+    """The presenter answers once/session/always/deny after READY.
+
+    Updated 2026-11-02 for the one-box presenter protocol: READY first
+    (the card really is up), then the verdict line. A garbage verdict
+    after READY fails closed as deny; a garbage first line means no
+    card was shown at all, which is unavailable (None).
+    """
     monkeypatch.setenv("DISPLAY", ":0")
-
-    class _R:
-        def __init__(self, out):
-            self.stdout = out
-
+    stub = tmp_path / "presenter.py"
     for spoken, expected in (("once", "once"), ("always", "session"),
                              ("session", "session"), ("deny", "deny"),
-                             ("garbage", None)):
-        monkeypatch.setattr(
-            runner.subprocess, "run",
-            lambda *a, _o=spoken, **k: _R(_o + "\n"))
+                             ("garbage", "deny")):
+        stub.write_text(
+            "import sys; sys.stdin.read(); print('READY', flush=True); "
+            f"print({spoken!r}, flush=True)\n", encoding="utf-8")
+        monkeypatch.setattr(runner, "_PRESENTER", stub)
         assert runner._present_approval("tahuti:run:background", "run it") == expected
+    stub.write_text("print('garbage')\n", encoding="utf-8")
+    monkeypatch.setattr(runner, "_PRESENTER", stub)
+    assert runner._present_approval("tahuti:run:background", "run it") is None
 
 
 def test_present_approval_headless_has_no_card(monkeypatch):
@@ -634,3 +640,271 @@ def test_denied_request_approval_does_not_escalate(monkeypatch, tmp_path):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Escalation layer (2026-11-02): one-box presenter, gated opens,
+# bounded escalation, deterministic clock, honest failure labels.
+# Motivated by the 2026-11-02 end-to-end battery: open_url executed
+# with no approval, the ninja presenter timed out at 150s a call, a
+# write goal burned 1127s on stacked waits, and fast-lookup invented
+# the time of day.
+# ──────────────────────────────────────────────────────────────────────
+
+import os
+import subprocess
+import time
+
+
+# ── open_url / open_app are gated like every desktop action ──────────
+
+def test_open_url_unavailable_when_no_presenter(monkeypatch):
+    launches = []
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda *a, **k: launches.append(a))
+    result = runner._open_url_tool("g1", "facebook.com")
+    assert result["ok"] is False
+    assert result["status"] == "unavailable"
+    assert "approval card could not be shown" in result["error"]
+    assert launches == []  # nothing launched — the battery's Chrome proof
+
+
+def test_open_url_executes_after_once_approval(monkeypatch):
+    launches = []
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
+    monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda *a, **k: launches.append(a))
+    result = runner._open_url_tool("g1", "facebook.com")
+    assert result["ok"] is True
+    assert result["opened"] == "https://facebook.com"
+    assert launches and launches[0][0] == ["xdg-open", "https://facebook.com"]
+
+
+def test_open_url_session_approval_saves_grant(monkeypatch):
+    saved = []
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "session")
+    monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
+    monkeypatch.setattr(runner, "_save_grant", saved.append)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: None)
+    result = runner._open_url_tool("g1", "example.com")
+    assert result["ok"] is True
+    assert saved == ["tahuti:open_url:background"]
+
+
+def test_open_url_denied_by_operator(monkeypatch):
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "deny")
+    monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("must not launch"))
+    result = runner._open_url_tool("g1", "facebook.com")
+    assert result["ok"] is False
+    assert result["status"] == "denied"
+
+
+def test_open_url_saved_grant_skips_box(monkeypatch):
+    monkeypatch.setattr(runner, "_is_granted", lambda pattern: True)
+    monkeypatch.setattr(runner, "_present_approval",
+                        lambda *a, **k: pytest.fail("box must not be shown"))
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: None)
+    result = runner._open_url_tool("g1", "example.com")
+    assert result["ok"] is True
+
+
+def test_open_app_unavailable_when_no_presenter(monkeypatch):
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
+    monkeypatch.setattr(runner, "_launch_visible",
+                        lambda *a, **k: pytest.fail("must not launch"))
+    result = runner._open_app_tool("g1", "chrome")
+    assert result["ok"] is False
+    assert result["status"] == "unavailable"
+
+
+# ── presenter transport: fail fast, honest readiness ─────────────────
+
+def _write_stub(tmp_path, body: str):
+    stub = tmp_path / "stub_presenter.py"
+    stub.write_text(body, encoding="utf-8")
+    return stub
+
+
+def test_run_presenter_no_display_returns_none(monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    assert runner._run_presenter("p", "d", {}) is None
+
+
+def test_run_presenter_unavailable_stub_fails_fast(tmp_path, monkeypatch):
+    stub = _write_stub(
+        tmp_path, "import sys; print('UNAVAILABLE no display'); sys.exit(2)\n")
+    monkeypatch.setattr(runner, "_PRESENTER", stub)
+    monkeypatch.setenv("DISPLAY", ":0")
+    t0 = time.monotonic()
+    assert runner._run_presenter("p", "d", {}) is None
+    assert time.monotonic() - t0 < 5
+
+
+def test_run_presenter_silent_stub_fails_fast(tmp_path, monkeypatch):
+    stub = _write_stub(tmp_path, "import time; time.sleep(60)\n")
+    monkeypatch.setattr(runner, "_PRESENTER", stub)
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(runner, "_PRESENT_READY_TIMEOUT", 1.0)
+    t0 = time.monotonic()
+    assert runner._run_presenter("p", "d", {}) is None
+    assert time.monotonic() - t0 < 10
+
+
+def test_run_presenter_ready_then_verdict(tmp_path, monkeypatch):
+    stub = _write_stub(
+        tmp_path,
+        "import sys; sys.stdin.read(); print('READY', flush=True); "
+        "print('once', flush=True)\n")
+    monkeypatch.setattr(runner, "_PRESENTER", stub)
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert runner._run_presenter("p", "d", {}) == "once"
+
+
+def test_presenter_script_unavailable_without_display():
+    presenter = SCRIPTS / "tahuti_approval_presenter.py"
+    env = {k: v for k, v in os.environ.items() if k != "DISPLAY"}
+    run = subprocess.run(
+        [sys.executable, str(presenter)],
+        input=json.dumps({"pattern_key": "p", "description": "d"}),
+        capture_output=True, text=True, env=env, timeout=30)
+    assert run.returncode == 2
+    assert run.stdout.startswith("UNAVAILABLE")
+
+
+# ── per-goal escalation bound: never present twice, never retry ──────
+
+def test_escalation_unavailable_not_retried_within_goal(monkeypatch):
+    calls = []
+
+    def fake_run(pattern, description, extra):
+        calls.append(pattern)
+        return None
+
+    monkeypatch.setattr(runner, "_run_presenter", fake_run)
+    gid = "goal-cache-unavailable"
+    try:
+        assert runner._present_approval("p:a", "x", goal_id=gid) is None
+        # A different pattern in the same goal must NOT present again:
+        # the presenter is unavailable, full stop.
+        assert runner._present_approval("p:b", "y", goal_id=gid) is None
+        assert calls == ["p:a"]
+    finally:
+        runner._escalation_forget(gid)
+    # After the goal ends, a fresh goal may try again.
+    assert runner._present_approval("p:b", "y", goal_id=gid) is None
+    assert calls == ["p:a", "p:b"]
+    runner._escalation_forget(gid)
+
+
+def test_escalation_verdict_cached_per_pattern(monkeypatch):
+    calls = []
+
+    def fake_run(pattern, description, extra):
+        calls.append(pattern)
+        return "deny"
+
+    monkeypatch.setattr(runner, "_run_presenter", fake_run)
+    gid = "goal-cache-verdict"
+    try:
+        assert runner._present_approval("p:a", "x", goal_id=gid) == "deny"
+        assert runner._present_approval("p:a", "x", goal_id=gid) == "deny"
+        assert runner._present_approval("p:b", "y", goal_id=gid) == "deny"
+        assert calls == ["p:a", "p:b"]  # p:a presented once, p:b once
+    finally:
+        runner._escalation_forget(gid)
+
+
+# ── write_file: unavailable fails fast and says so ───────────────────
+
+def test_write_file_tool_unavailable_fails_fast(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "_is_under_home", lambda p: True)
+    monkeypatch.setattr(runner, "APPROVALS_DIR", tmp_path)
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: None)
+    target = tmp_path / "note.txt"
+    t0 = time.monotonic()
+    result = runner._write_file_tool("g-unavail", str(target), "content", "test")
+    # Before the fix this path stacked 150s of subprocess timeout plus
+    # 150s of receipt polling per call.
+    assert time.monotonic() - t0 < 5
+    assert result["ok"] is False
+    assert result["status"] == "unavailable"
+    assert "approval card could not be shown" in result["error"]
+    assert not target.exists()
+    # The request is closed out, not left as a live-looking pending.
+    assert not list(tmp_path.glob("*.pending.json"))
+    resolved = list(tmp_path.glob("*.resolved.json"))
+    assert resolved
+    assert json.loads(resolved[0].read_text())["status"] == "unavailable"
+
+
+# ── deterministic clock ──────────────────────────────────────────────
+
+def test_is_time_question_matches_direct_forms_only():
+    assert runner._is_time_question("What time is it in Indianapolis right now?")
+    assert runner._is_time_question("What's the date today?")
+    assert runner._is_time_question("What day is it?")
+    assert runner._is_time_question("Tell me the time")
+    assert not runner._is_time_question("What time does the store open?")
+    assert not runner._is_time_question("How much time does it take to bake bread?")
+    assert not runner._is_time_question("Check my email")
+
+
+def test_process_time_reports_real_indianapolis_time():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    text = runner._process_time()
+    now = datetime.now(ZoneInfo("America/Indiana/Indianapolis"))
+    assert now.strftime("%A") in text       # correct weekday
+    assert now.strftime("%B") in text       # correct month
+    assert str(now.day) in text             # correct day of month
+    assert str(now.year) in text
+    assert now.strftime("%Z") in text       # EST or EDT, as in force
+    assert "Indianapolis" in text
+
+
+# ── goal level: honest gate label, and the queue moves on ────────────
+
+def test_process_goal_gate_unavailable_honest_then_next_goal_runs(tmp_path, monkeypatch):
+    goals = tmp_path / "goals"
+    done = goals / "done"
+    failed = goals / "failed"
+    for d in (goals, done, failed):
+        d.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(runner, "GOALS_DIR", goals)
+    monkeypatch.setattr(runner, "DONE_DIR", done)
+    monkeypatch.setattr(runner, "FAILED_DIR", failed)
+    monkeypatch.setattr(runner, "APPROVALS_DIR", tmp_path / "approvals")
+    monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_post_speak", lambda text: None)
+    monkeypatch.setattr(runner, "_write_last_response", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_notify", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_write_caption", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "_show_work_avatar", lambda: None)
+
+    g1 = {"id": "gate-goal-1", "transcript": "Delete the scratch file",
+          "type": "task", "time": "t", "source": "test"}
+    p1 = goals / "gate-goal-1.json"
+    p1.write_text(json.dumps(g1), encoding="utf-8")
+    runner._process_goal(p1)
+    rec = json.loads((done / "gate-goal-1.json").read_text(encoding="utf-8"))
+    assert "approval card" in rec["response"]
+    assert "nothing was done" in rec["response"]
+    assert "queued" not in rec["response"].lower()
+
+    # The very next goal is processed normally — no stall, no residue.
+    g2 = {"id": "time-goal-1", "transcript": "What time is it right now?",
+          "type": "task", "time": "t", "source": "test"}
+    p2 = goals / "time-goal-1.json"
+    p2.write_text(json.dumps(g2), encoding="utf-8")
+    runner._process_goal(p2)
+    rec2 = json.loads((done / "time-goal-1.json").read_text(encoding="utf-8"))
+    assert rec2["model"] == "deterministic-time"
+    assert "Indianapolis" in rec2["response"]
