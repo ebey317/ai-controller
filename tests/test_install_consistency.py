@@ -50,6 +50,34 @@ def test_every_listed_service_has_a_template():
     )
 
 
+def test_optional_services_are_guarded_and_missing_tahuti_is_reported():
+    text = (REPO_ROOT / "install.sh").read_text()
+    match = re.search(r"OPTIONAL_SERVICES=\((.*?)\)", text, re.DOTALL)
+    assert match, "install.sh must declare optional services separately"
+    optional = set(re.findall(r"([a-z0-9._-]+\.service)", match.group(1)))
+    assert optional == {
+        "ptt-pynput-headless.service",
+        "voice-bridge-headless.service",
+        "ai-controller-goal-runner.service",
+    }
+    assert '[[ -f "${REPO_DIR}/systemd/${svc}" ]]' in text
+    assert "WARNING: Tahuti goal runner not installed" in text
+
+
+def test_required_templates_are_validated_before_installation():
+    text = (REPO_ROOT / "install.sh").read_text()
+    validation = text.index("ERROR: required systemd template missing")
+    install = text.index('cp "${INSTALL_DIR}/systemd/${svc}"')
+    assert validation < install
+    assert '[[ ! -f "${REPO_DIR}/systemd/${svc}" ]]' in text
+
+
+def test_services_remain_launcher_managed_not_enabled_at_install():
+    text = (REPO_ROOT / "install.sh").read_text()
+    assert 'systemctl --user disable "${svc}"' in text
+    assert 'systemctl --user enable --now "${svc}"' not in text
+
+
 def test_install_sh_installs_from_requirements_txt_not_a_hardcoded_list():
     text = (REPO_ROOT / "install.sh").read_text()
     assert "-r \"${REPO_DIR}/requirements.txt\"" in text or "-r ${REPO_DIR}/requirements.txt" in text, (

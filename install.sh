@@ -23,6 +23,36 @@ SERVICES=(
     gip-audio-watchdog.service
 )
 
+# Optional services are only advertised/installed when their unit templates
+# are present in this checkout. This keeps a partial source tree honest while
+# preserving launcher-only startup for every installed unit.
+OPTIONAL_SERVICES=(
+    ptt-pynput-headless.service
+    voice-bridge-headless.service
+    ai-controller-goal-runner.service
+)
+for svc in "${OPTIONAL_SERVICES[@]}"; do
+    if [[ -f "${REPO_DIR}/systemd/${svc}" ]]; then
+        SERVICES+=("${svc}")
+    else
+        case "${svc}" in
+            ai-controller-goal-runner.service)
+                echo "WARNING: Tahuti goal runner not installed: missing systemd/${svc}; this checkout does not provide the service unit." >&2
+                ;;
+            *)
+                echo "WARNING: optional headless service not installed: missing systemd/${svc}." >&2
+                ;;
+        esac
+    fi
+done
+
+for svc in "${SERVICES[@]}"; do
+    if [[ ! -f "${REPO_DIR}/systemd/${svc}" ]]; then
+        echo "ERROR: required systemd template missing: systemd/${svc}" >&2
+        exit 1
+    fi
+done
+
 echo "======================================"
 echo "  AI Controller Installer"
 echo "======================================"
@@ -237,26 +267,12 @@ chmod 600 "${CONFIG_FILE}"
 echo "→ Installing AntiMicroX profiles..."
 mkdir -p "${ANTIMICROX_PROFILE_DIR}"
 cp "${INSTALL_DIR}/profiles/dont delete .gamecontroller.amgp" "${ANTIMICROX_PROFILE_DIR}/"
-<<<<<<< Updated upstream
 # Replace __AI_CONTROLLER_DIR__ placeholder with the actual install path.
 sed -i "s|__AI_CONTROLLER_DIR__|${INSTALL_DIR}|g" "${ANTIMICROX_PROFILE_DIR}/dont delete .gamecontroller.amgp"
-=======
-
-# ── 8. DOWNLOAD DEFAULT PIPER VOICE ──────────────────────────────────────────
-echo "→ Downloading default Piper voice (Joe)..."
-mkdir -p "${INSTALL_DIR}/voices/joe"
-wget -q --show-progress -O "${INSTALL_DIR}/voices/joe/en_US-joe-medium.onnx" "${PIPER_VOICE_URL}" || true
-wget -q --show-progress -O "${INSTALL_DIR}/voices/joe/en_US-joe-medium.onnx.json" "${PIPER_CONFIG_URL}" || true
-# The repo already ships voices/joe/config.json; ensure it exists in the install.
-if [[ ! -f "${INSTALL_DIR}/voices/joe/config.json" ]]; then
-    cp "${REPO_DIR}/voices/joe/config.json" "${INSTALL_DIR}/voices/joe/config.json"
-fi
->>>>>>> Stashed changes
 
 # ── 8. XONE DRIVER ENFORCEMENT + UDEV RULES ───────────────────────────────────
 # The in-kernel xpad driver steals Xbox Series X/S controllers from xone and
 # breaks both headset audio and input events. We hard-block xpad and install a
-<<<<<<< Updated upstream
 # boot-time guard. This modifies /etc/modprobe.d and rebuilds the initramfs,
 # so we ask for consent first.
 #
@@ -283,26 +299,15 @@ if [[ "$xone_consent" =~ ^[Yy]$ ]]; then
     DISPLAY="${DISPLAY:-:0}" pkexec bash -c "
         cp '${REPO_DIR}/config/xone-blacklist.conf' /etc/modprobe.d/xone-blacklist.conf &&
         ${INITRAMFS_CMD} &&
-=======
-# boot-time guard that corrects the driver state before the user services start.
-if [[ "$PLATFORM" == "linux" ]] || [[ "$PLATFORM" == "windows" ]]; then
-    echo "→ Enforcing xone-only Xbox controller driver (graphical password prompt)..."
-    DISPLAY="${DISPLAY:-:0}" pkexec bash -c "
-        cp '${REPO_DIR}/config/xone-blacklist.conf' /etc/modprobe.d/xone-blacklist.conf &&
-        update-initramfs -u -k all &&
->>>>>>> Stashed changes
         install -m 755 '${INSTALL_DIR}/scripts/xone-driver-guard.sh' /usr/local/bin/xone-driver-guard.sh &&
         cp '${REPO_DIR}/systemd/xone-driver-guard.service' /etc/systemd/system/xone-driver-guard.service &&
         systemctl daemon-reload &&
         systemctl enable --now xone-driver-guard.service
     " || echo "WARNING: xone driver enforcement step failed — controller/headset may still use xpad" >&2
-<<<<<<< Updated upstream
 else
     echo "→ Skipped xone driver enforcement. You can install it later with:"
     echo "  sudo cp '${REPO_DIR}/config/xone-blacklist.conf' /etc/modprobe.d/xone-blacklist.conf"
     echo "  sudo ${INITRAMFS_CMD}"
-=======
->>>>>>> Stashed changes
 fi
 
 # ── 8b. UDEV RULE + DEVICE ACCESS ─────────────────────────────────────────────
@@ -325,18 +330,13 @@ for svc in "${SERVICES[@]}"; do
 done
 
 systemctl --user daemon-reload
-<<<<<<< Updated upstream
 # Services are DISABLED after install so they start/stop ONLY from the AI
 # Controller desktop launcher.  The launcher app has a "Start on boot"
 # checkbox (it writes a .desktop autostart entry for the launcher itself),
 # which is the ONLY sanctioned auto-start path.  Enabling the individual
 # services directly would bypass the launcher and is not supported.
-=======
-# Services are enabled (not launcher-controlled) so a reboot/logout doesn't
-# silently kill the rig with no auto-recovery — see the 2026-07-12 fix note.
->>>>>>> Stashed changes
 for svc in "${SERVICES[@]}"; do
-    systemctl --user enable --now "${svc}" 2>/dev/null || true
+    systemctl --user disable "${svc}" 2>/dev/null || true
 done
 
 # ── 11. INSTALL DESKTOP LAUNCHER (launcher app controls services) ──
