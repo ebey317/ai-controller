@@ -15,6 +15,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import controller_setup as cs  # noqa: E402
+
+pytest.importorskip("gi")
 import setup_panel as sp  # noqa: E402
 
 # ── registry-driven health gathering ───────────────────────────────────
