@@ -32,7 +32,7 @@ class _FakeClient:
     def __exit__(self, *args):
         return False
 
-    def post(self, url: str, **kwargs) -> "_FakeResponse":
+    def post(self, url: str, **kwargs):
         self.calls.append((url, kwargs))
         if not self.responses:
             raise RuntimeError("no more fake responses")
@@ -283,7 +283,6 @@ def test_call_model_executes_read_file_tool_and_follows_up(monkeypatch):
     )
     monkeypatch.setattr(runner.httpx, "Client", lambda **kwargs: fake)
     monkeypatch.setattr(runner, "_is_under_home", lambda p: True)
-    note_path = Path("/home/elijah/note.txt")
     monkeypatch.setattr(
         runner,
         "_read_file_tool",
@@ -651,10 +650,9 @@ if __name__ == "__main__":
 # the time of day.
 # ──────────────────────────────────────────────────────────────────────
 
-import os
-import subprocess
-import time
-
+import os  # noqa: E402
+import subprocess  # noqa: E402
+import time  # noqa: E402
 
 # ── open_url / open_app are gated like every desktop action ──────────
 

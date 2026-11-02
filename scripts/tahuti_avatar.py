@@ -31,7 +31,7 @@ try:
     import gi
     gi.require_version("Gtk", "3.0")
     gi.require_version("Gdk", "3.0")
-    from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+    from gi.repository import GdkPixbuf, GLib, Gtk
     GTK_AVAILABLE = True
 except Exception:  # pragma: no cover - import-safe on non-desktop CI
     GTK_AVAILABLE = False
@@ -180,25 +180,32 @@ if GTK_AVAILABLE:
             # Query state — the six trust fields plus the decision grid.
             query = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             heading = Gtk.Label(label="TAHUTI  /  APPROVAL REQUEST")
-            heading.set_name("heading"); heading.set_xalign(0)
+            heading.set_name("heading")
+            heading.set_xalign(0)
             query.pack_start(heading, False, False, 0)
             subtitle = Gtk.Label(label="Your decision controls the next action")
-            subtitle.set_name("subhead"); subtitle.set_xalign(0)
+            subtitle.set_name("subhead")
+            subtitle.set_xalign(0)
             query.pack_start(subtitle, False, False, 0)
             self._fields: dict[str, Any] = {}
             for key, title in (("who", "WHO"), ("what", "WHAT"), ("where", "WHERE"),
                                ("when", "WHEN"), ("why", "WHY"), ("how", "HOW")):
                 row = Gtk.Box(spacing=8)
                 k = Gtk.Label(label=title)
-                k.set_name("subhead"); k.set_width_chars(7); k.set_xalign(0)
+                k.set_name("subhead")
+                k.set_width_chars(7)
+                k.set_xalign(0)
                 v = Gtk.Label(label="")
-                v.set_name("value"); v.set_xalign(0); v.set_line_wrap(True)
+                v.set_name("value")
+                v.set_xalign(0)
+                v.set_line_wrap(True)
                 row.pack_start(k, False, False, 0)
                 row.pack_start(v, True, True, 0)
                 query.pack_start(row, False, False, 0)
                 self._fields[key] = v
             self._effect = Gtk.Label(label="")
-            self._effect.set_name("effect"); self._effect.set_xalign(0)
+            self._effect.set_name("effect")
+            self._effect.set_xalign(0)
             self._effect.set_line_wrap(True)
             query.pack_start(self._effect, False, False, 4)
             grid = Gtk.Grid(column_spacing=8, row_spacing=8)
@@ -219,12 +226,14 @@ if GTK_AVAILABLE:
             # Edit state — in-box, same window. Edit never runs the action.
             edit = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             edit_title = Gtk.Label(label="Edit does not run the action.")
-            edit_title.set_name("heading"); edit_title.set_xalign(0)
+            edit_title.set_name("heading")
+            edit_title.set_xalign(0)
             edit.pack_start(edit_title, False, False, 0)
             edit_body = Gtk.Label(
                 label="Change the requested task at its source, then Tahuti "
                       "will present the revised request.")
-            edit_body.set_name("value"); edit_body.set_xalign(0)
+            edit_body.set_name("value")
+            edit_body.set_xalign(0)
             edit_body.set_line_wrap(True)
             edit.pack_start(edit_body, False, False, 0)
             back = Gtk.Button(label="Back to request")

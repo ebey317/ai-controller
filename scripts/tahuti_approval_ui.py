@@ -3,8 +3,8 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 QUEUE = Path.home() / '.tahuti' / 'approvals'
 GRANTS = QUEUE / 'ui-grants.json'
@@ -55,9 +55,10 @@ def execute(record):
 
 def main():
     import fcntl
+
     import gi
     gi.require_version('Gtk', '3.0')
-    from gi.repository import Gtk, GLib, Gdk
+    from gi.repository import Gdk, GLib, Gtk
     QUEUE.mkdir(parents=True, exist_ok=True)
     lock = (QUEUE / 'ui-worker.lock').open('w')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

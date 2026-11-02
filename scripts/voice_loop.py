@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tahuti voice loop v1 -- the real-time conversation cycle.
+r"""Tahuti voice loop v1 -- the real-time conversation cycle.
 
 The loop is the missing mechanics between a push-to-talk press and a
 reply that feels spoken rather than read aloud:
@@ -200,7 +200,6 @@ def edge_voice_names(python=None, runner=subprocess.run,
 def _apply_profile_fx(mp3_path, wav_path, profile) -> str:
     """Decode an Edge MP3 and run the shared voice_fx chain."""
     import soundfile as sf
-
     import voice_fx
 
     samples, sample_rate = sf.read(

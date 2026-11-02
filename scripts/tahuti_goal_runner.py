@@ -20,13 +20,13 @@ import json
 import logging
 import logging.handlers
 import os
+import queue
 import re
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
-import queue
 import threading
 import time
 import urllib.error
@@ -44,8 +44,8 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 import ai_controller_paths
-from ptt_notify import notify_hermex as notify_hermex_bg
 import voice_goal_schema as vgs  # noqa: E402
+from ptt_notify import notify_hermex as notify_hermex_bg
 
 LOG_DIR = Path(ai_controller_paths.ai_controller_dir()) / "logs"
 LOG_FILE = LOG_DIR / "tahuti-goal-runner.log"

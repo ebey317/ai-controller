@@ -40,8 +40,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
-import voice_profiles as vp  # noqa: E402
 import voice_knobs as vk  # noqa: E402
+import voice_profiles as vp  # noqa: E402
 
 ORANGE = (1.0, 0.416, 0.0)       # #FF6A00 -- the keyboard's accent
 FACE = (0.137, 0.137, 0.169)     # #23232b
