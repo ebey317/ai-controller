@@ -63,24 +63,6 @@ def test_transcribe_only_with_text():
     assert r.json()["text"] == "hello world"
 
 
-def test_execute_mode_calls_groq():
-    _set_mock_response(_FakeResponse(200, {
-        "choices": [{"message": {"content": "Hi there."}}]
-    }))
-    r = client.post("/voice", data={"text": "say hi", "mode": "execute"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["transcript"] == "say hi"
-    assert body["response"] == "Hi there."
-
-
-def test_execute_mode_groq_error():
-    _set_mock_response(_FakeResponse(500, {}))
-    r = client.post("/voice", data={"text": "say hi", "mode": "execute"})
-    assert r.status_code == 502
-    assert "Groq LLM HTTP 500" in r.json()["error"]
-
-
 def test_stt_mode_with_audio():
     _set_mock_response(_FakeResponse(200, {"text": " dictated words "}))
     # Fake WAV payload large enough to pass the 2000-byte check.
@@ -130,25 +112,32 @@ def test_task_verb_routes_to_goal(tmp_path):
     assert "time" in payload
 
 
-def test_chat_path_still_calls_llm():
-    _set_mock_response(_FakeResponse(200, {
-        "choices": [{"message": {"content": "The sky is blue."}}]
-    }))
+def test_chat_shaped_transcript_also_routes_to_goal(tmp_path):
+    """No more fork (2026-11-01): a plain conversational question gets the
+    same goal-file path as a task verb, not a separate inline LLM call --
+    see voice_bridge.py's "Everything is a Tahuti goal now" comment. This
+    replaces test_chat_path_still_calls_llm / test_execute_mode_calls_groq
+    / test_execute_mode_groq_error, which asserted the OLD inline-answer
+    behavior that was deliberately removed; that code path no longer
+    exists, so there is nothing left for a Groq-chat-call test to exercise."""
+    vb.GOALS_DIR = tmp_path / "goals"
     r = client.post("/voice", data={"text": "what color is the sky", "mode": "execute"})
     assert r.status_code == 200
     body = r.json()
     assert body["transcript"] == "what color is the sky"
-    assert body["response"] == "The sky is blue."
-    assert body.get("routed") is None
+    assert body["response"] == "On it"
+    assert body["routed"] == "task"
+    goals = list((tmp_path / "goals").glob("*.json"))
+    assert len(goals) == 1
+    payload = json.loads(goals[0].read_text())
+    assert payload["transcript"] == "what color is the sky"
 
 
 if __name__ == "__main__":
     test_transcribe_only_with_text()
-    test_execute_mode_calls_groq()
-    test_execute_mode_groq_error()
     test_stt_mode_with_audio()
     test_stt_groq_error()
     test_empty_transcript_returns_400()
     test_task_verb_routes_to_goal(Path(tempfile.mkdtemp()))
-    test_chat_path_still_calls_llm()
+    test_chat_shaped_transcript_also_routes_to_goal(Path(tempfile.mkdtemp()))
     print("ok")
