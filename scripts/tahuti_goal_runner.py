@@ -1845,8 +1845,12 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
                     break
 
                 outputs = []
+                approval_granted = False
                 for call in function_calls:
                     result = _execute_file_tool(goal_id, call, allowed_tool_names)
+                    if (call.get("name") == "request_approval"
+                            and result.get("ok") is True):
+                        approval_granted = True
                     outputs.append(
                         {
                             "type": "function_call_output",
@@ -1854,6 +1858,38 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
                             "output": json.dumps(result),
                         }
                     )
+
+                # Approval escalation (2026-11-01): the operator's 'yes' must
+                # unlock REAL work, not just permission. The thin fast lanes
+                # strip list_dir/read_file, so an approved "look in my skills"
+                # dead-ended in "approved — but I don't have a file-listing
+                # tool this turn" (observed live in the operator's own thread,
+                # twice). An approved request_approval now re-arms the
+                # continuation with the FULL safe toolset and a fresh round
+                # budget, and tells the model to do the work and SHOW it:
+                # where it looked, what it found, what it did. No new powers
+                # are granted -- shell/installs/deletes still have no
+                # executor on any route; escalation only restores the tools
+                # the safe routes already have.
+                if approval_granted:
+                    tools = _all_tools(transcript)
+                    round_num = 0
+                    logger.info(
+                        "approval escalation: full safe toolset re-armed "
+                        "for goal %s", goal_id)
+                    outputs.append({
+                        "role": "user",
+                        "content": (
+                            "The operator APPROVED this request. Your tool "
+                            "set has been re-armed with the full safe toolset "
+                            "for this request (read_file, list_dir, write_file, "
+                            "open_url/open_app, web_search where offered) and "
+                            "your search budget is reset. Do the work NOW, "
+                            "then show your work: report exactly where you "
+                            "looked, what you found, and what you did. If "
+                            "you still cannot complete it with these tools, "
+                            "say that plainly with the real reason."),
+                    })
 
                 # Past MAX_TOOL_ROUNDS, stop offering tools -- forces the
                 # model to write a real text answer from what it already

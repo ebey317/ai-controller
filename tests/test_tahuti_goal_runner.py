@@ -562,5 +562,75 @@ def test_fast_chat_lane_offers_request_approval(monkeypatch):
     assert "request_approval" in names
 
 
+def test_approved_request_approval_escalates_to_full_tools(
+        monkeypatch, tmp_path):
+    """The operator's 'yes' must re-arm the model with the real toolset:
+    permission without capability was approval theater (observed live —
+    'approved but I don't have a file-listing tool this turn')."""
+    monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
+    monkeypatch.setattr(
+        runner, "_list_dir_tool",
+        lambda path, show_hidden=False: {
+            "ok": True,
+            "entries": [{"name": "mcp_skill", "type": "dir"}],
+        })
+    fake = _FakeClient(
+        [
+            _function_call_response(
+                [("request_approval",
+                  {"action": "search my skills", "reason": "needs file access"})],
+                "r1"),
+            _function_call_response(
+                [("list_dir", {"path": "/home/elijah/skills"})], "r2"),
+            _text_response("I searched skills and found mcp_skill.", "r3"),
+        ]
+    )
+    monkeypatch.setattr(runner.httpx, "Client", lambda **kwargs: fake)
+
+    text, _m, _e, _s, route = runner._call_model("hi", goal_id="g1")
+
+    assert route == "fast-chat"
+    assert text == "I searched skills and found mcp_skill."
+    second = fake.calls[1][1]["json"]
+    names = {t.get("name") for t in second["tools"]}
+    assert "read_file" in names and "list_dir" in names
+    # the show-your-work nudge rides along with the approval result
+    nudges = [o for o in second["input"] if o.get("role") == "user"]
+    assert nudges and "APPROVED" in nudges[-1]["content"]
+    # the escalated list_dir call actually executed (round budget reset)
+    third = fake.calls[2][1]["json"]
+    out = json.loads(third["input"][0]["output"])
+    assert out["ok"] is True
+    assert out["entries"][0]["name"] == "mcp_skill"
+
+
+def test_denied_request_approval_does_not_escalate(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "deny")
+    fake = _FakeClient(
+        [
+            _function_call_response(
+                [("request_approval",
+                  {"action": "delete notes.txt", "reason": "irreversible"})],
+                "r1"),
+            _text_response("The operator denied it.", "r2"),
+        ]
+    )
+    monkeypatch.setattr(runner.httpx, "Client", lambda **kwargs: fake)
+
+    text, _m, _e, _s, route = runner._call_model("hi", goal_id="g2")
+
+    assert text == "The operator denied it."
+    second = fake.calls[1][1]["json"]
+    names = {t.get("name") for t in second["tools"]}
+    # deny must NOT hand over the file tools the thin lane never had
+    assert "read_file" not in names
+    assert "list_dir" not in names
+    # and no approval nudge was injected
+    nudges = [o for o in second["input"] if o.get("role") == "user"]
+    assert not nudges
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
