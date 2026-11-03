@@ -204,26 +204,44 @@ def test_open_wizard_in_terminal_returns_message_when_no_terminal(monkeypatch):
 # ── slide-keyboard wiring ─────────────────────────────────────────────
 
 def test_slide_keyboard_launcher_keeps_keyboard_source_separate():
-    """The themed keyboard launches a separate page, not an imported overlay."""
+    """The themed keyboard launches the setup wizard as a separate process,
+    not an imported overlay (SETUP now opens controller_setup.py in a
+    terminal -- see commit c516a41 -- rather than the GTK panel directly)."""
     import slide_keyboard as sk
 
     source = open(sk.__file__, encoding="utf-8").read()
-    assert '"setup_panel.py"' in source
+    assert '"controller_setup.py"' in source
     assert "subprocess.Popen" in source
     assert "import setup_panel" not in source
 
 
 def test_slide_keyboard_setup_method_launches_page_process(monkeypatch):
-    """SETUP starts the standalone settings page without mutating the keyboard."""
+    """SETUP opens the terminal wizard when a terminal emulator is available."""
     import slide_keyboard as sk
 
     launches = []
+    monkeypatch.setattr(sk.shutil, "which", lambda name: "/usr/bin/gnome-terminal" if name == "gnome-terminal" else None)
+    monkeypatch.setattr(sk.subprocess, "Popen", lambda args: launches.append(args))
+
+    sk.SlideKeyboard._on_setup(object(), None)
+    assert len(launches) == 1
+    assert launches[0][0] == "gnome-terminal"
+    assert any("controller_setup.py" in arg for arg in launches[0])
+
+
+def test_slide_keyboard_setup_method_falls_back_without_terminal(monkeypatch):
+    """SETUP falls back to a direct (non-interactive) launch when no
+    terminal emulator is found, instead of silently doing nothing."""
+    import slide_keyboard as sk
+
+    launches = []
+    monkeypatch.setattr(sk.shutil, "which", lambda name: None)
     monkeypatch.setattr(sk.subprocess, "Popen", lambda args: launches.append(args))
 
     sk.SlideKeyboard._on_setup(object(), None)
     assert len(launches) == 1
     assert launches[0][0] == sk.sys.executable
-    assert launches[0][1].endswith("scripts/setup_panel.py")
+    assert launches[0][1].endswith("scripts/controller_setup.py")
 
 
 def test_unbacked_setup_controls_are_read_only(monkeypatch, tmp_path):
