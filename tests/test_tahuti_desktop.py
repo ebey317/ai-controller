@@ -68,6 +68,16 @@ class _AvatarModule:
     def get_avatar_settings(self, _profiles):
         return self._settings
 
+    TIMEOUT_SECONDS = 120
+
+    @staticmethod
+    def card_details(pattern_key, description, extra):
+        return {
+            "who": "Tahuti — your AI Controller", "what": description,
+            "where": "Your active Linux desktop", "when": "Immediately after you choose Yes",
+            "why": "test", "how": "test", "effect": "test", "pattern_key": pattern_key,
+        }
+
     @staticmethod
     def prompt(pattern_key, description, **extra):
         return "once"
@@ -86,9 +96,19 @@ def gate(monkeypatch):
 
 
 def test_native_callback_installs_on_existing_gate(monkeypatch):
+    """Falls back to the standalone box when the real floating avatar
+    (ninja.avatar_approval, a separate repo) isn't available -- which is
+    always true in CI, and is forced here via the _ask_ninja_avatar seam
+    so this test never reaches real GTK code even on a dev box where
+    ~/master-ai-cli genuinely exists (found live 2026-11-02: without this
+    mock the test opened a real window and hung waiting for a click)."""
     gate = _FakeGate()
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.setattr(desktop, "_import_from_path", lambda *_: _AvatarModule())
+    monkeypatch.setattr(
+        desktop, "_ask_ninja_avatar",
+        lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("ninja not available in tests")),
+    )
     desktop._install_tahuti_callback(gate)
     assert gate.callback("cua:type:foreground", "Type 1 character", action="type") == "once"
 

@@ -92,11 +92,26 @@ def main() -> int:
         overlay = None
 
     if overlay is not None:
-        from ninja.avatar_approval import ask_avatar_approval
+        # Call present_approval() directly, not ask_avatar_approval()'s
+        # wrapper -- that wrapper hardcodes timeout=None for agent=="tahuti"
+        # ("wait forever"), silently discarding the timeout_seconds this
+        # request asked for. Found live 2026-11-02: a timeout_seconds=2
+        # request hung indefinitely instead of denying after 2s.
+        from ninja.card_box import render_card_text
+        from ninja.state_machine import ThootieState
 
         card = av.card_details(pattern_key, description, extra)
+        overlay.set_agent("tahuti")
+        overlay.set_card_text(render_card_text(card))
+        overlay.machine.set_state(
+            ThootieState.APPROVAL_INCOMING,
+            overlay.machine.payload if overlay.machine.payload else None,
+        )
+        if not overlay._win.get_visible():
+            overlay.show()
         print("READY", flush=True)
-        verdict = ask_avatar_approval(card, agent="tahuti", timeout=av.TIMEOUT_SECONDS)
+        verdict = overlay.present_approval(timeout=av.TIMEOUT_SECONDS)
+        overlay.park_idle()
         print(verdict, flush=True)
         return 0
 

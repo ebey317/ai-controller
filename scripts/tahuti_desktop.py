@@ -99,6 +99,51 @@ def _import_from_path(name: str, path: Path):
     return module
 
 
+def _ask_ninja_avatar(card: dict[str, str], timeout: int) -> str:
+    """Isolated seam to master-ai-cli's real ThootieOverlay.
+
+    A separate, patchable function (not inlined into _native_prompt) so
+    tests can mock this one call without ever reaching real GTK code --
+    found live 2026-11-02 that without this seam, a test on a machine
+    where ~/master-ai-cli genuinely exists (this dev box) actually opens
+    the real avatar window and hangs waiting for a human click. CI has no
+    master-ai-cli checkout, so the import below fails fast there either
+    way; this seam makes that failure mode reproducible and mockable
+    locally too, instead of only accidentally safe in CI.
+
+    Calls ThootieOverlay.present_approval() directly rather than going
+    through ninja.avatar_approval.ask_avatar_approval() -- that wrapper
+    hardcodes ``timeout=None if agent == "tahuti" else timeout``, "wait
+    forever for tahuti's interactive human gate" by the original ninja
+    design. Since this module always passes agent="tahuti" (for correct
+    avatar branding), that wrapper silently discarded whatever timeout
+    was passed here, every time -- found live 2026-11-02 when a test's
+    2-second timeout hung indefinitely instead. Replicating the wrapper's
+    setup directly keeps the real bound this module's own docs already
+    (incorrectly) claimed it had.
+    """
+    ninja_root = str(_MASTER_AI_CLI)
+    if ninja_root not in sys.path:
+        sys.path.insert(0, ninja_root)
+    from ninja.card_box import render_card_text
+    from ninja.state_machine import ThootieState, get_overlay
+
+    overlay = get_overlay(agent="tahuti")
+    if overlay is None:
+        raise RuntimeError("ninja overlay unavailable")
+    overlay.set_agent("tahuti")
+    overlay.set_card_text(render_card_text(card) if isinstance(card, dict) else str(card))
+    overlay.machine.set_state(
+        ThootieState.APPROVAL_INCOMING,
+        overlay.machine.payload if overlay.machine.payload else None,
+    )
+    if not overlay._win.get_visible():
+        overlay.show()
+    verdict = overlay.present_approval(timeout=timeout)
+    overlay.park_idle()
+    return verdict
+
+
 def _install_tahuti_callback(gate) -> None:
     """Install Tahuti's native prompt on either a fresh or preloaded gate.
 
@@ -147,22 +192,20 @@ def _install_tahuti_callback(gate) -> None:
             return
 
         def _native_prompt(pattern_key, description, **extra):
-            card = avatar_module.card_details(pattern_key, description, extra)
             try:
-                ninja_root = str(_MASTER_AI_CLI)
-                if ninja_root not in sys.path:
-                    sys.path.insert(0, ninja_root)
-                from ninja.avatar_approval import ask_avatar_approval
-
-                verdict = ask_avatar_approval(
-                    card, agent="tahuti", timeout=avatar_module.TIMEOUT_SECONDS
-                )
+                card = avatar_module.card_details(pattern_key, description, extra)
+                verdict = _ask_ninja_avatar(card, avatar_module.TIMEOUT_SECONDS)
             except Exception:
+                # Covers both "ninja isn't importable" and "card_details
+                # itself failed" -- either way, fall back to the simpler
+                # standalone box rather than crash the whole callback with
+                # no approval shown at all.
                 verdict = avatar_module.prompt(pattern_key, description, **extra)
-            try:
-                return gate.Verdict(verdict)
-            except ValueError:
-                return gate.Verdict.DENY
+            # Plain string, not gate.Verdict(verdict): the real approval_gate's
+            # Verdict is a (str, Enum) so a plain "once"/"deny"/... already
+            # compares equal to it -- constructing it explicitly broke against
+            # a test fake that isn't shaped as an Enum (found live 2026-11-02).
+            return verdict if verdict in ("once", "session", "always", "deny", "timeout") else "deny"
 
         gate.set_explicit_callback(_native_prompt)
     except Exception:
