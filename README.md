@@ -85,6 +85,29 @@ python3 scripts/ai-controller-launcher.py
 
 ![Controller layout reference](reference-controller-layout.png)
 
+## Voice & Avatar Setup (First Run)
+
+The installer offers an interactive **first-run setup** to choose your avatar and tune voices:
+
+- **Avatar roster**: Tahuti (default), Seba, Kunoichi, Ogun — each has a portrait and its own voice profile
+- **Voice engines**: Kokoro (local, fast), Piper (local, many voices), Edge TTS (cloud, neural voices)
+- **Per-avatar tuning**: rate, pitch, gain, bass/treble, expression (Piper)
+
+You can run setup anytime:
+```bash
+# From the install directory
+python3 scripts/controller_setup.py
+
+# Or click SETUP on the floating keyboard (View button on controller)
+```
+
+The setup wizard lets you:
+1. **Tune an avatar voice** — pick Tahuti, Seba, Kunoichi, Ogun, or add your own
+2. **Tune the keyboard voice** — the voice pack for the on-screen keyboard (Aria, Joe, etc.)
+3. **Avatar setup** — choose active avatar, size, movement, when it appears, approval box
+4. **Run doctor** — health checks for all components
+5. **Voice board** — graphical knob panel for fine-tuning
+
 ---
 
 ## See it in action
