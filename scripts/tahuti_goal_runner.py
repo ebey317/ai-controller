@@ -2694,7 +2694,12 @@ def main() -> int:
                     list(pool.map(_process_goal, goals))
             except Exception as exc:
                 logger.exception("Runner loop error: %s", exc)
-        _sleep_or_stop(POLL_INTERVAL)
+            # Poll throttle belongs INSIDE the loop. At the old indent this
+            # line sat after the `while`, so a live runner never slept: it
+            # re-globbed the goals dir in a tight spin (observed 2026-11-02:
+            # 4h09m of CPU in 4h12m of uptime) and the interval was dead code
+            # that only ran after _running went false.
+            _sleep_or_stop(POLL_INTERVAL)
 
     logger.info("Tahuti goal runner exiting")
     return 0
