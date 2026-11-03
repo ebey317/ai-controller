@@ -64,6 +64,7 @@ import base64
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -116,6 +117,23 @@ def _install_tahuti_callback(gate) -> None:
     branch, which already does the right thing per call (deny by default,
     permissive only where a caller explicitly asked for it) -- found and
     fixed 2026-11-01 while auditing the new setup_panel.py toggles.
+
+    Prompt surface (2026-11-02): prefers master-ai-cli's real ThootieOverlay
+    -- the operator's actual floating avatar, where the approval card
+    spawns FROM the avatar in the same window ("the Tahuti run card") --
+    called IN-PROCESS via ninja.avatar_approval.ask_avatar_approval(). This
+    is NOT the subprocess.Popen(["/usr/bin/python3", avatar_approval.py,
+    "--ask"]).communicate() pattern retired 2026-11-01 for hanging 150s per
+    approval: verified live that the hang was in the subprocess call itself
+    (lifecycle/pipe overhead), not the overlay -- an in-process import of
+    the exact same ThootieOverlay resolves in seconds. Falls back to this
+    repo's own standalone tahuti_avatar.py box (visually separate from the
+    floating avatar, but with no master-ai-cli dependency) if master-ai-cli
+    or its ninja package isn't importable, so this module still works
+    standalone. Bounded at TIMEOUT_SECONDS (not the old ninja code's
+    timeout=None "wait forever for tahuti") to match this module's own
+    fail-closed-on-timeout design -- an unbounded wait already proved it
+    can stall automated/unattended runs (2026-11-02 battery test).
     """
     if not os.environ.get("DISPLAY"):
         return
@@ -129,7 +147,22 @@ def _install_tahuti_callback(gate) -> None:
             return
 
         def _native_prompt(pattern_key, description, **extra):
-            return avatar_module.prompt(pattern_key, description, **extra)
+            card = avatar_module.card_details(pattern_key, description, extra)
+            try:
+                ninja_root = str(_MASTER_AI_CLI)
+                if ninja_root not in sys.path:
+                    sys.path.insert(0, ninja_root)
+                from ninja.avatar_approval import ask_avatar_approval
+
+                verdict = ask_avatar_approval(
+                    card, agent="tahuti", timeout=avatar_module.TIMEOUT_SECONDS
+                )
+            except Exception:
+                verdict = avatar_module.prompt(pattern_key, description, **extra)
+            try:
+                return gate.Verdict(verdict)
+            except ValueError:
+                return gate.Verdict.DENY
 
         gate.set_explicit_callback(_native_prompt)
     except Exception:

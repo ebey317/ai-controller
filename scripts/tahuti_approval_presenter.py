@@ -2,13 +2,22 @@
 """One-box approval presenter for the Tahuti goal runner.
 
 The goal runner is a headless daemon: it cannot own a GTK window. When a
-goal escalates, the runner spawns THIS script — a thin transport around
-``tahuti_avatar.prompt()``, the same in-process call the desktop gate's
-callback makes (see tahuti_desktop._install_tahuti_callback). The card
-that appears is Tahuti's one box from THIS repository. Until 2026-11-02
-the runner instead shelled out to master-ai-cli's ninja overlay
-(~/master-ai-cli/ninja/avatar_approval.py), a foreign product's surface
-whose waits timed out at 150s and whose verdicts never arrived.
+goal escalates, the runner spawns THIS script — a thin transport that
+prefers master-ai-cli's real ThootieOverlay (the operator's actual
+floating avatar; the card spawns FROM the avatar, same window -- "the
+Tahuti run card"), called IN-PROCESS via
+``ninja.avatar_approval.ask_avatar_approval()``, the same in-process call
+tahuti_desktop._install_tahuti_callback makes for the cua_* desktop gate.
+Falls back to this repo's own standalone ``tahuti_avatar.prompt()`` box if
+master-ai-cli/ninja isn't importable here.
+
+Until 2026-11-02 the runner shelled out to that same ninja overlay via
+``subprocess.Popen(...).communicate()``, which hung 150s per approval and
+whose verdicts never arrived -- that was first "fixed" by dropping the
+real floating avatar entirely for the standalone box below. Re-verified
+live 2026-11-02: the hang was the subprocess call itself (lifecycle/pipe
+overhead), not the overlay -- an in-process import resolves in seconds,
+so the real floating avatar is back as the preferred surface.
 
 Wire protocol (stdout, line-oriented):
   stdin:  one JSON object {"pattern_key": str, "description": str,
@@ -70,6 +79,26 @@ def main() -> int:
     timeout = request.get("timeout_seconds")
     if isinstance(timeout, (int, float)) and timeout > 0:
         av.TIMEOUT_SECONDS = int(timeout)
+
+    overlay = None
+    try:
+        ninja_root = os.path.expanduser("~/master-ai-cli")
+        if ninja_root not in sys.path:
+            sys.path.insert(0, ninja_root)
+        from ninja.state_machine import get_overlay
+
+        overlay = get_overlay(agent="tahuti")
+    except Exception:
+        overlay = None
+
+    if overlay is not None:
+        from ninja.avatar_approval import ask_avatar_approval
+
+        card = av.card_details(pattern_key, description, extra)
+        print("READY", flush=True)
+        verdict = ask_avatar_approval(card, agent="tahuti", timeout=av.TIMEOUT_SECONDS)
+        print(verdict, flush=True)
+        return 0
 
     try:
         # Create the box now, hidden: if the display cannot actually be
