@@ -186,15 +186,15 @@ if command -v rsync &>/dev/null; then
         --exclude='scripts/push-to-talk.sh' \
         "${REPO_DIR}/" "${INSTALL_DIR}/"
 else
-    rm -rf "${INSTALL_DIR:?}/"{scripts,profiles,systemd,docs,voices,README.md,install.sh}
+    rm -rf "${INSTALL_DIR:?}/"{scripts,profiles,systemd,docs,voices,assets,README.md,install.sh}
     cp -r "${REPO_DIR}/scripts" "${INSTALL_DIR}/"
     cp -r "${REPO_DIR}/profiles" "${INSTALL_DIR}/"
     cp -r "${REPO_DIR}/systemd" "${INSTALL_DIR}/"
     cp -r "${REPO_DIR}/docs" "${INSTALL_DIR}/" 2>/dev/null || true
-    # 2026-09-09: voices/ was in the rm -rf set above but never recopied
-    # here (only the rsync branch restored it) -- every Piper voice model
-    # was silently absent on any install where rsync isn't on PATH.
     cp -r "${REPO_DIR}/voices" "${INSTALL_DIR}/" 2>/dev/null || true
+    # 2026-11-02: assets/ (avatar portraits) must be copied so the avatar
+    # picker in setup can find tahuti, seba, kunoichi, ogun portraits.
+    cp -r "${REPO_DIR}/assets" "${INSTALL_DIR}/" 2>/dev/null || true
     cp "${REPO_DIR}/README.md" "${INSTALL_DIR}/" 2>/dev/null || true
 fi
 
@@ -265,6 +265,31 @@ GROQ_API_KEY=${GROQ_KEY}
 # AUDIO_OUTPUT=alsa_output.usb-Microsoft_Controller_....stereo-fallback
 EOF
 chmod 600 "${CONFIG_FILE}"
+
+# ── 6b. FIRST-RUN VOICE & AVATAR SETUP ────────────────────────────────────────
+# Offer the user a chance to pick their avatar and tune voices before first use.
+# This runs the setup wizard in a focused "first-run" mode.
+echo ""
+echo "── First-Run Voice & Avatar Setup ──"
+echo "AI Controller includes a roster of avatar portraits (Tahuti, Seba, Kunoichi,"
+echo "Ogun) and lets you tune the voice for each. The default is Tahuti (Kokoro"
+echo "engine, am_onyx voice). You can change this now or later via the SETUP"
+echo "button on the floating keyboard."
+echo ""
+read -rp "Run first-run avatar & voice setup now? [Y/n] " first_run_setup
+if [[ ! "$first_run_setup" =~ ^[Nn]$ ]]; then
+    echo "→ Launching setup wizard..."
+    # Set up environment so the wizard finds the installed files
+    export AI_CONTROLLER_DIR="${INSTALL_DIR}"
+    export AI_CONTROLLER_VOICE_PROFILES="${CONFIG_DIR}/voice-profiles.json"
+    export AI_CONTROLLER_AVATARS_DIR="${INSTALL_DIR}/assets/avatars"
+    # Run the wizard interactively - user navigates menus themselves
+    "${INSTALL_DIR}/.venv/bin/python3" "${INSTALL_DIR}/scripts/controller_setup.py"
+else
+    echo "→ Skipped. Run setup anytime with:"
+    echo "  ${INSTALL_DIR}/.venv/bin/python3 ${INSTALL_DIR}/scripts/controller_setup.py"
+    echo "  Or click SETUP on the floating keyboard (View button on controller)."
+fi
 
 # ── 7. INSTALL ANTIDOTE PROFILES ─────────────────────────────────────────────
 # NOTE: the layout consolidated to a single general-purpose profile — every
@@ -377,5 +402,24 @@ echo ""
 echo "Check status with:"
 echo "  systemctl --user status ${SERVICES[*]}"
 echo ""
-echo "The AI Controller launcher is in your applications menu. Click it to start/stop services."
-echo "Plug in your controller, put on headphones, and press Right Trigger to talk."
+
+echo "── NEXT STEPS ──"
+echo "1. Log out and back in (for input group membership to take effect)."
+echo "2. Plug in your wired Xbox Series X/S controller."
+echo "3. Put on headphones."
+echo "4. Open the AI Controller launcher from your applications menu,"
+echo "   or run: ${INSTALL_DIR}/scripts/ai-controller-launcher.sh"
+echo "5. Click **Fix Controller + Start Services** (recommended first run)."
+echo "6. Press **Right Trigger** and talk — text appears at your cursor."
+echo "7. Press **View** button (left of Guide) for the floating keyboard."
+echo "8. Press **Guide** button (center Xbox logo) for the controller legend HUD."
+echo ""
+echo "── VOICE & AVATAR SETUP ──"
+echo "If you skipped first-run setup, or want to change voices later:"
+echo "  ${INSTALL_DIR}/.venv/bin/python3 ${INSTALL_DIR}/scripts/controller_setup.py"
+echo "  Or click SETUP on the floating keyboard (View button)."
+echo ""
+echo "Avatar roster: Tahuti (default, Kokoro/am_onyx), Seba, Kunoichi, Ogun."
+echo "Each has its own portrait and voice profile (engine, voice ID, rate, pitch)."
+echo ""
+echo "Documentation: ${INSTALL_DIR}/README.md and ${INSTALL_DIR}/INSTALL.md"

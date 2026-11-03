@@ -842,17 +842,31 @@ class SlideKeyboard(Gtk.Window):
         return f"🔊 {name}"
 
     def _on_setup(self, _widget):
-        """Open the separate Setup Center without changing this keyboard.
+        """Open the setup wizard (controller_setup.py) in a terminal.
 
-        The live keyboard retains its own theme, pins, and layout.  The
-        Setup Center runs in its own focus-disabled GTK process so Cinnamon
-        can layer it visibly above other windows without moving typing focus.
+        The terminal wizard is the full-featured setup experience: avatar
+        selection, voice tuning, Telegram, doctor checks, and the graphical
+        voice board. The GTK Setup Center (setup_panel.py) is available from
+        the wizard's option 6 or the launcher's Diagnostics button.
         """
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setup_panel.py")
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "controller_setup.py")
+        # Launch in a terminal so the interactive menus work
+        for term_cmd in (
+            ["gnome-terminal", "--", "bash", "-lc", f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash"],
+            ["x-terminal-emulator", "-e", "bash", "-lc", f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash"],
+            ["xterm", "-e", "bash", "-lc", f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash"],
+        ):
+            if shutil.which(term_cmd[0]):
+                try:
+                    subprocess.Popen(term_cmd)
+                    return
+                except Exception as exc:
+                    log.warning("SETUP wizard failed to open in %s: %s", term_cmd[0], exc)
+        # Fallback: run without a terminal (won't be interactive)
         try:
             subprocess.Popen([sys.executable, script])
         except Exception as exc:
-            log.warning("SETUP panel failed to open: %s", exc)
+            log.warning("SETUP wizard failed to open: %s", exc)
 
     def _on_voice_toggle(self, _widget):
         """Cycle to the next unlocked voice and speak a confirmation."""
