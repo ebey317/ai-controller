@@ -286,6 +286,28 @@ def _focus():
 _ENV = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
 
 
+# The last screenshot's image-to-screen ratio.
+#
+# screenshot() downscales to max_width because a 1920px capture costs more
+# image budget than a 1280px one, and the model answers in the coordinates
+# of the image IT was shown. Those are not screen pixels on any display
+# wider than max_width: on this 1920x1080 panel every click landed 1.5x
+# too far up and to the left (found 2026-11-03 -- Muse Spark answered
+# "click the title bar" with (750,15), which is dead centre of a title bar
+# in a 1280x720 image and 375px left of it in real pixels). Every action
+# that takes a point therefore maps it back through this ratio first.
+_CAPTURE_SCALE = 1.0
+
+
+def _screen_point(x: int, y: int) -> tuple[int, int]:
+    """Map a point the model saw in a (possibly downscaled) screenshot to
+    real screen pixels. Identity when no downscale happened."""
+    if _CAPTURE_SCALE == 1.0:
+        return int(x), int(y)
+    return int(round(x * _CAPTURE_SCALE)), int(round(y * _CAPTURE_SCALE))
+
+
+
 class DesktopActionRefused(Exception):
     """The operator (or policy) refused the action."""
 
@@ -371,15 +393,26 @@ def screenshot(mode: str = "foreground", max_width: int = 1280) -> dict[str, Any
             )
         data = out_path.read_bytes()
         width, height = _png_size(data)
+        screen_width, screen_height = width, height
+        scale = 1.0
         if width and width > max_width:
             data = _downscale_png(data, max_width)
             width, height = _png_size(data)
+            if width:
+                scale = screen_width / width
+        global _CAPTURE_SCALE
+        _CAPTURE_SCALE = scale
         return {
             "type": "image",
             "mediaType": "image/png",
             "data": base64.b64encode(data).decode("ascii"),
             "width": width,
             "height": height,
+            # The model sees this image; the screen is this big. Any point it
+            # returns is in image coordinates and is mapped back by
+            # _screen_point() before it reaches xdotool.
+            "screen_width": screen_width,
+            "screen_height": screen_height,
         }
     finally:
         # The PNG can contain whatever was on screen. Do not leave it
@@ -447,7 +480,8 @@ def _move(x: int, y: int) -> None:
 
 
 def move_cursor(x: int, y: int, mode: str = "foreground") -> dict[str, Any]:
-    """Move the pointer to (x, y) without clicking."""
+    """Move the pointer to (x, y), given in the last screenshot's image space."""
+    x, y = _screen_point(x, y)
     _require_approval("move", mode, f"Move cursor to ({x}, {y})")
     _move(x, y)
     return {"ok": True, "action": "move_cursor", "x": x, "y": y}
@@ -468,6 +502,9 @@ def click(
     action = (
         "left_click" if button == 1 else ("right_click" if button == 3 else "click")
     )
+    # (x, y) arrive in the coordinate space of the last screenshot; the
+    # pointer has to land in real screen pixels.
+    x, y = _screen_point(x, y)
     _require_approval(action, mode, f"{action} at ({x}, {y})")
     _require("xdotool")
 

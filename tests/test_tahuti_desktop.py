@@ -374,5 +374,67 @@ def test_notification_gets_no_response():
     )
 
 
+# ── coordinate mapping: the model answers in image space, xdotool needs pixels ──
+
+
+def test_screen_point_is_identity_without_a_downscaled_capture(monkeypatch):
+    monkeypatch.setattr(desktop, "_CAPTURE_SCALE", 1.0)
+    assert desktop._screen_point(750, 15) == (750, 15)
+
+
+def test_screenshot_records_the_downscale_ratio(gate, monkeypatch):
+    """A 1920-wide capture shown to the model as 1280 must record 1.5."""
+    raw, shrunk = _fake_png(1920, 1080), _fake_png(1280, 720)
+
+    def fake_run(cmd, **kwargs):
+        Path(cmd[2]).write_bytes(raw)
+
+        class R:
+            returncode = 0
+            stderr = b""
+
+        return R()
+
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
+    # Pillow is not a declared dependency; pin the ratio without needing it.
+    monkeypatch.setattr(desktop, "_downscale_png", lambda data, w: shrunk)
+
+    shot = desktop.screenshot()
+    assert shot["width"] == 1280
+    assert shot["screen_width"] == 1920
+    assert desktop._CAPTURE_SCALE == pytest.approx(1.5)
+
+
+def test_click_maps_image_coords_back_to_screen_pixels(monkeypatch):
+    """The Muse Spark probe answered (750,15) on a 1280x720 image.
+
+    On a 1920x1080 panel the pointer must actually land at (1125,23) --
+    before this mapping existed it clicked (750,15), 375px off target.
+    """
+    monkeypatch.setattr(desktop, "_CAPTURE_SCALE", 1.5)
+    monkeypatch.setattr(desktop, "_require_approval", lambda *a, **k: None)
+    monkeypatch.setattr(desktop, "_require", lambda name: f"/usr/bin/{name}")
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(list(cmd))
+
+        class R:
+            returncode = 0
+            stderr = b""
+
+        return R()
+
+    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
+    out = desktop.left_click(750, 15)
+
+    moves = [c for c in seen if "mousemove" in c]
+    assert moves, "no pointer move was issued"
+    # 15 * 1.5 = 22.5 -> round() half-to-even gives 22
+    assert moves[0][-2:] == ["1125", "22"]
+    assert out["x"] == 1125 and out["y"] == 22
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
