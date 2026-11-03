@@ -21,6 +21,13 @@ SERVICES=(
     ai-slide-keyboard.service
     a-button-double-tap-enter.service
     gip-audio-watchdog.service
+    # Headless twins (opt-in, installed disabled like everything else — the
+    # launcher starts either the GUI pair or the headless pair, never both).
+    ptt-pynput-headless.service
+    voice-bridge-headless.service
+    # Tahuti runner (opt-in, installed disabled — start it to drain the goal
+    # queue with Muse Wonder; the launcher owns enablement like the rest).
+    ai-controller-goal-runner.service
 )
 
 # Optional services are only advertised/installed when their unit templates

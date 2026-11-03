@@ -25,11 +25,25 @@ jobs:
           # 2026-10-19: latest 0.16.7 flagged 17 files; the pinned version is
           # the single source of truth, same doctrine as master-ai-cli's CI).
           pip install pytest pytest-cov "ruff==0.1.1" black isort shellcheck-py pre-commit
-          # Runtime deps the test suite imports transitively:
-          # tests/test_voice_bridge.py imports voice_bridge, which imports
-          # httpx and fastapi, and registers File()/Form() routes (TestClient
-          # also needs httpx). Missing any of these made test collection fail.
-          pip install httpx fastapi python-multipart
+          # Runtime deps the test suite imports transitively. All of these
+          # are plain-pip packages with prebuilt wheels on ubuntu-24.04 --
+          # no system libraries to install first. tests/test_voice_bridge.py
+          # imports voice_bridge (needs httpx/fastapi; TestClient also
+          # needs python-multipart for File()/Form() routes).
+          # tests/test_voice_fx.py, tests/test_controller_setup.py, and
+          # tests/test_voice_loop.py import numpy/scipy for real signal
+          # processing. tests/test_controller_setup.py's edge-tts doctor
+          # checks need edge-tts actually importable to exercise their OK
+          # path, not just their already-covered WARN/missing path.
+          #
+          # Deliberately NOT installed, even though requirements.txt lists
+          # them: pycairo (needs system libcairo2-dev to build at all --
+          # confirmed 2026-11-02, fails with "Dependency cairo not found"
+          # on a bare runner) and evdev/pynput. All three are used only by
+          # GTK/X11 desktop scripts (slide_keyboard.py, controller-legend.py,
+          # a_button_double_tap_enter.py) that no test file imports -- same
+          # reasoning as the gi skip in tests/test_setup_panel.py below.
+          pip install httpx fastapi python-multipart numpy scipy edge-tts
       - name: Run linters
         run: |
           ruff check .

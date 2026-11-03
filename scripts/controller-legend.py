@@ -13,6 +13,11 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 
+from theme import hex_to_rgb, load_theme
+
+_ACCENT_RGB = hex_to_rgb(load_theme().accent)
+_ACCENT_HEX = load_theme().accent
+
 import cairo
 from gi.repository import Gdk, GLib, Gtk
 
@@ -287,7 +292,7 @@ class Legend(Gtk.Window):
         self.typing_lbl.set_line_wrap(True)
         self.typing_lbl.set_justify(Gtk.Justification.CENTER)
         self.typing_lbl.set_markup('<span font_family="monospace" weight="bold" '
-                                    'font_size="16000" foreground="#FF6A00">✨  Typing...</span>')
+                                    f'font_size="16000" foreground="{_ACCENT_HEX}">✨  Typing...</span>')
         outer.pack_start(self.typing_lbl, True, True, 0)
         self.typing_lbl.hide()
 
@@ -344,7 +349,7 @@ class Legend(Gtk.Window):
         cr.fill()
 
         # Orange border
-        cr.set_source_rgba(1.0, 0.416, 0.0, 0.85)
+        cr.set_source_rgba(*_ACCENT_RGB, 0.85)
         cr.set_line_width(1.0)
         self._rounded_rect(cr, bx + 0.5, by + 0.5, bw - 1.0, bh - 1.0, 6)
         cr.stroke()
@@ -359,7 +364,7 @@ class Legend(Gtk.Window):
         cr.fill()
 
         # Triangle outline
-        cr.set_source_rgba(1.0, 0.416, 0.0, 0.85)
+        cr.set_source_rgba(*_ACCENT_RGB, 0.85)
         cr.set_line_width(1.0)
         cr.move_to(tip_x, 1)
         cr.line_to(tip_x - 7, POINTER_H)
@@ -372,7 +377,7 @@ class Legend(Gtk.Window):
         if total_pages > 1:
             # Left arrow
             if self._current_page > 0:
-                cr.set_source_rgba(1.0, 0.416, 0.0, 0.6)
+                cr.set_source_rgba(*_ACCENT_RGB, 0.6)
                 cr.move_to(25, by + bh/2)
                 cr.line_to(20, by + bh/2 - 8)
                 cr.line_to(20, by + bh/2 + 8)
@@ -380,7 +385,7 @@ class Legend(Gtk.Window):
                 cr.fill()
             # Right arrow
             if self._current_page < total_pages - 1:
-                cr.set_source_rgba(1.0, 0.416, 0.0, 0.6)
+                cr.set_source_rgba(*_ACCENT_RGB, 0.6)
                 cr.move_to(w - 25, by + bh/2)
                 cr.line_to(w - 20, by + bh/2 - 8)
                 cr.line_to(w - 20, by + bh/2 + 8)
@@ -415,7 +420,7 @@ class Legend(Gtk.Window):
             f'<span font_family="monospace" font_size="6000" foreground="#666666">{self._current_page + 1}/{total_pages}</span>')
         self.mode_lbl.set_markup(
             f'<span font_family="monospace" weight="bold" '
-            f'font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="#FF6A00">{profile.upper()}</span>')
+            f'font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="{_ACCENT_HEX}">{profile.upper()}</span>')
         # Update button labels for current page
         page_layout = self._get_page_layout(layout, self._current_page)
         for i, (bl, al) in enumerate(zip(self.btn_labels, self.act_labels)):
@@ -424,7 +429,7 @@ class Legend(Gtk.Window):
                 bl.show()
                 al.show()
                 bl.set_markup(f'<span font_family="monospace" weight="bold" '
-                               f'font_size="{int(9000 * LEGEND_FONT_SCALE)}" foreground="#FF6A00">{b}</span>')
+                               f'font_size="{int(9000 * LEGEND_FONT_SCALE)}" foreground="{_ACCENT_HEX}">{b}</span>')
                 al.set_markup(f'<span font_family="monospace" '
                                f'font_size="{int(8000 * LEGEND_FONT_SCALE)}" foreground="#eeeeee">{a}</span>')
             else:
@@ -517,7 +522,7 @@ class Legend(Gtk.Window):
         }
         self.typing_lbl.set_markup(
             f'<span font_family="monospace" weight="bold" '
-            f'font_size="16000" foreground="#FF6A00">'
+            f'font_size="16000" foreground="{_ACCENT_HEX}">'
             f'{labels.get(mode, "✨  Typing...")}</span>'
         )
 

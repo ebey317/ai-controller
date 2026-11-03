@@ -55,6 +55,19 @@ class _FakeGate:
 
 
 class _AvatarModule:
+    """Mirrors tahuti_avatar.py's real public surface, including the
+    voice_profiles-backed settings _install_tahuti_callback reads to
+    decide whether to register a callback at all (2026-11-01)."""
+
+    def __init__(self, approval_box=True, popup_on_approval=True):
+        self._settings = {"approval_box": approval_box, "popup_on_approval": popup_on_approval}
+
+    def load_profiles(self):
+        return {}
+
+    def get_avatar_settings(self, _profiles):
+        return self._settings
+
     @staticmethod
     def prompt(pattern_key, description, **extra):
         return "once"
@@ -78,6 +91,36 @@ def test_native_callback_installs_on_existing_gate(monkeypatch):
     monkeypatch.setattr(desktop, "_import_from_path", lambda *_: _AvatarModule())
     desktop._install_tahuti_callback(gate)
     assert gate.callback("cua:type:foreground", "Type 1 character", action="type") == "once"
+
+
+def test_native_callback_skipped_when_approval_popup_disabled(monkeypatch):
+    """Regression: disabling the avatar's approval popup must leave NO
+    callback installed, not one that always denies -- a hijacked explicit
+    callback would override approval_gate.request_approval()'s own
+    per-call fail_closed_when_no_human policy for every pattern, including
+    a caller that explicitly opted into permissive no-human behavior.
+    Found and fixed 2026-11-01."""
+    gate = _FakeGate()
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(
+        desktop, "_import_from_path",
+        lambda *_: _AvatarModule(approval_box=False, popup_on_approval=True),
+    )
+    desktop._install_tahuti_callback(gate)
+    assert not hasattr(gate, "callback")
+
+
+def test_native_callback_skipped_when_popup_on_approval_disabled(monkeypatch):
+    """Same regression, the other flag: either setting disabled must
+    skip installing a callback."""
+    gate = _FakeGate()
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(
+        desktop, "_import_from_path",
+        lambda *_: _AvatarModule(approval_box=True, popup_on_approval=False),
+    )
+    desktop._install_tahuti_callback(gate)
+    assert not hasattr(gate, "callback")
 
 
 def test_pattern_key_is_scoped_by_action_and_mode():

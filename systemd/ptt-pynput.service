@@ -1,7 +1,11 @@
 [Unit]
 Description=Push-to-Talk Dictation Listener (pynput)
+# 2026-09-09: graphical-session.target dropped from Wants= (kept the
+# voice-bridge.service app dependency) — see controller-legend.service for
+# why (StopWhenUnneeded=yes cascade that closed every open terminal on
+# `stop-all.sh`). After= alone still sequences startup correctly.
 After=graphical-session.target voice-bridge.service
-Wants=graphical-session.target voice-bridge.service
+Wants=voice-bridge.service
 
 [Service]
 Type=simple
@@ -23,17 +27,32 @@ ExecStart=/bin/sh -c 'sg input -c "%h/ai-controller/.venv/bin/python3 %h/ai-cont
 WorkingDirectory=%h/ai-controller/scripts
 Restart=on-failure
 RestartSec=3
-# Default KillMode (control-group) SIGTERMs every process in this unit's
-# cgroup the instant it's stopped — including an in-flight `parec` recording
-# or `xdotool type` injection (see start_new_session in ptt_pynput.py).
-# mixed signals only the main process first, so those can finish; systemd
-# still SIGKILLs anything left in the cgroup after TimeoutStopSec so nothing
-# can be orphaned forever.
-KillMode=mixed
+# Was KillMode=mixed, on the theory that signaling only the main process
+# lets an in-flight `parec` recording finish before the rest of the cgroup
+# dies. Measured wrong on the headless twin 2026-10-28: `man sg` confirms sg
+# always forks+waits to run its `-c command` (never execs itself away), so
+# the "main process" systemd tracks here is really sh->sg, a dumb wrapper
+# that never forwards SIGTERM to the python3 grandchild actually running
+# parec — stopping needed a SIGKILL escalation and python3's own
+# parec-cleanup-on-SIGTERM logic (around line 1164) never ran at all.
+# control-group signals every process in the cgroup directly and
+# simultaneously, so python3 gets a real SIGTERM and can still clean up
+# parec itself; anything left after TimeoutStopSec still gets SIGKILLed.
+KillMode=control-group
 Environment=DISPLAY=:0
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=XAUTHORITY=%h/.Xauthority
 Environment=BRIDGE_URL=http://127.0.0.1:8002
+# 2026-09-15: force input-only card profile after every barge-in reset.
+# "combined" (headset speakers + mic) was the default in
+# reset-controller-audio.sh, which re-enables the xone-gip output path on
+# every reset -- the same path that wedges (172 "get buffer failed" events
+# logged over 3 days) and produces an audible pop as the DAC powers back on.
+# input-only never activates that output path, so the mic can't wedge and
+# there's no reset-cycle pop. Trade-off: TTS no longer plays through the
+# controller headset (see AUDIO_OUTPUT in config.env for where it goes
+# instead) -- Elijah's explicit choice over keeping headset audio.
+Environment=CONTROLLER_AUDIO_PROFILE=input
 
 [Install]
 WantedBy=default.target

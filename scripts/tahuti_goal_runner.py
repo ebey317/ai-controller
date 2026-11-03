@@ -16,11 +16,11 @@ never executed. File writes are also queued as approval requests.
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import logging
 import logging.handlers
 import os
+import queue
 import re
 import shlex
 import shutil
@@ -44,31 +44,38 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 import ai_controller_paths
-from ptt_notify import notify_hermex as notify_hermex_bg
 import voice_goal_schema as vgs  # noqa: E402
+from ptt_notify import notify_hermex as notify_hermex_bg
 
 LOG_DIR = Path(ai_controller_paths.ai_controller_dir()) / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "tahuti-goal-runner.log"
+
+# Log-stream separation (2026-11-02, 11-01 incident fallout): the rotating
+# FILE handler attaches only when this file runs AS the runner (systemd
+# service or foreground). Test harnesses that import this module used to
+# write into the service log — during the YouTube-spam triage that made
+# direct _call_model calls indistinguishable from real service traffic.
+# Imports get the stream handler only.
+_LOG_HANDLERS: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+if __name__ == "__main__":
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _LOG_HANDLERS.append(
+        logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3
+        )
+    )
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.handlers.RotatingFileHandler(
-            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3
-        ),
-        logging.StreamHandler(sys.stdout),
-    ],
+    handlers=_LOG_HANDLERS,
 )
 logger = logging.getLogger(__name__)
-logger.info("Tahuti goal runner starting — logs at %s", LOG_FILE)
+if __name__ == "__main__":
+    logger.info("Tahuti goal runner starting — logs at %s", LOG_FILE)
 
 GOALS_DIR = Path.home() / ".tahuti" / "goals"
 APPROVALS_DIR = Path.home() / ".tahuti" / "approvals"
-# The GTK approval card uses wrapping labels in a compact window, with no
-# scrolling or expansion. Refuse proposals beyond this conservative preview cap.
-MAX_APPROVAL_PREVIEW_CHARS = 2000
 GRANTS_FILE = Path.home() / ".tahuti" / "grants.json"
 DONE_DIR = GOALS_DIR / "done"
 FAILED_DIR = GOALS_DIR / "failed"
@@ -172,6 +179,7 @@ SAFETY_PROMPT_HEAD = (
 TOOL_DESCRIPTIONS = {
     "read_file": "read_file (read a text file, home directory only)",
     "list_dir": "list_dir (list a directory, home directory only)",
+    "write_file": "write_file (queues an approval request in ~/.tahuti/approvals, never writes directly)",
     "open_url": "open_url (open any website now)",
     "open_app": "open_app (launch an app now)",
     "check_email": "check_email (read-only inbox check)",
@@ -184,8 +192,15 @@ SAFETY_PROMPT_TAIL = (
     "ones — no approval needed. YOUR HARNESS: controller L+R and the keyboard "
     "AGENT toggle file goals to ~/.tahuti/goals; your final message is spoken "
     "aloud and saved. "
-    + "No file-writing tool is available on this path; do not claim to create or edit files. If the operator asks for a file change, explain that file writing is disabled. "
-    + "CLAF (tiered model router) and the Hermes gateway also "
+    "APPROVAL IS A TOOL CALL, NOT A FACT ABOUT THE WORLD: the ONLY way "
+    "anything lands in ~/.tahuti/approvals is you calling write_file THIS "
+    "turn and getting back {\"ok\": true} — nothing queues itself "
+    "automatically just because a task needs approval. If write_file is not "
+    "in your tools this turn, or you didn't call it, you have NOT filed "
+    "anything — say the task needs the operator's approval and stop there; "
+    "never say 'I've added/queued/noted/filed this for approval' unless "
+    "write_file's result this turn literally says ok. "
+    "CLAF (tiered model router) and the Hermes gateway also "
     "live on this machine, but you cannot call them — never claim otherwise. "
     "The native coding agent is Master AI Sensei — always name it exactly "
     "that, never Claude or another agent. "
@@ -264,7 +279,7 @@ def _tools_sentence(tools: list[dict]) -> str:
     # reason about a specific subdirectory by name. Without this it
     # reliably guessed wrong generic Linux homes (/home/ubuntu, /root,
     # /tmp, ...) for a machine it's never actually seen.
-    if any(n in ("read_file", "list_dir") for n in names):
+    if any(n in ("read_file", "list_dir", "write_file") for n in names):
         sentence += (
             f" The operator's home directory is literally {Path.home()} — "
             "that's the real path on THIS machine, not a guess. A bare "
@@ -282,9 +297,11 @@ APPROVAL_VERBS = {
     "delete", "remove", "rm", "kill", "send", "submit", "purchase", "buy",
     "commit", "push", "deploy",
 }
-# NOTE 2026-10-30: "open"/"launch" left the gate — open_url/open_app tools
-# below execute those safely, so gating them only produced "needs approval"
-# dead ends. The model decides; the executors validate.
+# NOTE 2026-10-30: "open"/"launch" left the goal-level verb gate —
+# gating whole transcripts here produced "needs approval" dead ends.
+# Since 2026-11-02 the open_url/open_app tools gate THEMSELVES at
+# execution time (same box, same grants as write_file), so the verbs
+# stay out of this set and the gate lives where the action happens.
 
 CODE_HINTS = {
     "code", "script", "python", "function", "class", "module", "file",
@@ -349,11 +366,34 @@ FILE_TOOLS = [
     },
     {
         "type": "function",
+        "name": "write_file",
+        "description": (
+            "Propose writing content to a file. This tool does NOT write immediately; "
+            "it creates an approval request in ~/.tahuti/approvals/ for the operator to review. "
+            "Use this whenever the user asks to create, edit, or overwrite a file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute file path"},
+                "content": {"type": "string", "description": "Full proposed file content"},
+                "reason": {"type": "string", "description": "Why this write is needed"},
+            },
+            "required": ["path", "content"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
         "name": "open_url",
         "description": (
-            "Open a web URL in the default browser NOW (live, no approval needed). "
-            "Use this whenever the operator asks to open a website, link, or anything on "
-            "the web. Plain domain names work — https:// is added automatically."
+            "Open a web URL in the default browser. This is a desktop action, so the "
+            "harness first asks the operator in Tahuti's approval box (a saved grant "
+            "may already cover it). If approval is denied or the card can't be shown, "
+            "nothing opens and the tool result says which — report that plainly, and "
+            "never claim a page is open unless the result says opened. Use this "
+            "whenever the operator asks to open a website, link, or anything on the "
+            "web. Plain domain names work — https:// is added automatically."
         ),
         "parameters": {
             "type": "object",
@@ -368,7 +408,10 @@ FILE_TOOLS = [
         "type": "function",
         "name": "open_app",
         "description": (
-            "Launch an app NOW (live, no approval needed). Allowed names: "
+            "Launch an app. This is a desktop action, so the harness first asks the "
+            "operator in Tahuti's approval box (a saved grant may already cover it). "
+            "If approval is denied or the card can't be shown, nothing launches and "
+            "the tool result says which — report that plainly. Allowed names: "
             "chrome (web browser), thunderbird (email), terminal, files (file manager), "
             "code (the coding agent: terminal with Claude). "
             "Anything else is refused by the harness — say it needs approval."
@@ -788,7 +831,10 @@ def _tools_with_live_open_app(tools: list[dict]) -> list[dict]:
         if tool.get("name") == "open_app":
             tool = dict(tool)
             tool["description"] = (
-                "Launch an app NOW (live, no approval needed). Allowed names: "
+                "Launch an app. Desktop action — the harness asks the operator in "
+                "Tahuti's approval box first (a saved grant may already cover it); "
+                "denied or unshowable means nothing launches and the result says so. "
+                "Allowed names: "
                 "chrome (web browser), thunderbird (email), terminal, files (file manager), "
                 "code (Master AI Sensei, a local terminal agent)."
                 + pin_note +
@@ -921,12 +967,100 @@ def _list_dir_tool(path: str, show_hidden: bool = False) -> dict:
 def _write_file_tool(
     goal_id: str, path: str, content: str, reason: str = ""
 ) -> dict:
-    # Fail closed until file writing has a separately reviewed secure design.
-    return {"ok": False, "status": "refused", "error": "file writes are disabled"}
+    p = Path(path)
+    if not p.is_absolute():
+        return {"ok": False, "error": "path must be absolute"}
+    if not _is_under_home(p):
+        return {"ok": False, "error": "path outside home directory refused"}
+    try:
+        resolved = p.resolve()
+        # Granted writes execute for real (Master AI ALWAYS semantics).
+        # Everything else queues for the box.
+        if _is_granted("tahuti:write_file:background"):
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            tmp = resolved.with_name(resolved.name + ".tmp")
+            tmp.write_text(content, encoding="utf-8")
+            os.replace(tmp, resolved)
+            logger.info("granted write executed: %s", resolved)
+            return {"ok": True, "written": str(resolved)}
+        APPROVALS_DIR.mkdir(parents=True, exist_ok=True)
+        import uuid
+        safe_name = re.sub(r"[^\w.-]", "_", resolved.name) or "file"
+        approval_path = APPROVALS_DIR / f"{goal_id}_{safe_name}_{uuid.uuid4().hex}.pending.json"
+        record = {
+            "id": goal_id,
+            "tool": "write_file",
+            "pattern_key": "tahuti:write_file:background",
+            "path": str(resolved),
+            "content": content,
+            "reason": reason or "file write requested",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "pending",
+        }
+        tmp = approval_path.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(record, f, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, approval_path)
+        # One-box law (2026-10-31): the retired standalone worker
+        # (tahuti_approval_ui.py) must not respawn. The request is
+        # presented in the avatar's own box via _present_approval; the
+        # pending record above remains the audit trail. No box, no
+        # write — the model cannot mistake queued for completed.
+        result_path = approval_path.with_name(approval_path.name.replace('.pending.json', '.resolved.json'))
+        outcome = _present_approval(
+            "tahuti:write_file:background",
+            f"Write {resolved}",
+            goal_id=goal_id,
+            why=reason or "file write requested",
+        )
+        if outcome in ("once", "session"):
+            if outcome == "session":
+                _save_grant("tahuti:write_file:background")
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            wtmp = resolved.with_name(resolved.name + ".tmp")
+            wtmp.write_text(content, encoding="utf-8")
+            os.replace(wtmp, resolved)
+            result_path.write_text(
+                json.dumps({"status": "executed", "decision": outcome,
+                            "path": str(resolved)}) + "\n",
+                encoding="utf-8",
+            )
+            logger.info("box-approved write executed: %s", resolved)
+            return {"ok": True, "status": "executed", "decision": outcome,
+                    "path": str(resolved), "receipt": str(result_path)}
+        if outcome == "deny":
+            result_path.write_text(
+                json.dumps({"status": "denied", "decision": "deny",
+                            "path": str(resolved)}) + "\n",
+                encoding="utf-8",
+            )
+            return {"ok": False, "status": "denied",
+                    "error": "The write was not approved, so the file was not written."}
+        # Outcome None: no card could be shown. Fail fast — the wait
+        # this replaces polled 150s for a .resolved.json receipt from
+        # the retired approval worker; nothing writes those anymore, so
+        # it only ever burned time while later goals queued behind it.
+        # Close the request out as unanswered instead: the resolved
+        # record stays as the audit trail and the pending is removed so
+        # nothing sits looking live and unanswered.
+        try:
+            result_path.write_text(
+                json.dumps({"status": "unavailable", "decision": None,
+                            "path": str(resolved)}) + "\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        approval_path.unlink(missing_ok=True)
+        return {"ok": False, "status": "unavailable",
+                "error": "The approval card could not be shown, so the file was not written."}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def _open_url_tool(url: str) -> dict:
-    """Open an http(s) URL via xdg-open. Fire-and-forget; never blocks."""
+def _open_url_tool(goal_id: str, url: str) -> dict:
+    """Open an http(s) URL via xdg-open, behind the approval gate."""
     raw = (url or "").strip()
     if not raw:
         return {"ok": False, "error": "empty url"}
@@ -948,6 +1082,11 @@ def _open_url_tool(url: str) -> dict:
         return {"ok": False, "error": "refused (userinfo in url)"}
     if host in ("localhost",) or host.startswith(("127.", "169.254.", "[::1]")) or host == "::1":
         return {"ok": False, "error": f"refused (local address): {url}"}
+    gate = _gate_desktop_action(
+        goal_id, "tahuti:open_url:background", f"Open {raw}",
+        "the page was not opened")
+    if gate is not None:
+        return gate
     try:
         subprocess.Popen(
             ["xdg-open", raw],
@@ -1058,10 +1197,16 @@ def _raise_last_term() -> bool:
         return False
 
 
-def _open_app_tool(name: str) -> dict:
+def _open_app_tool(goal_id: str, name: str) -> dict:
     """Launch an allowlisted app or a named exec pin. Visible always."""
     key = (name or "").strip().lower()
     key = APP_ALIASES.get(key, key)
+    if key in APP_COMMANDS or key in _pin_commands():
+        gate = _gate_desktop_action(
+            goal_id, "tahuti:open_app:background", f"Open {key}",
+            "the app was not opened")
+        if gate is not None:
+            return gate
     candidates = APP_COMMANDS.get(key)
     if candidates:
         for cmd in candidates:
@@ -1489,8 +1634,12 @@ def _request_approval_tool(goal_id: str, action: str, reason: str) -> dict:
     every path -- deny, timeout, and headless all come back {"ok": False}
     so the model can only ever report the operator's real decision.
 
-    A "session" verdict applies only to this call. Only the distinct
-    "always" verdict may write a persistent grant.
+    A "session" verdict deliberately does NOT write a persistent grant:
+    the operator's card offers session and always as separate buttons but
+    _present_approval maps both to "session", so persisting here would
+    silently turn a session approval into a permanent one. Until that
+    mapping is fixed, this tool treats session as approved-for-this-call
+    only and never writes the grants file.
     """
     action = (action or "").strip()
     reason = (reason or "").strip()
@@ -1503,31 +1652,28 @@ def _request_approval_tool(goal_id: str, action: str, reason: str) -> dict:
     verb_hits = [w for w in words if w in APPROVAL_VERBS]
     verb = verb_hits[0] if verb_hits else (words[0] if words else "action")
     pattern = f"tahuti:{verb}:background"
+    if _is_granted(pattern):
+        return {"ok": True, "decision": "already-granted",
+                "note": f"a permanent grant already covers {pattern}; "
+                        "proceed with the tools you actually have"}
     logger.info("model requested approval for %s (goal %s)", pattern, goal_id)
     outcome = _present_approval(
         pattern,
         action,
+        goal_id=goal_id,
         why=reason or "the model asked for the operator's go-ahead",
         how="Tahuti goal runner (model-requested approval)",
     )
     if outcome == "once":
         return {"ok": True, "decision": "once",
-                "note": "the operator approved only this exact requested action "
-                        "for this request; do not treat approval as permission "
-                        "for other actions or unrelated capabilities. Use only "
-                        "the tools actually available this turn; if they cannot "
-                        "perform the approved action, say so plainly"}
+                "note": "the operator approved this one request; proceed "
+                        "only with the tools you actually have this turn, "
+                        "and say so plainly if none can perform the action"}
     if outcome == "session":
         return {"ok": True, "decision": "session",
-                "note": "the operator approved only this exact requested action "
-                        "for the current session; do not treat approval as "
-                        "permission for other actions or unrelated capabilities. "
-                        "This verdict is never persisted as a permanent grant"}
-    if outcome == "always":
-        return {"ok": True, "decision": "always",
-                "note": "the operator approved this requested action only; "
-                        "this model-requested approval is not persisted. "
-                        "Proceed only with tools actually available this turn"}
+                "note": "the operator approved it for this session; proceed "
+                        "only with the tools you actually have this turn, "
+                        "and say so plainly if none can perform the action"}
     if outcome == "deny":
         return {"ok": False, "decision": "deny",
                 "note": "the operator denied it; do not attempt the action"}
@@ -1571,9 +1717,9 @@ def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
             args.get("reason", ""),
         )
     elif name == "open_url":
-        result = _open_url_tool(args.get("url", ""))
+        result = _open_url_tool(goal_id, args.get("url", ""))
     elif name == "open_app":
-        result = _open_app_tool(args.get("name", ""))
+        result = _open_app_tool(goal_id, args.get("name", ""))
     elif name == "check_email":
         result = _check_email_tool(args.get("days", 2), args.get("unread", True))
     elif name == "check_commits":
@@ -1738,8 +1884,12 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
                     break
 
                 outputs = []
+                approval_granted = False
                 for call in function_calls:
                     result = _execute_file_tool(goal_id, call, allowed_tool_names)
+                    if (call.get("name") == "request_approval"
+                            and result.get("ok") is True):
+                        approval_granted = True
                     outputs.append(
                         {
                             "type": "function_call_output",
@@ -1747,6 +1897,38 @@ def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[s
                             "output": json.dumps(result),
                         }
                     )
+
+                # Approval escalation (2026-11-01): the operator's 'yes' must
+                # unlock REAL work, not just permission. The thin fast lanes
+                # strip list_dir/read_file, so an approved "look in my skills"
+                # dead-ended in "approved — but I don't have a file-listing
+                # tool this turn" (observed live in the operator's own thread,
+                # twice). An approved request_approval now re-arms the
+                # continuation with the FULL safe toolset and a fresh round
+                # budget, and tells the model to do the work and SHOW it:
+                # where it looked, what it found, what it did. No new powers
+                # are granted -- shell/installs/deletes still have no
+                # executor on any route; escalation only restores the tools
+                # the safe routes already have.
+                if approval_granted:
+                    tools = _all_tools(transcript)
+                    round_num = 0
+                    logger.info(
+                        "approval escalation: full safe toolset re-armed "
+                        "for goal %s", goal_id)
+                    outputs.append({
+                        "role": "user",
+                        "content": (
+                            "The operator APPROVED this request. Your tool "
+                            "set has been re-armed with the full safe toolset "
+                            "for this request (read_file, list_dir, write_file, "
+                            "open_url/open_app, web_search where offered) and "
+                            "your search budget is reset. Do the work NOW, "
+                            "then show your work: report exactly where you "
+                            "looked, what you found, and what you did. If "
+                            "you still cannot complete it with these tools, "
+                            "say that plainly with the real reason."),
+                    })
 
                 # Past MAX_TOOL_ROUNDS, stop offering tools -- forces the
                 # model to write a real text answer from what it already
@@ -1986,62 +2168,103 @@ def _is_granted(pattern_key: str) -> bool:
     return _load_grants().get(pattern_key) == "always"
 
 
-_AVATAR_APPROVAL = Path(os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"))
-_APPROVAL_CARD_LOCK = Path.home() / ".tahuti" / "approval-card.lock"
+_PRESENTER = Path(__file__).resolve().parent / "tahuti_approval_presenter.py"
+
+# The presenter must prove the box is really going up within this window
+# or the escalation fails fast: an unreachable display or a broken
+# presenter is detected in seconds, not after the old 150s ninja wait.
+_PRESENT_READY_TIMEOUT = 10.0
+# Slack beyond the box's own answer window (tahuti_avatar.TIMEOUT_SECONDS)
+# for presenter startup/teardown around the verdict.
+_PRESENT_VERDICT_SLACK = 20.0
+
+# Per-goal escalation state (2026-11-02): one goal gets at most ONE live
+# presentation per pattern, and one unavailable presenter ends escalation
+# for the whole goal. The battery that motivated this watched a single
+# write goal file two pendings and burn 1127s on waits nothing could
+# answer. Keyed by goal_id because goals run on a small thread pool;
+# _process_goal forgets the entry when the goal ends.
+_ESCALATION_LOCK = threading.Lock()
+_ESCALATION_STATE: dict[str, dict] = {}
 
 
-def _render_approval_card(pattern_key: str, description: str, extra: dict) -> str:
-    """The run card text: QUESTION first, then Who/What/Where/When/Why/How."""
+def _escalation_cached(goal_id: str, pattern_key: str) -> tuple[bool, Optional[str]]:
+    """(hit, outcome) for a presentation this goal already attempted."""
+    if not goal_id:
+        return False, None
+    with _ESCALATION_LOCK:
+        state = _ESCALATION_STATE.get(goal_id)
+        if not state:
+            return False, None
+        if state.get("unavailable"):
+            return True, None
+        verdicts = state.get("verdicts", {})
+        if pattern_key in verdicts:
+            return True, verdicts[pattern_key]
+    return False, None
+
+
+def _escalation_record(goal_id: str, pattern_key: str, outcome: Optional[str]) -> None:
+    if not goal_id:
+        return
+    with _ESCALATION_LOCK:
+        state = _ESCALATION_STATE.setdefault(goal_id, {"verdicts": {}})
+        if outcome is None:
+            state["unavailable"] = True
+        else:
+            state.setdefault("verdicts", {})[pattern_key] = outcome
+
+
+def _escalation_forget(goal_id: str) -> None:
+    if goal_id:
+        with _ESCALATION_LOCK:
+            _ESCALATION_STATE.pop(goal_id, None)
+
+
+def _box_timeout_seconds() -> float:
     try:
         import tahuti_avatar
 
-        card = tahuti_avatar.card_details(pattern_key, description, extra)
+        return float(tahuti_avatar.TIMEOUT_SECONDS)
     except Exception:
-        card = {
-            "who": "Tahuti — your AI Controller",
-            "what": description,
-            "where": "Your active Linux desktop",
-            "when": "Immediately after you choose Yes",
-            "why": "This action needs your approval before Tahuti runs it",
-            "how": "Tahuti goal runner (background)",
-        }
-    lines = [
-        f"QUESTION: {description}",
-        "",
-        f"Who: {card['who']}",
-        f"What: {card['what']}",
-        f"Where: {card['where']}",
-        f"When: {card['when']}",
-        f"Why: {card['why']}",
-        f"How: {card['how']}",
-        "",
-        "Executor: Tahuti goal runner",
-        f"Model: {DEFAULT_MODEL}",
-    ]
-    return "\n".join(lines)
+        return 120.0
 
 
-def _present_approval(pattern_key: str, description: str, **extra) -> Optional[str]:
-    """Serialize card presentation across runner processes, then return its verdict.
+def _presenter_lines(proc: subprocess.Popen) -> "queue.Queue[Optional[str]]":
+    """Pump the presenter's stdout into a queue (None = stream closed)."""
+    lines: "queue.Queue[Optional[str]]" = queue.Queue()
 
-    flock is released by the kernel if this process exits or crashes. Blocking
-    acquisition has no timeout so an operator's decision is never interrupted.
-    """
+    def _pump() -> None:
+        try:
+            for line in proc.stdout:  # type: ignore[union-attr]
+                lines.put(line.strip())
+        except Exception:
+            pass
+        lines.put(None)
+
+    threading.Thread(target=_pump, daemon=True).start()
+    return lines
+
+
+def _next_line(lines: "queue.Queue[Optional[str]]", timeout: float) -> Optional[str]:
     try:
-        _APPROVAL_CARD_LOCK.parent.mkdir(parents=True, exist_ok=True)
-        with _APPROVAL_CARD_LOCK.open("a", encoding="utf-8") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            try:
-                return _present_approval_locked(pattern_key, description, **extra)
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception as exc:
-        logger.warning("approval card lock unavailable: %s", exc)
+        return lines.get(timeout=max(0.0, timeout))
+    except queue.Empty:
         return None
 
 
-def _present_approval_locked(pattern_key: str, description: str, **extra) -> Optional[str]:
-    """Present one card while the process-shared approval lock is held."""
+def _run_presenter(pattern_key: str, description: str, extra: dict) -> Optional[str]:
+    """One presentation attempt through THIS product's one box.
+
+    Returns "once" | "session" | "deny", or None when no card could be
+    shown. The presenter (scripts/tahuti_approval_presenter.py) prints
+    READY only once Tahuti's box is really about to appear; everything
+    before that — no display, no GTK, box disabled in settings, box
+    uncreatable — comes back UNAVAILABLE and this fails fast. A
+    presenter that shows the box and then hangs past the box's own
+    answer window is killed and counted as "deny": the box itself
+    denies on timeout, and fail-closed is the only safe reading.
+    """
     if not os.environ.get("DISPLAY"):
         return None
     # One avatar on screen during the decision: retire the work pulse.
@@ -2050,28 +2273,102 @@ def _present_approval_locked(pattern_key: str, description: str, **extra) -> Opt
         os.kill(pid, 9)
     except Exception:
         pass
+    request = json.dumps({
+        "pattern_key": pattern_key,
+        "description": description,
+        "extra": extra,
+    })
     try:
         proc = subprocess.Popen(
-            ["/usr/bin/python3", str(_AVATAR_APPROVAL), "--ask"],
+            [sys.executable, str(_PRESENTER)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
             env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
         )
-        stdout, _stderr = proc.communicate(
-            _render_approval_card(pattern_key, description, extra)
-        )
     except Exception as exc:
-        logger.warning("approval card unavailable: %s", exc)
+        logger.warning("approval presenter failed to start: %s", exc)
         return None
-    if proc.returncode != 0:
-        logger.warning("approval card closed or failed (exit %s)", proc.returncode)
+    try:
+        try:
+            proc.stdin.write(request)  # type: ignore[union-attr]
+            proc.stdin.close()  # type: ignore[union-attr]
+        except Exception:
+            pass
+        lines = _presenter_lines(proc)
+        first = _next_line(lines, _PRESENT_READY_TIMEOUT)
+        if first is None or not first.startswith("READY"):
+            if first and first.startswith("UNAVAILABLE"):
+                logger.info("approval unavailable: %s", first)
+            else:
+                logger.warning("approval presenter not ready (first line: %r)", first)
+            proc.kill()
+            return None
+        verdict = _next_line(lines, _box_timeout_seconds() + _PRESENT_VERDICT_SLACK)
+        if verdict is None:
+            logger.warning("approval presenter produced no verdict; counting as deny")
+            proc.kill()
+            return "deny"
+        return {"once": "once", "session": "session",
+                "always": "session", "deny": "deny"}.get(verdict.strip().lower(), "deny")
+    finally:
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
+def _present_approval(pattern_key: str, description: str, goal_id: str = "", **extra) -> Optional[str]:
+    """Ask the operator in Tahuti's one box; None when no one can answer.
+
+    The card lives in the avatar's own box, presented by this repo's
+    tahuti_approval_presenter.py — never in a window owned by this
+    daemon, and never in another product's overlay (the master-ai-cli
+    ninja subprocess this replaced timed out at 150s a call). Verdict:
+    "once" | "session" | "deny" ("always" maps to "session": the
+    runner's grants file is the persistent form of that grant).
+
+    Results are cached per goal (see _ESCALATION_STATE): a goal never
+    presents the same pattern twice, and once the presenter proves
+    unavailable the goal stops escalating entirely. Escalation is
+    bounded, quick to fail, and the runner moves to the next goal.
+    """
+    hit, cached = _escalation_cached(goal_id, pattern_key)
+    if hit:
+        logger.info("approval for %s already resolved this goal (%r); not re-presenting",
+                    pattern_key, cached)
+        return cached
+    outcome = _run_presenter(pattern_key, description, extra)
+    _escalation_record(goal_id, pattern_key, outcome)
+    return outcome
+
+
+def _gate_desktop_action(goal_id: str, pattern_key: str, description: str,
+                         not_done: str) -> Optional[dict]:
+    """Shared approval gate for desktop-affecting tools (open_url/open_app).
+
+    Returns None when the action may proceed (approved once, approved
+    for the session, or covered by a saved grant), else the tool result
+    to hand back to the model: the action did NOT happen, and the result
+    says honestly why. Mirrors write_file's grant semantics exactly.
+    """
+    if _is_granted(pattern_key):
         return None
-    lines = [ln.strip().lower() for ln in (stdout or "").splitlines() if ln.strip()]
-    verdict = lines[-1] if lines else ""
-    return {"once": "once", "session": "session",
-            "always": "always", "deny": "deny"}.get(verdict)
+    outcome = _present_approval(pattern_key, description, goal_id=goal_id)
+    if outcome == "once":
+        return None
+    if outcome == "session":
+        _save_grant(pattern_key)
+        return None
+    if outcome == "deny":
+        return {"ok": False, "status": "denied",
+                "error": f"Not approved, so {not_done}."}
+    return {"ok": False, "status": "unavailable",
+            "error": f"The approval card could not be shown, so {not_done}."}
 
 
 def _save_grant(pattern_key: str) -> None:
@@ -2185,6 +2482,46 @@ def _process_show() -> str:
     return "No work yet — give me a task first."
 
 
+_TIME_TRIGGER_RE = re.compile(
+    r"(what(?:'s| is) the (?:current )?(?:time|date|day)\b"
+    r"|what time is it\b|what day is it\b|what date is it\b"
+    r"|current time\b|time right now\b|tell me the time\b)",
+    re.IGNORECASE,
+)
+
+
+def _is_time_question(transcript: str) -> bool:
+    """Direct 'what time/date/day is it' questions — a fixed handler.
+
+    Deliberately narrow: 'what time does the store open' asks about a
+    schedule, not the clock, and stays with the model.
+    """
+    lowered = _split_camel_case(transcript or "").lower()
+    return bool(_TIME_TRIGGER_RE.search(lowered))
+
+
+def _process_time() -> str:
+    """Deterministic clock: the real local time, never a model guess.
+
+    The lookup lane answered 'what time is it in Indianapolis' from
+    imagination (observed 2026-11-02: 'Saturday, October 31, 12:30 AM
+    EDT' at Monday Nov 2, 04:47 EST). Like email/show, this intent is a
+    fixed handler: zero tokens, always the system clock, correct
+    day/date/time and EST/EDT offset.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+
+        now = datetime.now(ZoneInfo("America/Indiana/Indianapolis"))
+        where = "Indianapolis, Indiana"
+    except Exception:
+        now = datetime.now().astimezone()
+        where = "local time"
+    hour = now.strftime("%I").lstrip("0") or "12"
+    return (f"It's {now:%A, %B} {now.day}, {now:%Y} — "
+            f"{hour}:{now:%M %p} {now:%Z} in {where}.")
+
+
 def _process_goal(path: Path) -> None:
     claim_path = path.with_suffix(".claim")
     try:
@@ -2238,6 +2575,17 @@ def _process_goal(path: Path) -> None:
                  model="deterministic-show")
         return
 
+    # Deterministic clock (2026-11-02): time/date questions never reach
+    # the model — the lookup lane hallucinated the date before this.
+    if _is_time_question(transcript):
+        response = _process_time()
+        worker = "tahuti-runner-v1 (time)"
+        _post_speak(response)
+        _notify("Goal done", response, urgency="normal", sound=True)
+        _archive(claim_path, goal_id, "done", response=response,
+                 model="deterministic-time")
+        return
+
     approval = _needs_approval(transcript)
     response = ""
     worker = ""
@@ -2245,29 +2593,27 @@ def _process_goal(path: Path) -> None:
     elapsed_s: float | None = None
     route: str = ""
 
-    run_model = True
     if approval:
         pattern = f"tahuti:{_verb_for_approval(transcript)}:background"
-        # Goal-level verbs ("run", "write", etc.) are too broad to serve
-        # as permanent grant keys. Require a fresh explicit card each time.
-        _write_approval_request(goal_id, goal)
-        outcome = _present_approval(pattern, transcript)
-        if outcome == "deny":
-            response = "Okay — I won't do that."
-            worker = "tahuti-runner-v1 (approval denied)"
-            run_model = False
+        if _is_granted(pattern):
+            logger.info("grant covers %s — proceeding without the box", pattern)
+            approval = False
         else:
-            # Goal approval permits safe model evaluation only. The model's
-            # tools remain independently constrained: notably write_file
-            # raises its own exact-path/content approval card before writing.
-            if outcome in ("once", "session", "always"):
-                logger.info("approval granted for goal evaluation %s (%s)", pattern, outcome)
+            _write_approval_request(goal_id, goal)
+            outcome = _present_approval(pattern, transcript, goal_id=goal_id)
+            if outcome in ("once", "session"):
+                if outcome == "session":
+                    _save_grant(pattern)
+                logger.info("approval box granted %s (%s) — proceeding", pattern, outcome)
+                approval = False
+            elif outcome == "deny":
+                response = "Okay — I won't do that."
+                worker = "tahuti-runner-v1 (approval denied)"
             else:
-                logger.info("goal approval unavailable for %s; refusing to evaluate goal", pattern)
-                response = "Approval is unavailable, so I can't proceed with that request."
-                worker = "tahuti-runner-v1 (approval unavailable)"
-                run_model = False
-    if run_model:
+                response = ("That request needs your approval, but the approval card "
+                            "couldn't be shown just now, so nothing was done.")
+                worker = "tahuti-runner-v1 (approval gate)"
+    if not approval and not response:
         try:
             response, model, elapsed, elapsed_s, route = _call_model(
                 transcript, goal_id=goal_id,
@@ -2291,6 +2637,7 @@ def _process_goal(path: Path) -> None:
         sound=not approval,
     )
 
+    _escalation_forget(goal_id)
     status = "done" if (approval or model) else "failed"
     _archive(
         claim_path,

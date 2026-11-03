@@ -16,12 +16,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import gi
+import gi  # noqa: E402
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk
+from gi.repository import GLib, Gtk  # noqa: E402
 
-from scripts import tahuti_avatar as av
+from scripts import tahuti_avatar as av  # noqa: E402
 
 
 def _buttons() -> dict:

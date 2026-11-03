@@ -1,0 +1,47 @@
+[Unit]
+Description=Tahuti Headless Goal Runner — drains ~/.tahuti/goals
+After=network.target
+# Manual-start only: no [Install] section, so `systemctl --user enable` will fail.
+
+[Service]
+Type=simple
+Environment=AI_CONTROLLER_DIR=%h/ai-controller
+# DISPLAY/XAUTHORITY: open_url/open_app launch real GUI programs — without
+# these they Popen-successfully and die silently (observed 2026-10-30).
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+Environment=BRIDGE_URL=http://127.0.0.1:8002
+EnvironmentFile=%h/.config/ai-controller/config.env
+# ~/.hermes/.env uses `export FOO=bar` lines, which systemd's
+# EnvironmentFile= cannot parse (it would read the var name as literally
+# "export FOO" and drop every assignment -- observed 2026-11-01). Point
+# at the generated, export-stripped companion file instead.
+# Regenerate after editing ~/.hermes/.env:  bash ~/scripts/goal_runner_env.sh
+EnvironmentFile=-%h/.hermes/goal-runner.env
+ExecStart=%h/ai-controller/.venv/bin/python3 %h/ai-controller/scripts/tahuti_goal_runner.py
+WorkingDirectory=%h/ai-controller
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+# Sandbox (2026-10-31): the runner executes model-influenced actions, so
+# it runs contained. PrivateTmp hides the shared /tmp; the X11 socket is
+# bound back in because scrot/xdotool and the avatar card need the real
+# desktop. Kernel surfaces are locked down and no new privileges can be
+# gained. Home stays writable on purpose: the read/list/write file tools
+# and the GUI apps this runner launches (browsers, file manager) live
+# there -- ProtectHome/ProtectSystem would break them, so containment
+# here is kernel + tmp + privileges, not filesystem read-only.
+# NOT ProtectKernelModules / ProtectClock / ProtectHostname: bisected
+# 2026-10-31 -- each makes this user manager fail the spawn with
+# "Failed at step CAPABILITIES ... Operation not permitted" (218), even
+# though the same set passes under systemd-run. Do not re-add blindly.
+NoNewPrivileges=true
+PrivateTmp=true
+BindPaths=/tmp/.X11-unix
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# No [Install] section => never autostart.

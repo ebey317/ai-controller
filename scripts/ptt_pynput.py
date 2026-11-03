@@ -13,7 +13,6 @@ import sys
 import tempfile
 import threading
 import time
-import uuid
 import urllib.error
 import urllib.request
 import wave
@@ -840,6 +839,9 @@ _audio_reset_proc = None
 # Debounce F13 chatter from the controller trigger.
 _last_f13_time = 0.0
 _DEBOUNCE_MS = 500
+# Avatar summon clock (2026-10-31): one physical L+R hold fires ~6 on_press
+# events; summon exactly once per hold.
+_last_agent_summon = 0.0
 # Time for the user's finger to come off the controller before we inject keys.
 _TYPE_SETTLE_MS = 50
 # xdotool delay. 0 drops characters in the Hermes TUI's terminal input handling.
@@ -1498,19 +1500,62 @@ def on_press(key):
         # kept as a legacy alias for the same behavior.
         _goal_take = _ctrl_held
         if _goal_take:
+            # Repeat-press guard (2026-10-31): one physical hold fires ~6
+            # on_press events; only the first may summon/reset anything.
+            global _last_agent_summon
+            _fresh = (time.time() - _last_agent_summon) * 1000 > 1500
+            _last_agent_summon = time.time()
             log.info("Ctrl+F13 PRESSED — agent take")
-            _write_caption("", "listening")
-            # L+R summons the avatar (2026-10-31): pulse the Tahuti overlay
-            # animation so the press is visible. Fire-and-forget — a dead
-            # overlay must never break voice.
+            if _fresh:
+                _write_caption("", "listening")
+            # L+R summons the avatar: pulse the Tahuti overlay animation so
+            # the press is visible. Singleton via pidfile — key-repeat +
+            # dual listeners fire on_press ~6x per physical hold, and
+            # stacked overlays spam "Working" (seen 2026-10-31).
+            # Fire-and-forget — a dead overlay must never break voice.
+            #
+            # Always reuse a live pulse now (fixed 2026-10-31) — this used
+            # to kill-and-respawn on every genuinely separate press more
+            # than 1.5s apart (the _fresh check below), even if the prior
+            # pulse's 12s window was still showing. That wiped the first
+            # take's "Done" state off-screen mid-flight and left a brief
+            # window-less gap during kill/respawn — the actual cause of
+            # "avatar timing is off" / "can't make calls back to back".
+            # avatar_approval.py's --pulse now extends its own lifetime on
+            # fresh caption activity instead of a fixed deadline, so simply
+            # writing a new caption (done above) is enough for a second
+            # real take to show up in the SAME still-open window. Only
+            # spawn a new process when the old one actually isn't alive.
             try:
-                subprocess.Popen(
-                    ["/usr/bin/python3",
-                     os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"),
-                     "--pulse", "12"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                    env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")})
+                _pp = "/tmp/tahuti-pulse.pid"
+                _reuse = False
+                try:
+                    _old = int(open(_pp).read().strip())
+                    # Zombie check (2026-10-31): start_new_session children
+                    # are never reaped, so dead pulses linger as zombies and
+                    # os.kill(pid, 0) wrongly reports them alive — nothing
+                    # ever respawned. State Z = dead, reap and replace.
+                    with open(f"/proc/{_old}/stat") as _sf:
+                        _state = _sf.read().split()[2]
+                    if _state != "Z":
+                        os.kill(_old, 0)
+                        _reuse = True
+                    else:
+                        try:
+                            os.waitpid(_old, os.WNOHANG)
+                        except Exception:
+                            pass
+                except Exception:
+                    _reuse = False
+                if not _reuse:
+                    _proc = subprocess.Popen(
+                        ["/usr/bin/python3",
+                         os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"),
+                         "--pulse", "60"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                        env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")})
+                    open(_pp, "w").write(str(_proc.pid))
             except Exception as exc:
                 log.warning(f"avatar pulse failed: {exc}")
         else:
@@ -1532,6 +1577,14 @@ def on_release(key):
         return
     if key == keyboard.Key.f13:
         log.info("F13 RELEASED — stopping and sending")
+        # Hold-to-show (2026-10-31): the avatar lives exactly as long as the
+        # hold. Release dismisses the summon pulse; tool calls raise their
+        # own windows via the runner. Never blocks the send path.
+        try:
+            _pp = open("/tmp/tahuti-pulse.pid").read().strip()
+            os.kill(int(_pp), 9)
+        except Exception:
+            pass
         threading.Thread(target=stop_and_send, daemon=True).start()
 
 

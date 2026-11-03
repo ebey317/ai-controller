@@ -17,6 +17,14 @@ ignore = ["E501"]
 "scripts/*" = ["S101", "E402"]  # scripts bootstrap sys.path before their imports, by design
 # FastAPI's File()/Form() in parameter defaults is the framework idiom
 "scripts/voice_bridge.py" = ["B008"]
+# Retired worker (2026-10-31, see tahuti_goal_runner.py's RETIRED comment):
+# the standalone approval UI process it replaced. Not imported or run by
+# anything live -- kept on disk for reference only. Its loop-closure
+# captures are real B023 findings, but hand-patching 20 of them in code
+# with no test coverage and no execution path risks introducing a
+# behavior change nobody can verify. Delete the file instead of fixing
+# its lint once it's confirmed nothing still depends on it.
+"scripts/tahuti_approval_ui.py" = ["B023"]
 
 [format]
 quote-style = "double"

@@ -51,3 +51,38 @@ pkill -f ptt_pynput
 # Restart (e.g., via start-all.sh or manual launch)
 bash /home/elijah/ai-controller/scripts/start-voice-stack.sh
 ```
+---
+
+# F13 Still Leaking to Focused Windows (2026-10-06)
+
+## Problem
+Despite the 2026-09-08 X11 grab fix (`_run_x11_f13_grab()`), F13 kept bleeding
+through to the focused window on some trigger presses.
+
+## Root Cause
+`fix-f13-keymap.sh` overlays **two** X11 keycodes onto the F13 keysym:
+`xmodmap -e "keycode 191 = F13"` and `... 202 = F13"`. Antimicrox's uinput
+backend can synthesize this trigger as either kernel `KEY_F13` (evdev 183 ->
+X11 keycode 191) or `KEY_F24` (evdev 194 -> X11 keycode 202), depending on
+which slot/profile path fires (trigger index="6" vs the profile's other
+F13-producing path). `_run_x11_f13_grab()` called `keysym_to_keycode("F13")`,
+which only ever resolves to ONE of the two keycodes (confirmed: it picked
+191) — so the other kept leaking straight to the focused window exactly like
+the original bug, just intermittently (whichever path the controller/profile
+happened to route through).
+
+## Fix
+`_run_x11_f13_grab()` now grabs both keycode 191 and 202 directly (hardcoded
+`_F13_KEYCODES`, same two values `fix-f13-keymap.sh` already overlays) instead
+of resolving one keycode from the keysym. Grabbing by raw keycode also means
+the grab no longer has to wait for the xmodmap overlay to land first.
+
+## Files Modified
+- `scripts/ptt_pynput.py` — `_run_x11_f13_grab()` / `_F13_KEYCODES`
+
+## Verify
+```
+systemctl --user restart ptt-pynput.service
+journalctl --user -u ptt-pynput.service -n 10
+# should show: X11 F13 grab active (keycodes=[191, 202])
+```
