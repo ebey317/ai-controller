@@ -29,6 +29,7 @@ import json
 import os
 import re
 import subprocess
+import textwrap
 import sys
 import time
 import urllib.parse
@@ -114,7 +115,7 @@ def parse_picker(screen: str) -> dict | None:
     return {"title": title, "items": items, "cursor": cursor if cursor >= 0 else active, "active": active}
 
 
-def render_picker(pk: dict, trail: list[str], width_rows: int = 9) -> str:
+def render_picker(pk: dict, trail: list[str], width_rows: int = 6) -> str:
     items, cur, act = pk["items"], pk["cursor"], pk.get("active", -1)
     lo = max(0, min(cur - width_rows // 2, max(0, len(items) - width_rows)))
     window = items[lo:lo + width_rows]
@@ -167,7 +168,8 @@ def pager_text(screen: str, max_lines: int = 24) -> str:
             if page:
                 return "\n".join(page[:max_lines])
     body = [sb._clean_line(l) for l in plain[:end]]
-    body = [l for l in body if l and set(l) - set("─━═╔╗╚╝╠╣║│ ")]
+    body = [l for l in body if l and set(l) - set("─━═╔╗╚╝╠╣║│ ")
+            and not sb._HEADER_RE.search(l) and l.strip(" |") != "chat"]
     return "\n".join(body[-max_lines:])
 
 
@@ -233,13 +235,15 @@ class Card:
     def open(self, text: str) -> None:
         ov = self.overlay
         ov.set_agent("tahuti")
-        ov.set_card_text(text)
+        self.text(text)
         ov.machine.set_state(self.ThootieState.APPROVAL_INCOMING, ov.machine.payload if ov.machine.payload else None)
         if not ov._win.get_visible():
             ov.show()
         ov._set_active(True)
         ov.machine.set_state(self.ThootieState.APPROVAL_PRESENTED, self.StatePayload(action_kind="approval"))
         self._key_id = ov._win.connect("key-press-event", self._key)
+        ov._win.add_events(self.Gdk.EventMask.SCROLL_MASK)
+        self._wheel_id = ov._win.connect("scroll-event", self._wheel)
         self._opened = True
         self._grab_keyboard()
 
@@ -279,10 +283,67 @@ class Card:
 
     def _key(self, _w, event) -> bool:
         name = self.Gdk.keyval_name(event.keyval) or ""
+        if name in ("Page_Up", "Page_Down", "Home", "End") and self.overflow():
+            self.scroll({"Page_Up": -(self.ROWS - 2), "Page_Down": self.ROWS - 2,
+                         "Home": -9999, "End": 9999}[name])
+            return True
         return bool(self.on_key(name)) if self.on_key else False
 
+    def _wheel(self, _w, event) -> bool:
+        d = {self.Gdk.ScrollDirection.UP: -3, self.Gdk.ScrollDirection.DOWN: 3}.get(event.direction)
+        if d is None or not self.overflow():
+            return False
+        self.scroll(d)
+        return True
+
+    # The card is 420x280: about 33 monospace columns and 11 rows of body text.
+    # Anything longer is wrapped HERE and shown a window at a time with a visible
+    # "▲▼ 1-10/27" indicator — GTK's own scrollbar is the invisible overlay kind,
+    # so nobody knew a card could scroll.
+    COLS = 33
+    ROWS = 11
+
+    def _wrap(self, t: str) -> list[str]:
+        rows: list[str] = []
+        for line in t.split("\n"):
+            if not line.strip():
+                rows.append("")
+                continue
+            lead = min(len(line) - len(line.lstrip()), 6)
+            rows += textwrap.wrap(line, self.COLS, subsequent_indent=" " * lead,
+                                  replace_whitespace=False, break_long_words=True) or [""]
+        return rows
+
     def text(self, t: str) -> None:
-        self.overlay.set_card_text(t)
+        rows = self._wrap(t)
+        if t != getattr(self, "_full", None):
+            self._off = 0
+        self._full, self._rows = t, rows
+        self._render()
+
+    def overflow(self) -> bool:
+        return len(getattr(self, "_rows", [])) > self.ROWS
+
+    def scroll(self, delta: int) -> None:
+        if self.overflow():
+            self._off = getattr(self, "_off", 0) + delta
+            self._render()
+
+    def _render(self) -> None:
+        rows = getattr(self, "_rows", [])
+        if len(rows) <= self.ROWS:
+            self.overlay.set_card_text("\n".join(rows))
+            return
+        body = self.ROWS - 1
+        off = max(0, min(getattr(self, "_off", 0), len(rows) - body))
+        # keep a ▶ cursor row (picker / menu) in view
+        cur = next((i for i, r in enumerate(rows) if r.lstrip().startswith("▶")), None)
+        if cur is not None and not (off <= cur < off + body):
+            off = max(0, min(cur - body // 2, len(rows) - body))
+        self._off = off
+        mark = ("▲" if off > 0 else " ") + ("▼" if off + body < len(rows) else " ")
+        self.overlay.set_card_text(
+            "\n".join(rows[off:off + body] + [f"{mark} {off + 1}-{min(off + body, len(rows))}/{len(rows)}  ↑↓ PgUp/Dn"]))
 
     def buttons(self, labels: dict, callback) -> None:
         self.overlay.add_approval_buttons(labels=labels, callback=callback)
@@ -292,6 +353,7 @@ class Card:
         if self._key_id is not None:
             try:
                 self.overlay._win.disconnect(self._key_id)
+                self.overlay._win.disconnect(self._wheel_id)
             except Exception:
                 pass
             self._key_id = None
@@ -469,7 +531,7 @@ def mode_guide(card: Card) -> dict:
     deadline = time.time() + OVERALL_TIMEOUT_S
 
     def show() -> None:
-        card.text(f"{pages[state['i']]}\n\npage {state['i'] + 1} of {len(pages)}")
+        card.text(f"{pages[state['i']]}\npage {state['i'] + 1} of {len(pages)}")
 
     def go(d: int) -> None:
         state["i"] = max(0, min(len(pages) - 1, state["i"] + d))
@@ -483,7 +545,9 @@ def mode_guide(card: Card) -> dict:
         go(1) if k == "next" else go(-1) if k == "back" else close()
 
     def on_key(name: str) -> bool:
-        if name in ("Right", "Down", "n", "space", "Return", "KP_Enter"):
+        if name in ("Up", "Down") and card.overflow():
+            card.scroll(-1 if name == "Up" else 1)
+        elif name in ("Right", "Down", "n", "space", "Return", "KP_Enter"):
             go(1)
         elif name in ("Left", "Up", "b"):
             go(-1)
@@ -533,7 +597,7 @@ def mode_pager(card: Card, pane: str) -> dict:
         t = pager_text(scr)
         if t != state["last"]:
             state["last"] = t
-            card.text(t + "\n\n[ Back · Next · Close ]   digits = pick")
+            card.text(t + "\n\n◀ ▶ pages · digits pick")
 
     def on_button(k: str) -> None:
         if k == "next":
@@ -546,7 +610,9 @@ def mode_pager(card: Card, pane: str) -> dict:
             _stop(card)
 
     def on_key(name: str) -> bool:
-        if name in ("Right", "Down", "n", "Return", "KP_Enter", "space"):
+        if name in ("Up", "Down") and card.overflow():
+            card.scroll(-1 if name == "Up" else 1)
+        elif name in ("Right", "Down", "n", "Return", "KP_Enter", "space"):
             on_button("next")
         elif name in ("Left", "Up", "b"):
             on_button("back")
@@ -581,7 +647,16 @@ def mode_output(card: Card, pane: str, send: str, output: str) -> dict:
         state["done"] = True
         _stop(card)
 
-    card.on_key = lambda name: (on_button("done") or True) if name in ("Escape", "Return", "KP_Enter") else False
+    def out_key(name: str) -> bool:
+        if name in ("Up", "Down") and card.overflow():
+            card.scroll(-1 if name == "Up" else 1)
+            return True
+        if name in ("Escape", "Return", "KP_Enter"):
+            on_button("done")
+            return True
+        return False
+
+    card.on_key = out_key
     card.buttons({"done": "✔ Done"}, on_button)
     spoken = speak(digest)
 

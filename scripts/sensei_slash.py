@@ -58,6 +58,12 @@ def _base(name: str) -> str:
     return name.rstrip(":").strip()
 
 
+# "slash help" / "slash how do I use this" open the paged command guide: Sensei's own
+# /help page is taller than its window, so a card can only ever show its tail.
+_GUIDE_PHRASES = {"help", "help me", "how do i use this", "how do i use it", "how does this work",
+                  "what can you do", "what can i say", "how do i use tahuti", "how do i use sensei",
+                  "guide", "commands guide"}
+
 # Spoken shortcuts: "slash plan" means Sensei's `mode plan`, and so on.
 _ALIASES = {"plan": "mode plan", "plan mode": "mode plan",
             "review": "mode review", "review mode": "mode review",
@@ -142,6 +148,11 @@ def parse(transcript: str) -> Optional[dict]:
         return {"kind": "list"}  # just said "slash"
     if rest in _PICKER_PHRASES:
         return {"kind": "picker", "what": "model"}
+    if rest in _GUIDE_PHRASES:
+        return {"kind": "list"}
+    if rest in ("sensei help", "help pager", "sensei help pager"):
+        return {"kind": "run", "name": "help", "base": "help", "arg": "", "send": "/help",
+                "gated": False}
     rest = _ALIASES.get(rest, rest)
     menu = menu_for(rest)
     if menu:
@@ -175,17 +186,26 @@ _SECTION_TITLE = {"general": "General", "settings": "Settings & modes", "tools":
 GUIDE_PAGE_LINES = 7
 
 
+def _fit(text: str, width: int) -> str:
+    """Cut at a word boundary with an ellipsis — never mid-word."""
+    if len(text) <= width:
+        return text
+    cut = text[: width - 1].rsplit(" ", 1)[0]
+    return (cut if len(cut) > width // 2 else text[: width - 1]) + "…"
+
+
 def guide_pages() -> list[str]:
     """Card pages: how to use it, then every command grouped by section with the
     exact words to say. Built from the registry, so it can't go stale."""
-    pages = ["HOW TO USE SENSEI BY VOICE\n\n"
+    pages = ["HOW TO USE SENSEI BY VOICE\n"
              "Hold the trigger and say\n"
              "\"slash\" + a command name:\n\n"
              " slash compact  - runs it\n"
              " slash mode     - opens a menu\n"
              " slash plan     - plan mode\n"
-             " slash models   - pick a model\n\n"
-             "\"slash commands\" = this guide"]
+             " slash models   - pick a model\n"
+             " slash sensei help - its own help\n"
+             "\"slash help\" = this guide"]
     rows = load_commands()
     by_sec: dict[str, list[tuple]] = {}
     for r in rows:
@@ -200,7 +220,7 @@ def guide_pages() -> list[str]:
             for name, hint, needs_arg, _s in chunk:
                 words = _base(name).replace("_", " ")
                 say = f"slash {words}" + (" …" if needs_arg else "")
-                lines.append(f"{say} - {hint}"[:36])
+                lines.append(_fit(f"{say} - {hint}", 33))
             pages.append(head + "\n\n" + "\n".join(lines))
     return pages
 
