@@ -412,7 +412,9 @@ def _clean_line(ln: str) -> str:
 
 
 def is_ready(pane: str) -> bool:
-    return bool(_READY_RE.search(_capture(pane)))
+    # VISIBLE screen only: scrollback keeps an old footer from a previous Sensei
+    # run, which made a still-starting Sensei look ready (2026-11-04).
+    return bool(_READY_RE.search(capture_visible(pane)))
 
 
 # Sensei has modal screens that LOOK ready (the footer is still drawn) but treat
@@ -429,11 +431,7 @@ def _live_body(screen: str) -> list[str]:
     area. Earlier lines are transcript history (a closed /hub's footer stays
     there forever), so they must never decide whether a menu is open."""
     plain = [re.sub(r"\x1b\[[0-9;]*m", "", l) for l in screen.splitlines()]
-    end = len(plain)
-    for i in range(len(plain) - 1, -1, -1):
-        if _INPUT_TITLE_RE.search(plain[i]):
-            end = i
-            break
+    end = input_box_top(plain)
     body = [_clean_line(l) for l in plain[:end]]
     return [l for l in body if l and l != "🥷" and set(l) - set("─━═╔╗╚╝╠╣║│┌┐└┘ ")]
 
@@ -462,11 +460,7 @@ def modal_state(screen: str) -> Optional[str]:
     # A picker is an open box whose rows are radio bullets, sitting right above
     # the input box (nothing printed after it).
     plain = [re.sub(r"\x1b\[[0-9;]*m", "", l) for l in screen.splitlines()]
-    end = len(plain)
-    for i in range(len(plain) - 1, -1, -1):
-        if _INPUT_TITLE_RE.search(plain[i]):
-            end = i
-            break
+    end = input_box_top(plain)
     region = plain[:end]
     box_end = -1
     for i in range(len(region) - 1, -1, -1):
@@ -528,17 +522,33 @@ def _extract_new_output(before: str, after: str) -> str:
 
 
 _INPUT_TITLE_RE = re.compile(r"┌[─\s]*\|[^|\n]*\d{6,}[^|\n]*\|")   # the input box: "┌──|  … 1793745641 ○ |──┐"
+_FOOTER_LINE_RE = re.compile(r"MODE:\S+\s+·\s+MODEL:")
+
+
+def input_box_top(plain: list[str]) -> int:
+    """Row of the input box's top border. Found by the `MODE:… MODEL:…` footer
+    inside it, NOT by its title — the title changes (a long number, then
+    "✏ chat-name · 1" once a chat is named) and a title match silently stops
+    working. Falls back to the old title match, then to the screen's end."""
+    for i in range(len(plain) - 1, -1, -1):
+        if _FOOTER_LINE_RE.search(plain[i]):
+            for j in range(i - 1, -1, -1):
+                if "┌" in plain[j]:
+                    return j
+            break
+    for i in range(len(plain) - 1, -1, -1):
+        if _INPUT_TITLE_RE.search(plain[i]):
+            return i
+    return len(plain)
+
+
 _HEADER_RE = re.compile(r"MASTER AI\s*[—–-]\s*SENSEI\s+\d")          # "🥷 MASTER AI — SENSEI 11/03/2026 …"
 
 
 def chat_area(screen: str) -> list[str]:
     """Cleaned, non-empty lines of Sensei's chat pane (everything above the input box)."""
     plain = [re.sub(r"\x1b\[[0-9;]*m", "", l) for l in screen.splitlines()]
-    end = len(plain)
-    for i in range(len(plain) - 1, -1, -1):
-        if _INPUT_TITLE_RE.search(plain[i]):
-            end = i
-            break
+    end = input_box_top(plain)
     out = [_clean_line(l) for l in plain[:end]]
     return [l for l in out if l and set(l) - set("─━═╔╗╚╝╠╣║│ ")]
 

@@ -88,8 +88,9 @@ def parse_picker(screen: str) -> dict | None:
     raw_lines = screen.splitlines()
     plain = [_SGR_RE.sub("", l) for l in raw_lines]
     start = -1
+    itop = sb.input_box_top(plain)
     for i in range(len(plain) - 1, -1, -1):
-        if "┌" in plain[i] and _TITLE_BAR_RE.search(plain[i]) and not _CHAT_TITLE_RE.search(plain[i]):
+        if i != itop and "┌" in plain[i] and _TITLE_BAR_RE.search(plain[i]) and not _CHAT_TITLE_RE.search(plain[i]):
             start = i
             break
     if start < 0:
@@ -144,13 +145,27 @@ def wait_for_change(pane: str, before: dict | None, timeout: float = 3.0) -> dic
 
 
 def pager_text(screen: str, max_lines: int = 24) -> str:
-    """The current page of a pager/menu: everything above the input box."""
+    """The current page of a pager/menu. Prefer the page box itself (from its
+    top border to the `n=next b=back q=close` footer); fall back to everything
+    above the input box."""
     plain = [_SGR_RE.sub("", l) for l in screen.splitlines()]
-    end = len(plain)
-    for i in range(len(plain) - 1, -1, -1):
-        if _CHAT_TITLE_RE.search(plain[i]):
-            end = i
+    end = sb.input_box_top(plain)
+    foot = -1
+    for i in range(end - 1, -1, -1):
+        if sb._PAGER_RE.search(plain[i]):
+            foot = i
             break
+    if foot > 0:
+        top = -1
+        for i in range(foot - 1, -1, -1):
+            if "╔" in plain[i]:
+                top = i
+                break
+        if top >= 0:
+            page = [sb._clean_line(l) for l in plain[top:foot]]
+            page = [l for l in page if l and set(l) - set("─━═╔╗╚╝╠╣║│ ")]
+            if page:
+                return "\n".join(page[:max_lines])
     body = [sb._clean_line(l) for l in plain[:end]]
     body = [l for l in body if l and set(l) - set("─━═╔╗╚╝╠╣║│ ")]
     return "\n".join(body[-max_lines:])
@@ -226,6 +241,41 @@ class Card:
         ov.machine.set_state(self.ThootieState.APPROVAL_PRESENTED, self.StatePayload(action_kind="approval"))
         self._key_id = ov._win.connect("key-press-event", self._key)
         self._opened = True
+        self._grab_keyboard()
+
+    def _grab_keyboard(self, tries: int = 12) -> None:
+        """The card is a focus-less popup, so keys never reach it by themselves.
+        Take the keyboard while it is open (released in close(), and the card
+        always times out), so Up/Down/Left/Right/Enter/Esc — typed or sent by the
+        controller's D-pad — drive the card instead of the window behind it."""
+        Gdk = self.Gdk
+
+        def attempt() -> bool:
+            try:
+                gw = self.overlay._win.get_window()
+                if gw is not None and gw.is_viewable():
+                    seat = Gdk.Display.get_default().get_default_seat()
+                    st = seat.grab(gw, Gdk.SeatCapabilities.KEYBOARD, False, None, None, None)
+                    self._grabbed = st == Gdk.GrabStatus.SUCCESS
+                    log(f"keyboard grab: {st.value_nick}")
+                    return False
+            except Exception as exc:
+                log(f"keyboard grab failed: {exc}")
+                return False
+            attempt.n += 1  # type: ignore[attr-defined]
+            return attempt.n < tries  # type: ignore[attr-defined]
+
+        attempt.n = 0  # type: ignore[attr-defined]
+        if attempt():
+            self.GLib.timeout_add(100, attempt)
+
+    def _release_keyboard(self) -> None:
+        if getattr(self, "_grabbed", False):
+            try:
+                self.Gdk.Display.get_default().get_default_seat().ungrab()
+            except Exception:
+                pass
+            self._grabbed = False
 
     def _key(self, _w, event) -> bool:
         name = self.Gdk.keyval_name(event.keyval) or ""
@@ -238,6 +288,7 @@ class Card:
         self.overlay.add_approval_buttons(labels=labels, callback=callback)
 
     def close(self) -> None:
+        self._release_keyboard()
         if self._key_id is not None:
             try:
                 self.overlay._win.disconnect(self._key_id)
@@ -356,13 +407,13 @@ def mode_picker(card: Card, pane: str, pk: dict) -> dict:
             "model": footer.group(1) if footer else ""}
 
 
-def menu_card_text(menu: dict) -> str:
+def menu_card_text(menu: dict, cursor: int = 0) -> str:
     """What a first-time user needs on the card: the choices, the exact words
     that run each one by voice, and how to pick."""
     lines = [f"{menu['title']} — pick one", ""]
     for i, (label, _send, phrase) in enumerate(menu["items"], 1):
-        lines.append(f"{i} {label} - {phrase}"[:38])
-    lines += ["", "Click, press its number, or say it."]
+        lines.append(f"{'▶' if i - 1 == cursor else ' '}{i} {label} - {phrase}"[:38])
+    lines += ["", "Arrows + Enter, a number, or say it."]
     return "\n".join(lines)
 
 
@@ -370,8 +421,12 @@ def mode_menu(card: Card, menu: dict) -> str | None:
     """Button menu for a command with ready-made options. Touches nothing in
     Sensei; returns the chosen slash command, or None if cancelled / timed out."""
     items = menu["items"]
-    state: dict = {"choice": None, "done": False}
+    state: dict = {"choice": None, "done": False, "cur": 0}
     deadline = time.time() + OVERALL_TIMEOUT_S
+
+    def move(d: int) -> None:
+        state["cur"] = (state["cur"] + d) % len(items)
+        card.text(menu_card_text(menu, state["cur"]))
 
     def pick(i: int | None) -> None:
         state["choice"] = items[i][1] if i is not None else None
@@ -384,6 +439,12 @@ def mode_menu(card: Card, menu: dict) -> str | None:
     def on_key(name: str) -> bool:
         if name == "Escape":
             pick(None)
+        elif name in ("Up", "Left", "k"):
+            move(-1)
+        elif name in ("Down", "Right", "j"):
+            move(1)
+        elif name in ("Return", "KP_Enter", "space"):
+            pick(state["cur"])
         elif len(name) == 1 and name.isdigit() and 1 <= int(name) <= len(items):
             pick(int(name) - 1)
         else:
@@ -422,9 +483,9 @@ def mode_guide(card: Card) -> dict:
         go(1) if k == "next" else go(-1) if k == "back" else close()
 
     def on_key(name: str) -> bool:
-        if name in ("Right", "n", "space", "Return", "KP_Enter"):
+        if name in ("Right", "Down", "n", "space", "Return", "KP_Enter"):
             go(1)
-        elif name in ("Left", "b"):
+        elif name in ("Left", "Up", "b"):
             go(-1)
         elif name in ("Escape", "q"):
             close()
@@ -455,9 +516,11 @@ def mode_pager(card: Card, pane: str) -> dict:
             _stop(card)
             return
         log(f"pager send {s!r}")
-        sb._tmux("send-keys", "-t", pane, "C-u")
         sb._tmux("send-keys", "-t", pane, "-l", "--", s)
-        sb._tmux("send-keys", "-t", pane, "Enter")
+        if s not in ("n", "b"):
+            # Sensei's pager reads ONE key for n/b (Enter would turn the page twice).
+            # Anything longer (a number to pick) is read as a line and needs Enter.
+            sb._tmux("send-keys", "-t", pane, "Enter")
         time.sleep(1.2)
         refresh()
 
@@ -483,9 +546,9 @@ def mode_pager(card: Card, pane: str) -> dict:
             _stop(card)
 
     def on_key(name: str) -> bool:
-        if name in ("Right", "n", "Return", "KP_Enter", "space"):
+        if name in ("Right", "Down", "n", "Return", "KP_Enter", "space"):
             on_button("next")
-        elif name in ("Left", "b"):
+        elif name in ("Left", "Up", "b"):
             on_button("back")
         elif name in ("Escape", "q"):
             on_button("close")
