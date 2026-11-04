@@ -1,0 +1,12 @@
+[Unit]
+Description=Ask every ~2 hours whether you want to open the Tahuti README
+
+[Timer]
+# First ask 45 minutes after login, then every 2 hours. tahuti_nudge.py itself
+# stays quiet when you are busy and does nothing once you turn it off.
+OnBootSec=45min
+OnUnitActiveSec=2h
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

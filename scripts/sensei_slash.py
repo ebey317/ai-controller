@@ -108,9 +108,14 @@ def is_gated(name: str) -> bool:
 # --------------------------------------------------------------------------
 # parsing a spoken/typed transcript
 # --------------------------------------------------------------------------
+# "show me the docker commands" is a question for the model, NOT a request for
+# Sensei's list (review finding, 2026-11-04): the word has to be "slash", or the
+# whole utterance has to be just "(list|show) (my|all) commands".
 _LIST_RE = re.compile(
-    r"^\s*(?:/commands?|(?:list|show|read|tell me|what are|get|give me)\b.*\b"
-    r"(?:slash commands?|commands)|slash commands?|slash|/)\s*[.?!]*\s*$", re.I)
+    r"^\s*(?:/commands?|"
+    r"(?:list|show|read|tell me|what are|get|give me)\b[^.?!]{0,30}\bslash commands?|"
+    r"(?:list|show)(?:\s+me)?(?:\s+all)?(?:\s+(?:the|my|your))?\s+commands?|"
+    r"slash commands?|slash|/)\s*[.?!]*\s*$", re.I)
 
 # Say "slash models" (or "change model") -> the interactive selector card, not
 # a one-shot text dump. Sensei's own /model is an interactive picker.
@@ -190,10 +195,12 @@ def parse(transcript: str) -> Optional[dict]:
             return {"kind": "run", "name": name, "base": _base(name), "arg": arg,
                     "send": send, "gated": is_gated(name)}
     bases = [_base(n) for n in names]
-    if len(rest.split()) > 3:
-        return None   # a sentence that merely starts with "slash" ("slash the budget…"): not a command
-    return {"kind": "unknown", "said": rest,
-            "suggest": difflib.get_close_matches(rest, bases, n=4, cutoff=0.5)}
+    if len(rest.split()) > 3 or "/" in m.group(1):
+        return None   # a sentence ("slash the budget…") or a dictated path ("/etc/hosts"): not a command
+    suggest = difflib.get_close_matches(rest, bases, n=4, cutoff=0.6)
+    if not suggest:
+        return None   # "slash prices now": nothing resembles a command, so let the model answer
+    return {"kind": "unknown", "said": rest, "suggest": suggest}
 
 
 _SECTION_ORDER = ["general", "settings", "tools", "plan", "nav", "exit"]

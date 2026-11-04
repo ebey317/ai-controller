@@ -877,22 +877,6 @@ READ_PAGE_MAX_CHARS = 6000
 READ_PAGE_MAX_BYTES = 1_500_000
 
 
-def _host_is_public(host: str) -> bool:
-    """False for loopback/private/link-local/metadata targets (SSRF guard)."""
-    import ipaddress
-    import socket
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except Exception:
-        return False
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
-                or ip.is_reserved or ip.is_unspecified):
-            return False
-    return bool(infos)
-
-
 def _resolve_public_ip(host: str, port: int) -> Optional[str]:
     """Resolve ONCE and return an address to connect to, only if EVERY address the
     name resolves to is public. The caller connects to this exact IP, so a second
@@ -990,7 +974,9 @@ def _read_page_tool(url: str) -> dict:
             target = urllib.parse.urlunparse(parts._replace(netloc=netloc))
             hop_headers = {**headers, "Host": parts.netloc}
             ext = {"sni_hostname": host} if parts.scheme == "https" else {}
-            with httpx.Client(timeout=15.0, follow_redirects=False) as c:
+            # trust_env=False: a proxy from the environment would receive the bare IP
+            # and do its own routing, defeating the address check above.
+            with httpx.Client(timeout=15.0, follow_redirects=False, trust_env=False) as c:
                 with c.stream("GET", target, headers=hop_headers, extensions=ext) as r:
                     if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
                         cur = urllib.parse.urljoin(cur, r.headers["location"])
@@ -1337,6 +1323,27 @@ def _reachable_pin_names() -> list[str]:
         return []
 
 
+_SYSTEMD_RUN_OK: dict = {"at": 0.0, "ok": False}
+
+
+def _systemd_run_works() -> bool:
+    """Does `systemd-run --user --scope` work from this process right now? Probed with
+    a harmless `true`, cached for a minute. (An app's own fast non-zero exit must NOT
+    be mistaken for a wrapper failure, or the app gets launched twice.)"""
+    now = time.time()
+    if now - _SYSTEMD_RUN_OK["at"] < 60:
+        return bool(_SYSTEMD_RUN_OK["ok"])
+    ok = False
+    if shutil.which("systemd-run"):
+        try:
+            ok = subprocess.run(["systemd-run", "--user", "--scope", "--quiet", "--collect", "true"],
+                                capture_output=True, timeout=5).returncode == 0
+        except Exception:
+            ok = False
+    _SYSTEMD_RUN_OK.update(at=now, ok=ok)
+    return ok
+
+
 def _detached(argv: list[str]) -> list[str]:
     """Run a GUI launch in its OWN systemd scope so it outlives this service.
 
@@ -1345,9 +1352,9 @@ def _detached(argv: list[str]) -> list[str]:
     the operator's Chrome — start_new_session only changes the POSIX session,
     not the cgroup. `systemd-run --user --scope` moves the program (it execs,
     so the PID is unchanged) into a transient scope systemd won't reap with us.
-    Falls back to the plain argv if systemd-run isn't there.
+    Plain argv when systemd-run is missing or unusable (no user bus, denied).
     """
-    if shutil.which("systemd-run"):
+    if _systemd_run_works():
         return ["systemd-run", "--user", "--scope", "--quiet", "--collect", *argv]
     return argv
 
@@ -1366,18 +1373,6 @@ def _launch_visible(argv: list[str], tag: str) -> dict:
         proc = subprocess.Popen(
             _detached(argv), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
-        # systemd-run can fail at once (no user bus, denied) while Popen still
-        # "succeeds": the app never starts and the dead systemd-run PID would be
-        # recorded as the window to raise. A GUI program keeps running, so a quick
-        # non-zero exit means the wrapper failed: launch it the plain way instead.
-        try:
-            code = proc.wait(timeout=0.8)
-        except subprocess.TimeoutExpired:
-            code = None
-        if code not in (None, 0) and _detached(argv) != argv:
-            logger.warning("systemd-run launch of %s failed (exit %s); launching directly", tag, code)
-            proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                    start_new_session=True)
         try:
             LAST_TERM_FILE.write_text(str(proc.pid), encoding="utf-8")
         except Exception:
@@ -1990,6 +1985,27 @@ def _save_conversation_turn(user_text: str, assistant_text: str) -> None:
 _READ_ONLY_TOOLS = {"read_file", "list_dir", "check_email", "check_commits", "read_page"}
 
 
+# Tools whose RESULTS are the operator's private content (files, mail, commit
+# history). A pinned model on someone else's servers only gets them if that
+# provider is trusted. Default: models running on this computer. To trust another
+# provider, put its name (e.g. ollama-cloud) on its own line in this file.
+_PRIVATE_TOOLS = {"read_file", "list_dir", "check_email", "check_commits"}
+_TRUSTED_PROVIDERS_FILE = Path.home() / ".tahuti" / "trusted_providers"
+_DEFAULT_TRUSTED = {"local", "ollama"}
+
+
+def _trusted_providers() -> set[str]:
+    trusted = set(_DEFAULT_TRUSTED)
+    try:
+        for line in _TRUSTED_PROVIDERS_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip().lower()
+            if line and not line.startswith("#"):
+                trusted.add(line)
+    except OSError:
+        pass
+    return trusted
+
+
 class PinnedPartialFailure(Exception):
     """The pinned model failed AFTER running tools that change things."""
 
@@ -2009,6 +2025,10 @@ def _call_pinned_model(pin: tuple[str, str], transcript: str, goal_id: str, t0: 
     acted: list[str] = []
 
     def _execute(call: dict) -> dict:
+        if call.get("name") in _PRIVATE_TOOLS and pin[0].lower() not in _trusted_providers():
+            return {"ok": False, "error": (
+                f"Private content is not shared with {pin[0]}. To allow it, add "
+                f"'{pin[0]}' to ~/.tahuti/trusted_providers.")}
         if call.get("name") not in _READ_ONLY_TOOLS:
             acted.append(str(call.get("name")))
         return _execute_file_tool(goal_id, call, allowed)
@@ -2342,8 +2362,9 @@ def _spoken_form(text: str) -> str:
 def _post_speak(text: str) -> None:
     if not text:
         return
-    spoken = spoken_form(text)
-    data = urllib.parse.urlencode({"text": spoken}).encode("utf-8")
+    # Raw text: the voice bridge applies spoken_form() itself, ONCE. Flattening here
+    # as well ran the cleanup twice and could make voice differ from caption.
+    data = urllib.parse.urlencode({"text": text}).encode("utf-8")
     headers: dict = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
@@ -2881,11 +2902,26 @@ def _process_slash(goal_id: str, slash: dict) -> tuple[str, bool]:
         if gate is not None:
             return (gate.get("error") or f"{send} was not run."), False
 
-    with sensei_slash.sensei_lock():
+    with sensei_slash.sensei_lock() as got_lock:
+        if not got_lock:
+            # Another command is still using Sensei. Typing now would garble both.
+            return "Sensei is busy with another command. Try again in a moment.", False
         started = False
         # Card path (every command): needs a display.
         if os.environ.get("DISPLAY"):
             res = _run_slash_card(send, menu_base)
+            if res.get("action") == "needs_gate":
+                # A menu choice is the same command as the typed one: gated commands
+                # (git commit, hooks disable, clear…) get the same approval card.
+                chosen = res["send"]
+                cbase = chosen.lstrip("/")
+                gate = _gate_desktop_action(
+                    goal_id, f"tahuti:slash:{cbase.split()[0]}",
+                    f"Run {chosen} in Sensei", f"{chosen} was not run")
+                if gate is not None:
+                    return (gate.get("error") or f"{chosen} was not run."), False
+                send, base = chosen, cbase
+                res = _run_slash_card(chosen)
             if res.get("ok"):
                 mode = res.get("mode")
                 if mode == "picker":

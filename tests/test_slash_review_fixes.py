@@ -123,3 +123,119 @@ def test_read_page_refuses_when_any_address_is_private(monkeypatch):
 
     monkeypatch.setattr(socket, "getaddrinfo", fake)
     assert runner._resolve_public_ip("mixed.test", 80) is None
+
+
+# ===== second review round (2026-11-04) =====================================
+@pytest.mark.parametrize("said", [
+    "show me the docker commands", "give me the git commands",
+    "tell me the keyboard commands", "slash prices now", "/etc/hosts",
+])
+def test_ordinary_requests_are_not_hijacked_by_the_slash_lane(said):
+    assert sb.parse(said) is None
+
+
+@pytest.mark.parametrize("said", ["list slash commands", "show commands", "slash commands", "slash"])
+def test_real_list_requests_still_open_the_list(said):
+    assert sb.parse(said)["kind"] == "list"
+
+
+def test_speech_cut_never_lands_mid_word():
+    out = speech_text.spoken_form("word " * 500, limit=100)
+    assert out.endswith("…") and not out[:-1].endswith("wor")
+
+
+def _runner():
+    import tahuti_goal_runner as runner
+    return runner
+
+
+def test_menu_choice_that_is_gated_goes_through_the_approval_card(monkeypatch):
+    runner = _runner()
+    gated, ran = [], []
+
+    class Lock:
+        def __enter__(self): return True
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(runner.sensei_slash, "sensei_lock", lambda: Lock())
+    monkeypatch.setenv("DISPLAY", ":0")
+
+    def fake_card(send, menu="", guide=False):
+        if menu:                       # first call: the menu, person picked a gated command
+            return {"ok": True, "mode": "menu", "action": "needs_gate", "send": "/git commit"}
+        ran.append(send)               # second call: the command itself
+        return {"ok": True, "mode": "output", "output": "done", "digest": "ok", "spoken": True}
+
+    monkeypatch.setattr(runner, "_run_slash_card", fake_card)
+    monkeypatch.setattr(runner, "_gate_desktop_action",
+                        lambda gid, pattern, desc, denied: gated.append(pattern) or None)
+    monkeypatch.setattr(runner, "_write_to_agent_thread", lambda *a, **k: None)
+    runner._process_slash("g1", {"kind": "menu", "base": "git"})
+    assert gated == ["tahuti:slash:git"] and ran == ["/git commit"]
+
+
+def test_menu_choice_runs_nothing_when_the_gate_denies(monkeypatch):
+    runner = _runner()
+    ran = []
+
+    class Lock:
+        def __enter__(self): return True
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(runner.sensei_slash, "sensei_lock", lambda: Lock())
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(runner, "_run_slash_card",
+                        lambda send, menu="", guide=False: {"ok": True, "action": "needs_gate", "send": "/hooks disable"}
+                        if menu else ran.append(send) or {})
+    monkeypatch.setattr(runner, "_gate_desktop_action", lambda *a, **k: {"error": "denied"})
+    text, _ = runner._process_slash("g1", {"kind": "menu", "base": "hooks"})
+    assert ran == [] and "denied" in text
+
+
+def test_busy_sensei_lock_means_nothing_is_typed(monkeypatch):
+    runner = _runner()
+
+    class Busy:
+        def __enter__(self): return False
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(runner.sensei_slash, "sensei_lock", lambda: Busy())
+    monkeypatch.setattr(runner, "_run_slash_card", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(runner.sensei_slash, "ensure_sensei", lambda: pytest.fail("must not touch Sensei"))
+    text, _ = runner._process_slash("g1", {"kind": "run", "base": "mode", "send": "/mode", "gated": False})
+    assert "busy" in text.lower()
+
+
+def test_private_tools_are_withheld_from_an_untrusted_provider(monkeypatch, tmp_path):
+    runner = _runner()
+    monkeypatch.setattr(runner, "_TRUSTED_PROVIDERS_FILE", tmp_path / "trusted")
+    assert runner._trusted_providers() == {"local", "ollama"}
+    (tmp_path / "trusted").write_text("# mine\nollama-cloud\n")
+    assert "ollama-cloud" in runner._trusted_providers()
+
+
+def test_launcher_uses_the_plain_command_when_systemd_run_does_not_work(monkeypatch):
+    runner = _runner()
+    monkeypatch.setitem(runner._SYSTEMD_RUN_OK, "at", runner.time.time())
+    monkeypatch.setitem(runner._SYSTEMD_RUN_OK, "ok", False)
+    assert runner._detached(["xdg-open", "x"]) == ["xdg-open", "x"]
+    monkeypatch.setitem(runner._SYSTEMD_RUN_OK, "ok", True)
+    assert runner._detached(["xdg-open", "x"])[:3] == ["systemd-run", "--user", "--scope"]
+
+
+def test_read_page_ignores_proxy_environment(monkeypatch):
+    import httpx
+    runner = _runner()
+    seen = {}
+
+    class Boom(Exception):
+        pass
+
+    def fake_client(*a, **k):
+        seen.update(k)
+        raise Boom()
+
+    monkeypatch.setattr(runner, "_resolve_public_ip", lambda h, p: "93.184.216.34")
+    monkeypatch.setattr(httpx, "Client", fake_client)
+    runner._read_page_tool("https://example.com")
+    assert seen.get("trust_env") is False

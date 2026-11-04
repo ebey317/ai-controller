@@ -63,4 +63,8 @@ def spoken_form(text: str, limit: int = MAX_SPOKEN_CHARS) -> str:
         return out
     cut = out[:limit]
     end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
-    return (cut[: end + 1] if end > limit // 2 else cut).strip()
+    if end > limit // 2:
+        return cut[: end + 1].strip()
+    # No sentence end in reach: cut at a WORD boundary, never mid-word.
+    space = cut.rfind(" ")
+    return (cut[:space] if space > limit // 2 else cut).strip() + "…"

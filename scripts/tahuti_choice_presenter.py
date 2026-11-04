@@ -177,26 +177,9 @@ def pager_text(screen: str, max_lines: int = 24) -> str:
 
 
 def tts_playing() -> bool:
-    """A LIVE TTS player (exact process names; zombies and shells that merely
-    mention the pattern don't count)."""
-    pids: list[str] = []
-    try:
-        pids += subprocess.run(["pgrep", "-x", "hermes_tts_play"], capture_output=True, text=True).stdout.split()
-        for pid in subprocess.run(["pgrep", "-x", "mpv"], capture_output=True, text=True).stdout.split():
-            try:
-                if b"AI_TTS_BARGE" in Path(f"/proc/{pid}/cmdline").read_bytes():
-                    pids.append(pid)
-            except Exception:
-                continue
-    except Exception:
-        return False
-    for pid in pids:
-        try:
-            if Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z":
-                return True
-        except Exception:
-            continue
-    return False
+    """Shared with the avatar window: one definition of "the voice is still talking"."""
+    from ninja.avatar_approval import tts_playing as _playing
+    return _playing()
 
 
 def speak(text: str) -> bool:
@@ -225,8 +208,7 @@ class Card:
         import gi
         gi.require_version("Gtk", "3.0")
         from gi.repository import Gdk, GLib
-        from ninja.state_machine import StatePayload, ThootieState, get_overlay, space_sentences
-        self._space = space_sentences
+        from ninja.state_machine import StatePayload, ThootieState, get_overlay
         self.GLib, self.Gdk = GLib, Gdk
         self.ThootieState, self.StatePayload = ThootieState, StatePayload
         self.overlay = get_overlay(agent="tahuti")
@@ -319,7 +301,6 @@ class Card:
         return rows
 
     def text(self, t: str) -> None:
-        t = self._space(t)   # blank line between sentences; lists untouched
         rows = self._wrap(t)
         if t != getattr(self, "_full", None):
             self._off = 0
@@ -761,6 +742,10 @@ def _main() -> int:
             return _out({"ok": False, "action": "cancelled", "reason": "cancelled on the menu"})
         send = chosen_from_menu = choice
         log(f"MENU chose {choice!r}")
+        if sb.is_gated(choice.lstrip("/")):
+            # Do not run it here: the runner puts the same approval card in front
+            # of it that a typed gated command gets, then re-invokes with --send.
+            return _out({"ok": True, "mode": "menu", "action": "needs_gate", "send": choice})
         try:
             card = Card()   # fresh card for the command's own result
         except Exception as exc:
