@@ -54,18 +54,23 @@ def ensure_readme() -> Path:
 
 
 def open_readme() -> bool:
-    """Show the README in the user's own browser. TAHUTI_README_OPENER overrides
-    the opener (used by tests so they don't open a real window)."""
+    """Open the README as an MCP tab (the tab group that shows an agent opened
+    it). Never a bare xdg-open tab. False if the browser bridge is not connected;
+    the caller then falls back to showing the guide inside the card.
+    TAHUTI_README_OPENER (tests only) swaps in a stand-in so no real tab opens."""
     path = ensure_readme()
     if not path.exists():
         return False
-    opener = os.environ.get("TAHUTI_README_OPENER", "xdg-open")
-    try:
-        subprocess.Popen([opener, str(path)], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except Exception:
-        return False
+    stand_in = os.environ.get("TAHUTI_README_OPENER")
+    if stand_in:
+        try:
+            subprocess.Popen([stand_in, str(path)], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            return False
+    import mcp_tabs
+    return bool(mcp_tabs.open_tab(path).get("ok"))
 
 
 def _busy_reason() -> str:

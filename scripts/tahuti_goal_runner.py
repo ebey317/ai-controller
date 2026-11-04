@@ -1227,16 +1227,14 @@ def _open_url_tool(goal_id: str, url: str) -> dict:
         "the page was not opened")
     if gate is not None:
         return gate
-    try:
-        subprocess.Popen(
-            _detached(["xdg-open", raw]),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        return {"ok": True, "opened": raw}
-    except Exception as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    # Operator rule (2026-11-04): every tab an agent opens is an MCP tab, so people
+    # can see an agent opened it. Never a bare xdg-open tab.
+    import mcp_tabs
+    res = mcp_tabs.open_tab(raw)
+    if res.get("ok"):
+        return {"ok": True, "opened": raw, "via": "mcp-tab"}
+    return {"ok": False, "error": ("the browser bridge isn't connected, so I couldn't open it as an MCP tab "
+                                   f"({res.get('reason', 'unknown')})")}
 
 
 APP_COMMANDS = {

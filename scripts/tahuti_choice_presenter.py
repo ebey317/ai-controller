@@ -717,7 +717,15 @@ def main() -> int:
         finally:
             card.close()
         if choice == "open":
-            return _out({"ok": True, "mode": "nudge", "action": "open", "opened": nudge.open_readme()})
+            opened = nudge.open_readme()
+            if not opened:   # browser bridge down: read it in the card instead
+                log("README: MCP tab unavailable; showing the guide in the card")
+                try:
+                    guide_card = Card()
+                    mode_guide(guide_card)
+                finally:
+                    guide_card.close()
+            return _out({"ok": True, "mode": "nudge", "action": "open", "opened": opened})
         if choice == "off":
             nudge.set_enabled(False)
             return _out({"ok": True, "mode": "nudge", "action": "off"})
