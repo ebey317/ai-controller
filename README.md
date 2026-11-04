@@ -29,6 +29,23 @@ It is a real, daily-used accessibility product — not a prototype. Plug in the 
 | **Auto profile switching** | AntiMicroX layouts swap between desktop, browser, and YouTube TV based on the active window. |
 | **Voice responses (TTS)** | The voice bridge can speak answers back via edge-tts. |
 | **Systemd-managed services** | Start, stop, and opt-in autostart from the launcher app. |
+| **Talk to an AI agent (Tahuti)** | Hold **L + R** (or **F13**), ask anything, hear the answer spoken back in seconds. |
+| **Slash commands by voice** | Say **"slash"** + a command name — `slash mode`, `slash models`, `slash help` — commands run instantly, nothing is sent to an AI model. |
+| **Approval cards** | Anything that changes your desktop (open a website, launch an app) shows a yes/no card first. Unattended, it fails closed. |
+
+---
+
+## Talk to it (Tahuti + Sensei)
+
+The controller isn't just input — it's an AI agent with a face. The on-screen **avatar** shows what it's doing, gives you cards to read and click, and answers out loud.
+
+**Zero-knowledge start:** hold the trigger, say **"slash help"**, and a card walks you through every voice command — no manual needed. What you can do right now:
+
+- Ask questions: "Give me a one-sentence fact about the moon." (~seconds, spoken back)
+- Run desktop actions: "Open YouTube" — lands first as an approval card, you decide.
+- Control the agent itself by voice: `slash mode`, `slash models`, `slash compact`.
+
+Full walkthrough (plain English, no jargon): **[docs/TAHUTI_README.md](docs/TAHUTI_README.md)**
 
 ---
 
