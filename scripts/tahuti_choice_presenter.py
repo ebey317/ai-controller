@@ -9,7 +9,7 @@ Sends the command to the LIVE Sensei TUI (via sensei_slash), then adapts the
 card to whatever Sensei actually shows. It never reimplements a command — the
 card MIRRORS Sensei's screen and forwards presses to it:
 
-  picker  (/model …)   list + cursor      ▲ Up  ▼ Down  ✔ Select  ✖ Cancel
+  picker  (/model …)   list + cursor      ◀ Prev  Next ▶  ⏎ Select  Esc ✕ Cancel
   pager   (/hub /help) page text          ◀ Back  Next ▶  ✖ Close   (digits = #=pick)
   output  (/doctor …)  the printed text   ✔ Done; speaks a digest and closes
                                           when the voice finishes (no timer)
@@ -43,6 +43,9 @@ sys.path.insert(0, os.path.expanduser("~/master-ai-cli"))
 import sensei_slash as sb  # noqa: E402
 
 OVERALL_TIMEOUT_S = 180
+# The README reminder waits for a real answer: it stays up until you pick an
+# option or press Esc, and only gives up after 2 minutes (never under 90s).
+NUDGE_TIMEOUT_S = 120
 MAX_LEVELS = 4  # provider -> model -> (variant) -> ...
 OUTPUT_CARD_LINES = 22
 NO_SPEECH_GRACE_S = 12.0  # output card: give up waiting for the voice after this
@@ -321,6 +324,21 @@ class Card:
         self._full, self._rows = t, rows
         self._render()
 
+    def advance(self, d: int) -> bool:
+        """◀ / ▶ on a card whose text is taller than the card: scroll first, so the
+        reader sees everything on this page; returns False once there is no more
+        in that direction (the caller then turns the page)."""
+        if not self.overflow():
+            return False
+        body = self.ROWS - 1
+        off = getattr(self, "_off", 0)
+        if d > 0 and off + body >= len(self._rows):
+            return False
+        if d < 0 and off <= 0:
+            return False
+        self.scroll(d * (body - 1))
+        return True
+
     def overflow(self) -> bool:
         return len(getattr(self, "_rows", [])) > self.ROWS
 
@@ -343,7 +361,7 @@ class Card:
         self._off = off
         mark = ("▲" if off > 0 else " ") + ("▼" if off + body < len(rows) else " ")
         self.overlay.set_card_text(
-            "\n".join(rows[off:off + body] + [f"{mark} {off + 1}-{min(off + body, len(rows))}/{len(rows)}  ↑↓ PgUp/Dn"]))
+            "\n".join(rows[off:off + body] + [f"{mark} {off + 1}-{min(off + body, len(rows))}/{len(rows)}  ◀ ▶ more"]))
 
     def buttons(self, labels: dict, callback) -> None:
         self.overlay.add_approval_buttons(labels=labels, callback=callback)
@@ -418,9 +436,9 @@ def mode_picker(card: Card, pane: str, pk: dict) -> dict:
             finish("cancelled", "cancelled on the card")
 
     def on_key(name: str) -> bool:
-        if name in ("Up", "k"):
+        if name in ("Left", "k"):
             nav("Up")
-        elif name in ("Down", "j"):
+        elif name in ("Right", "j"):
             nav("Down")
         elif name in ("Return", "KP_Enter"):
             finish("select")
@@ -431,7 +449,7 @@ def mode_picker(card: Card, pane: str, pk: dict) -> dict:
         return True
 
     card.on_key = on_key
-    labels = {"up": "▲ Up", "down": "▼ Down", "select": "✔ Select", "cancel": "✖ Cancel"}
+    labels = {"up": "◀ Prev", "down": "Next ▶", "select": "⏎ Select", "cancel": "Esc ✕ Cancel"}
 
     def tick() -> bool:  # follow Sensei if it moves on its own
         if state["result"]:
@@ -472,19 +490,19 @@ def mode_picker(card: Card, pane: str, pk: dict) -> dict:
 def menu_card_text(menu: dict, cursor: int = 0) -> str:
     """What a first-time user needs on the card: the choices, the exact words
     that run each one by voice, and how to pick."""
-    lines = [f"{menu['title']} — pick one", ""]
+    lines = [menu.get("header") or f"{menu['title']} — pick one", ""]
     for i, (label, _send, phrase) in enumerate(menu["items"], 1):
-        lines.append(f"{'▶' if i - 1 == cursor else ' '}{i} {label} - {phrase}"[:38])
-    lines += ["", "Arrows + Enter, a number, or say it."]
+        lines.append(f"{'▶' if i - 1 == cursor else ' '}{i} {label} - {phrase}")
+    lines += ["", menu.get("hint") or "◀ ▶ + Enter · number · or say it"]
     return "\n".join(lines)
 
 
-def mode_menu(card: Card, menu: dict) -> str | None:
+def mode_menu(card: Card, menu: dict, announce: bool = True, timeout_s: float = OVERALL_TIMEOUT_S) -> str | None:
     """Button menu for a command with ready-made options. Touches nothing in
     Sensei; returns the chosen slash command, or None if cancelled / timed out."""
     items = menu["items"]
     state: dict = {"choice": None, "done": False, "cur": 0}
-    deadline = time.time() + OVERALL_TIMEOUT_S
+    deadline = time.time() + timeout_s
 
     def move(d: int) -> None:
         state["cur"] = (state["cur"] + d) % len(items)
@@ -501,9 +519,9 @@ def mode_menu(card: Card, menu: dict) -> str | None:
     def on_key(name: str) -> bool:
         if name == "Escape":
             pick(None)
-        elif name in ("Up", "Left", "k"):
+        elif name in ("Left", "k"):
             move(-1)
-        elif name in ("Down", "Right", "j"):
+        elif name in ("Right", "j"):
             move(1)
         elif name in ("Return", "KP_Enter", "space"):
             pick(state["cur"])
@@ -516,9 +534,10 @@ def mode_menu(card: Card, menu: dict) -> str | None:
     card.open(menu_card_text(menu))
     card.on_key = on_key
     labels = {str(i): f"{i + 1} {lbl}" for i, (lbl, _s, _p) in enumerate(items)}
-    labels["cancel"] = "✖ Cancel"
+    labels["cancel"] = "Esc ✕ Cancel"
     card.buttons(labels, on_button)
-    speak("Pick one: " + ", ".join(lbl for lbl, _s, _p in items) + ".")
+    if announce:
+        speak("Pick one: " + ", ".join(lbl for lbl, _s, _p in items) + ".")
     _run_loop(card, lambda: not state["done"], 400, deadline)
     card.on_key = None
     return state["choice"]
@@ -545,11 +564,9 @@ def mode_guide(card: Card) -> dict:
         go(1) if k == "next" else go(-1) if k == "back" else close()
 
     def on_key(name: str) -> bool:
-        if name in ("Up", "Down") and card.overflow():
-            card.scroll(-1 if name == "Up" else 1)
-        elif name in ("Right", "Down", "n", "space", "Return", "KP_Enter"):
+        if name in ("Right", "n", "space", "Return", "KP_Enter"):
             go(1)
-        elif name in ("Left", "Up", "b"):
+        elif name in ("Left", "b"):
             go(-1)
         elif name in ("Escape", "q"):
             close()
@@ -559,7 +576,7 @@ def mode_guide(card: Card) -> dict:
 
     card.open(pages[0])
     card.on_key = on_key
-    card.buttons({"back": "◀ Back", "next": "Next ▶", "close": "✖ Close"}, on_button)
+    card.buttons({"back": "◀ Back", "next": "Next ▶", "close": "Esc ✕ Close"}, on_button)
     show()
     speak("Say slash and a command. For example slash compact, slash mode, slash plan, or slash models. "
           "Use Next to see every command.")
@@ -610,11 +627,9 @@ def mode_pager(card: Card, pane: str) -> dict:
             _stop(card)
 
     def on_key(name: str) -> bool:
-        if name in ("Up", "Down") and card.overflow():
-            card.scroll(-1 if name == "Up" else 1)
-        elif name in ("Right", "Down", "n", "Return", "KP_Enter", "space"):
+        if name in ("Right", "n", "Return", "KP_Enter", "space"):
             on_button("next")
-        elif name in ("Left", "Up", "b"):
+        elif name in ("Left", "b"):
             on_button("back")
         elif name in ("Escape", "q"):
             on_button("close")
@@ -625,7 +640,7 @@ def mode_pager(card: Card, pane: str) -> dict:
         return True
 
     card.on_key = on_key
-    card.buttons({"back": "◀ Back", "next": "Next ▶", "close": "✖ Close"}, on_button)
+    card.buttons({"back": "◀ Back", "next": "Next ▶", "close": "Esc ✕ Close"}, on_button)
     refresh()
     _run_loop(card, lambda: (refresh() or True) and not state["done"], 900, deadline)
     return {"ok": True, "mode": "pager", "action": "closed", "pages": state["pages"]}
@@ -648,8 +663,7 @@ def mode_output(card: Card, pane: str, send: str, output: str) -> dict:
         _stop(card)
 
     def out_key(name: str) -> bool:
-        if name in ("Up", "Down") and card.overflow():
-            card.scroll(-1 if name == "Up" else 1)
+        if name in ("Left", "Right") and card.advance(-1 if name == "Left" else 1):
             return True
         if name in ("Escape", "Return", "KP_Enter"):
             on_button("done")
@@ -657,7 +671,7 @@ def mode_output(card: Card, pane: str, send: str, output: str) -> dict:
         return False
 
     card.on_key = out_key
-    card.buttons({"done": "✔ Done"}, on_button)
+    card.buttons({"done": "Esc ✕ Close"}, on_button)
     spoken = speak(digest)
 
     def tick() -> bool:
@@ -689,6 +703,23 @@ def main() -> int:
     except Exception as exc:
         return _out({"ok": False, "action": "unavailable", "reason": f"overlay not available: {exc}"})
 
+    if "--nudge" in sys.argv:
+        import tahuti_nudge as nudge
+        menu = {"title": "Learn Tahuti", "header": "Want to learn more?",
+                "hint": "◀ ▶ + Enter · Esc = later",
+                "items": [("Open README", "open", "all commands"),
+                          ("Later", "later", "in 2 hours"),
+                          ("Turn off", "off", "slash reminders on")]}
+        try:
+            choice = mode_menu(card, menu, announce=False, timeout_s=NUDGE_TIMEOUT_S)
+        finally:
+            card.close()
+        if choice == "open":
+            return _out({"ok": True, "mode": "nudge", "action": "open", "opened": nudge.open_readme()})
+        if choice == "off":
+            nudge.set_enabled(False)
+            return _out({"ok": True, "mode": "nudge", "action": "off"})
+        return _out({"ok": True, "mode": "nudge", "action": "later"})
     if "--guide" in sys.argv:
         try:
             return _out(mode_guide(card))

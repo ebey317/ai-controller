@@ -153,6 +153,13 @@ def parse(transcript: str) -> Optional[dict]:
     if rest in ("sensei help", "help pager", "sensei help pager"):
         return {"kind": "run", "name": "help", "base": "help", "arg": "", "send": "/help",
                 "gated": False}
+    if rest in ("readme", "read me", "open readme", "open the readme", "open the read me"):
+        return {"kind": "readme"}
+    m2 = re.match(r"^(?:turn\s+)?(?:the\s+)?(?:readme\s+)?(?:reminders?|nudges?|tips)\s*(on|off)?$", rest)
+    if m2 and rest != "tips":
+        return {"kind": "reminders", "on": None if not m2.group(1) and not rest.startswith("turn") else m2.group(1) != "off"}
+    if rest in ("turn off reminders", "turn off the reminders", "turn on reminders", "turn on the reminders"):
+        return {"kind": "reminders", "on": " on " in f" {rest} "}
     rest = _ALIASES.get(rest, rest)
     menu = menu_for(rest)
     if menu:

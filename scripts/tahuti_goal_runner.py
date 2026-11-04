@@ -2770,6 +2770,19 @@ def _process_slash(goal_id: str, slash: dict) -> tuple[str, bool]:
         _write_to_agent_thread("slash_commands", {"command": "list"},
                                {"ok": True, "output": sensei_slash.list_text()})
         return sensei_slash.list_summary(), False
+    if kind == "readme":
+        import tahuti_nudge
+        return ("Opening the README." if tahuti_nudge.open_readme()
+                else "I couldn't open the README."), False
+    if kind == "reminders":
+        import tahuti_nudge
+        if slash.get("on") is None:
+            state = "on" if tahuti_nudge.enabled() else "off"
+            return (f"The README reminder is {state}. Say slash reminders "
+                    f"{'off' if state == 'on' else 'on'} to change it."), False
+        tahuti_nudge.set_enabled(bool(slash["on"]))
+        return ("Okay, I'll remind you about the README every couple of hours." if slash["on"]
+                else "Okay, the README reminder is off. Say slash reminders on to bring it back."), False
     if kind == "unknown":
         hint = (" Closest: " + ", ".join("slash " + s for s in slash["suggest"]) + ".") if slash["suggest"] else ""
         return f"I don't have a Sensei slash command called {slash['said']}.{hint}", False
