@@ -1,0 +1,45 @@
+"""Single source of truth for what Tahuti SAYS (2026-11-03, operator spec:
+"read the whole answer").
+
+Both the voice bridge (what is voiced) and the goal runner (what the avatar
+box shows) import spoken_form(), so the words on screen are always the words
+heard. Change the rule here, nowhere else.
+"""
+from __future__ import annotations
+
+import re
+
+# Upper bound on one spoken reply. Long enough for a whole short answer or a
+# list, short enough that a runaway reply is not read for minutes.
+MAX_SPOKEN_CHARS = 1200
+
+_MD_NOISE = re.compile(r"[`*_#>]+")
+_SPACES = re.compile(r"[ \t]+")
+
+
+def spoken_form(text: str, limit: int = MAX_SPOKEN_CHARS) -> str:
+    """The whole answer, flattened for the voice.
+
+    - every line is kept (the old rule spoke only the first line)
+    - markdown symbols that would be read aloud as noise are dropped
+    - lines are joined with a pause (". ") unless they already end in
+      sentence punctuation, so list items don't run together
+    - if over `limit`, cut at the last sentence/line end that fits
+    """
+    if not text:
+        return ""
+    lines = []
+    for raw in text.splitlines():
+        line = _SPACES.sub(" ", _MD_NOISE.sub("", raw)).strip()
+        if line:
+            lines.append(line)
+    out = ""
+    for line in lines:
+        if out and out[-1] not in ".!?:;,":
+            out += "."
+        out += (" " if out else "") + line
+    if len(out) <= limit:
+        return out
+    cut = out[:limit]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+    return (cut[: end + 1] if end > limit // 2 else cut).strip()

@@ -1368,6 +1368,10 @@ def stop_and_send():
             if agent_take and goal_text:
                 # Avatar prompt box: show what was heard going to the agent.
                 _write_caption(goal_text, "heard")
+            elif _goal_take:
+                # Agent take heard nothing: release the avatar (event-driven
+                # window would otherwise wait on "sending" forever).
+                _write_caption("", "idle")
 
             # Apply PRO / BUBBLY / CASUAL / BOLD / BIG style toggle (set by slide_keyboard.py mode button)
             if mode in ("bubbly", "casual", "bold", "big") and transcript:
@@ -1580,11 +1584,18 @@ def on_release(key):
         # Hold-to-show (2026-10-31): the avatar lives exactly as long as the
         # hold. Release dismisses the summon pulse; tool calls raise their
         # own windows via the runner. Never blocks the send path.
-        try:
-            _pp = open("/tmp/tahuti-pulse.pid").read().strip()
-            os.kill(int(_pp), 9)
-        except Exception:
-            pass
+        # 2026-11-03 (operator spec): an AGENT take no longer kills the avatar
+        # on release — the window is event-driven (avatar_approval.py) and
+        # stays through sending/working/speaking, leaving when that is done.
+        # A plain dictation take never had a pulse to keep, so it still ends here.
+        if _goal_take:
+            _write_caption("", "sending")
+        else:
+            try:
+                _pp = open("/tmp/tahuti-pulse.pid").read().strip()
+                os.kill(int(_pp), 9)
+            except Exception:
+                pass
         threading.Thread(target=stop_and_send, daemon=True).start()
 
 

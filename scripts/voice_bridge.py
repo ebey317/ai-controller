@@ -32,6 +32,7 @@ if SCRIPT_DIR not in sys.path:
 # One implementation, so the bridge and the CLI cannot disagree about
 # which device is playing or what rate it wants.
 import tts_control  # noqa: E402
+from speech_text import spoken_form  # noqa: E402  (shared with the goal runner)
 import voice_goal_schema as vgs  # noqa: E402
 from ai_controller_paths import ai_controller_dir, config_dir, load_env
 
@@ -286,7 +287,9 @@ def _speak(text: str) -> None:
     # barge file (touched by ptt_pynput._mute_tts on every press) is newer by
     # the time generation finishes, the user has spoken since — stay silent.
     t0 = time.time()
-    spoken = text[:500].split("\n")[0]
+    spoken = spoken_form(text)  # whole answer (was: first line only)
+    if not spoken:
+        return
     try:
         mp3_fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
         os.close(mp3_fd)
@@ -518,7 +521,7 @@ async def speak_endpoint(request: Request, text: str = Form(...)):
     """Hermes-compatible TTS endpoint: POST text and speak it immediately."""
     if not text:
         return JSONResponse({"error": "empty text"}, status_code=400)
-    _speak_bg(text[:500])
+    _speak_bg(text)  # spoken_form() inside _speak applies the length cap
     return JSONResponse({"spoken": True})
 
 

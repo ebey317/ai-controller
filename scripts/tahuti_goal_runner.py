@@ -45,6 +45,9 @@ if SCRIPT_DIR not in sys.path:
 
 import ai_controller_paths
 import voice_goal_schema as vgs  # noqa: E402
+from speech_text import MAX_SPOKEN_CHARS, spoken_form  # noqa: E402
+import sensei_slash  # noqa: E402  (live Sensei TUI driver: slash commands)
+import sensei_model  # noqa: E402  (answer with the model selected in Sensei)
 from ptt_notify import notify_hermex as notify_hermex_bg
 
 LOG_DIR = Path(ai_controller_paths.ai_controller_dir()) / "logs"
@@ -97,7 +100,7 @@ def _write_caption(text: str, state: str) -> None:
     """Avatar prompt box feed (2026-10-31): publish run state for display."""
     try:
         CAPTION_FILE.write_text(
-            json.dumps({"text": text[:300], "state": state, "time": time.time()}),
+            json.dumps({"text": text[:MAX_SPOKEN_CHARS], "state": state, "time": time.time()}),
             encoding="utf-8",
         )
     except Exception as exc:
@@ -183,6 +186,7 @@ TOOL_DESCRIPTIONS = {
     "open_url": "open_url (open any website now)",
     "open_app": "open_app (launch an app now)",
     "check_email": "check_email (read-only inbox check)",
+    "read_page": "read_page (fetch and read a public web page's text, read-only)",
     "check_commits": "check_commits (read-only recent git commits across your repos)",
     "request_approval": "request_approval (raise the operator's REAL approval card for a gated action)",
 }
@@ -844,6 +848,140 @@ def _tools_with_live_open_app(tools: list[dict]) -> list[dict]:
     return out
 
 
+# Added 2026-11-03: "summarize that page" had NO tool — the model could open a
+# site (open_url) but never read it, so it answered from memory and said so.
+# Read-only (like check_email), so no approval; offered only when the request
+# plausibly names a page/site/link, same gating style as the email tool.
+READ_PAGE_TOOL = {
+    "type": "function",
+    "name": "read_page",
+    "description": (
+        "Fetch a public web page NOW and return its readable text (read-only, no "
+        "approval needed). Use when the operator asks to read, summarize, check or "
+        "get what's on a specific website, page or link. Pages that render only "
+        "with JavaScript may come back thin — say so rather than guessing. Never "
+        "claim to have read a page unless this returned ok. Cannot click, log in, "
+        "or fill forms."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"url": {"type": "string", "description": "URL or domain to read"}},
+        "required": ["url"],
+        "additionalProperties": False,
+    },
+}
+_READ_PAGE_TRIGGER_RE = re.compile(
+    r"(web ?page|website|\bsite\b|\bpage\b|\blink\b|\burl\b|summari[sz]e|"
+    r"\b[a-z0-9-]+\.(com|org|net|ai|io|dev|co|app|gov|edu)\b)", re.I)
+READ_PAGE_MAX_CHARS = 6000
+READ_PAGE_MAX_BYTES = 1_500_000
+
+
+def _host_is_public(host: str) -> bool:
+    """False for loopback/private/link-local/metadata targets (SSRF guard)."""
+    import ipaddress
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
+                or ip.is_reserved or ip.is_unspecified):
+            return False
+    return bool(infos)
+
+
+def _html_to_text(html: str) -> tuple[str, str]:
+    """(title, readable text) from HTML using only the stdlib."""
+    from html.parser import HTMLParser
+
+    class _P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.skip = 0
+            self.in_title = False
+            self.title = ""
+            self.out: list[str] = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style", "noscript", "svg", "template"):
+                self.skip += 1
+            elif tag == "title":
+                self.in_title = True
+            elif tag in ("p", "br", "div", "li", "h1", "h2", "h3", "h4", "tr", "section"):
+                self.out.append("\n")
+
+        def handle_endtag(self, tag):
+            if tag in ("script", "style", "noscript", "svg", "template"):
+                self.skip = max(0, self.skip - 1)
+            elif tag == "title":
+                self.in_title = False
+
+        def handle_data(self, data):
+            if self.in_title:
+                self.title += data
+            elif not self.skip:
+                self.out.append(data)
+
+    p = _P()
+    try:
+        p.feed(html)
+    except Exception:
+        pass
+    text = re.sub(r"[ \t\r\f\v]+", " ", "".join(p.out))
+    text = re.sub(r"\n\s*\n+", "\n", text).strip()
+    return p.title.strip(), text
+
+
+def _read_page_tool(url: str) -> dict:
+    """Fetch a public page and return readable text. Read-only, SSRF-guarded."""
+    raw = (url or "").strip()
+    if not raw:
+        return {"ok": False, "error": "empty url"}
+    if "://" not in raw:
+        raw = "https://" + raw
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Tahuti/1.0",
+               "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5"}
+    try:
+        cur = raw
+        for _hop in range(5):  # follow redirects manually, re-checking each hop
+            parts = urllib.parse.urlparse(cur)
+            host = (parts.hostname or "").lower()
+            if parts.scheme not in ("http", "https") or not host or "." not in host:
+                return {"ok": False, "error": f"refused (http/https only): {cur}"}
+            if "@" in (parts.netloc or ""):
+                return {"ok": False, "error": "refused (userinfo in url)"}
+            if not _host_is_public(host):
+                return {"ok": False, "error": f"refused (non-public address): {host}"}
+            with httpx.Client(timeout=15.0, follow_redirects=False, headers=headers) as c:
+                with c.stream("GET", cur) as r:
+                    if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
+                        cur = urllib.parse.urljoin(cur, r.headers["location"])
+                        continue
+                    if r.status_code >= 400:
+                        return {"ok": False, "error": f"HTTP {r.status_code} from {host}"}
+                    body = b""
+                    for chunk in r.iter_bytes():
+                        body += chunk
+                        if len(body) > READ_PAGE_MAX_BYTES:
+                            break
+                    ctype = r.headers.get("content-type", "")
+                    html = body.decode(r.encoding or "utf-8", errors="replace")
+            if "html" in ctype or html.lstrip()[:15].lower().startswith(("<!doctype", "<html")):
+                title, text = _html_to_text(html)
+            else:
+                title, text = "", html
+            truncated = len(text) > READ_PAGE_MAX_CHARS
+            return {"ok": True, "url": cur, "title": title,
+                    "text": text[:READ_PAGE_MAX_CHARS], "truncated": truncated,
+                    "thin": len(text) < 200}
+        return {"ok": False, "error": "too many redirects"}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 def _all_tools(transcript: str) -> list[dict]:
     """Tools offered for this transcript: file tools plus optional web search
     and, only when the transcript itself plausibly mentions email, check_email."""
@@ -858,6 +996,8 @@ def _all_tools(transcript: str) -> list[dict]:
         tools.append(EMAIL_TOOL)
     if _COMMIT_TRIGGER_RE.search(lowered):
         tools.append(COMMIT_TOOL)
+    if _READ_PAGE_TRIGGER_RE.search(lowered):
+        tools.append(READ_PAGE_TOOL)
     # Always offered: the model's only way to raise the operator's card
     # for anything gated, regardless of how the request was phrased.
     tools.append(REQUEST_APPROVAL_TOOL)
@@ -1089,7 +1229,7 @@ def _open_url_tool(goal_id: str, url: str) -> dict:
         return gate
     try:
         subprocess.Popen(
-            ["xdg-open", raw],
+            _detached(["xdg-open", raw]),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -1159,6 +1299,21 @@ def _reachable_pin_names() -> list[str]:
         return []
 
 
+def _detached(argv: list[str]) -> list[str]:
+    """Run a GUI launch in its OWN systemd scope so it outlives this service.
+
+    Found 2026-11-03: a browser started from the runner lived in the runner's
+    cgroup, so restarting or crashing the service (KillMode=mixed) SIGKILLed
+    the operator's Chrome — start_new_session only changes the POSIX session,
+    not the cgroup. `systemd-run --user --scope` moves the program (it execs,
+    so the PID is unchanged) into a transient scope systemd won't reap with us.
+    Falls back to the plain argv if systemd-run isn't there.
+    """
+    if shutil.which("systemd-run"):
+        return ["systemd-run", "--user", "--scope", "--quiet", "--collect", *argv]
+    return argv
+
+
 def _launch_visible(argv: list[str], tag: str) -> dict:
     """Launch a GUI program visibly. Records PID so 'show me your work'
     can raise the window. Fire-and-forget; never blocks.
@@ -1171,7 +1326,7 @@ def _launch_visible(argv: list[str], tag: str) -> dict:
         return {"ok": False, "error": f"no display available (headless) -- can't open {tag}"}
     try:
         proc = subprocess.Popen(
-            argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            _detached(argv), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
         try:
             LAST_TERM_FILE.write_text(str(proc.pid), encoding="utf-8")
@@ -1720,6 +1875,8 @@ def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
         result = _open_url_tool(goal_id, args.get("url", ""))
     elif name == "open_app":
         result = _open_app_tool(goal_id, args.get("name", ""))
+    elif name == "read_page":
+        result = _read_page_tool(args.get("url", ""))
     elif name == "check_email":
         result = _check_email_tool(args.get("days", 2), args.get("unread", True))
     elif name == "check_commits":
@@ -1777,7 +1934,45 @@ def _save_conversation_turn(user_text: str, assistant_text: str) -> None:
         logger.warning("conversation history save failed: %s", exc)
 
 
+def _call_pinned_model(pin: tuple[str, str], transcript: str, goal_id: str, t0: float
+                       ) -> tuple[str, str, str, float, str]:
+    """Answer with the model the operator selected in Sensei (provider::model),
+    through that provider's own endpoint, keeping every tool's approval gate."""
+    tools = [t for t in _all_tools(transcript) if t.get("type") == "function"]
+    allowed = {t["name"] for t in tools}
+    system = SAFETY_PROMPT_HEAD + _tools_sentence(tools) + " " + SAFETY_PROMPT_TAIL
+    text = sensei_model.run(
+        pin, system, _load_conversation_history(), transcript, tools,
+        execute=lambda call: _execute_file_tool(goal_id, call, allowed))
+    elapsed_s = time.time() - t0
+    label = sensei_model.describe(pin)
+    logger.info("model %s (Sensei pin) elapsed %.2fs", label, elapsed_s)
+    _write_answer_to_thread(transcript, "sensei-pinned", text)
+    return text, label, f"{elapsed_s:.1f}s", elapsed_s, "sensei-pinned"
+
+
 def _call_model(transcript: str, goal_id: str = "", effort: str = "") -> tuple[str, str, str, float, str]:
+    """The model selected in Sensei answers; if Sensei is on AUTO (no pin) or the
+    pinned provider can't answer, fall back to Muse and SAY so."""
+    t0 = time.time()
+    pin = sensei_model.active_pin()
+    note = ""
+    # A Meta/Muse pin IS Tahuti's native model — use its full path (web search etc.).
+    if pin and pin[0] == "meta":
+        pin = None
+    if pin:
+        try:
+            return _call_pinned_model(pin, transcript, goal_id, t0)
+        except Exception as exc:
+            logger.warning("Sensei-pinned model %s failed (%s); falling back to Muse",
+                           sensei_model.describe(pin), exc)
+            note = (f"Your Sensei model {pin[1].split('/')[-1]} didn't answer, "
+                    "so I used my backup. ")
+    text, model, elapsed, elapsed_s, route = _call_model_muse(transcript, goal_id, effort)
+    return (note + text if note else text), model, elapsed, elapsed_s, route
+
+
+def _call_model_muse(transcript: str, goal_id: str = "", effort: str = "") -> tuple[str, str, str, float, str]:
     t0 = time.time()
     model, default_effort, max_tokens, route = _model_for_transcript(transcript)
     effort = effort or default_effort
@@ -2050,10 +2245,19 @@ def _call_free_fallback(transcript: str, t0: float, route: str = "fallback") -> 
     return text, FALLBACK_MODEL, elapsed, elapsed_s, route
 
 
+def _spoken_form(text: str) -> str:
+    """Exactly what the voice bridge will say for `text`.
+
+    Delegates to speech_text.spoken_form — the SAME function the voice bridge
+    uses — so the avatar box shows exactly the words that are heard.
+    """
+    return spoken_form(text)
+
+
 def _post_speak(text: str) -> None:
     if not text:
         return
-    spoken = text[:500]
+    spoken = spoken_form(text)
     data = urllib.parse.urlencode({"text": spoken}).encode("utf-8")
     headers: dict = {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -2522,6 +2726,104 @@ def _process_time() -> str:
             f"{hour}:{now:%M %p} {now:%Z} in {where}.")
 
 
+_CHOICE_PRESENTER = Path(__file__).resolve().parent / "tahuti_choice_presenter.py"
+
+
+def _run_slash_card(send: str, menu: str = "", guide: bool = False) -> dict:
+    """Run one slash command through the Tahuti run card (tahuti_choice_presenter).
+    The presenter is its own process (this daemon owns no GTK window); the card
+    adapts to what Sensei shows — picker, pager/menu, or plain output. Caller
+    holds the Sensei lock. Returns the presenter's JSON ({} on failure)."""
+    # One avatar on screen: retire the work pulse, like approval cards do.
+    try:
+        os.kill(int(Path("/tmp/tahuti-pulse.pid").read_text(encoding="utf-8").strip()), 9)
+    except Exception:
+        pass
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(_CHOICE_PRESENTER), "--send", send]
+            + (["--menu", menu] if menu else []) + (["--guide"] if guide else []),
+            capture_output=True, text=True, timeout=230,
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")})
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "action": "error", "reason": "the card timed out"}
+    except Exception as exc:
+        logger.warning("slash card failed to start: %s", exc)
+        return {}
+    for line in reversed((proc.stdout or "").splitlines()):
+        try:
+            return json.loads(line)
+        except Exception:
+            continue
+    return {}
+
+
+def _process_slash(goal_id: str, slash: dict) -> tuple[str, bool]:
+    """Run one parsed slash utterance through the live Sensei loop.
+    Returns (sentence, already_spoken). Full output lands in the thread window."""
+    kind = slash["kind"]
+    if kind == "list":
+        if os.environ.get("DISPLAY"):
+            res = _run_slash_card("/commands", guide=True)
+            if res.get("ok"):
+                return "That's your slash command guide. Say slash, then any command name.", True
+        _write_to_agent_thread("slash_commands", {"command": "list"},
+                               {"ok": True, "output": sensei_slash.list_text()})
+        return sensei_slash.list_summary(), False
+    if kind == "unknown":
+        hint = (" Closest: " + ", ".join("slash " + s for s in slash["suggest"]) + ".") if slash["suggest"] else ""
+        return f"I don't have a Sensei slash command called {slash['said']}.{hint}", False
+    menu_base = slash["base"] if kind == "menu" else ""
+    send = "/model" if kind == "picker" else (f"/{menu_base}" if kind == "menu" else slash["send"])
+    base = "model" if kind == "picker" else slash["base"]
+    if kind == "run" and slash["gated"]:
+        gate = _gate_desktop_action(
+            goal_id, f"tahuti:slash:{slash['base'].split()[0]}",
+            f"Run {send} in Sensei", f"{send} was not run")
+        if gate is not None:
+            return (gate.get("error") or f"{send} was not run."), False
+
+    with sensei_slash.sensei_lock():
+        started = False
+        # Card path (every command): needs a display.
+        if os.environ.get("DISPLAY"):
+            res = _run_slash_card(send, menu_base)
+            if res.get("ok"):
+                mode = res.get("mode")
+                if mode == "picker":
+                    path = " then ".join(res.get("path") or [])
+                    model = res.get("model") or ""
+                    return (f"Done{': ' + path if path else ''}." +
+                            (f" Sensei is now on {model}." if model else "")), False
+                if mode == "pager":
+                    return f"Closed the {base} menu.", False
+                out = res.get("output") or ""
+                _write_to_agent_thread(f"slash:{base}", {"command": send},
+                                       {"ok": True, "output": out or "(no output)"})
+                return res.get("digest") or sensei_slash.spoken_digest(out, base), bool(res.get("spoken"))
+            if res.get("action") == "cancelled":
+                return "Okay, I left it as it was.", False
+            if res.get("action") == "error":
+                return f"I couldn't run {send}: {res.get('reason') or 'unknown error'}.", False
+            # "unavailable" / no result: fall through to the text-only path
+        try:
+            pane, started = sensei_slash.ensure_sensei()
+        except Exception as exc:
+            logger.warning("sensei ensure failed: %s", exc)
+            pane = None
+        if not pane:
+            return f"Sensei isn't running and I couldn't start it, so {send} was not run.", False
+        try:
+            out = sensei_slash.run_in_sensei(pane, send)
+        except Exception as exc:
+            logger.warning("sensei run failed: %s", exc)
+            return f"I couldn't run {send} in Sensei: {exc}", False
+    _write_to_agent_thread(f"slash:{base}", {"command": send},
+                           {"ok": True, "output": out or "(no output)"})
+    digest = sensei_slash.spoken_digest(out, base)
+    return ("Sensei wasn't running, so I started it. " if started else "") + digest, False
+
+
 def _process_goal(path: Path) -> None:
     claim_path = path.with_suffix(".claim")
     try:
@@ -2586,6 +2888,21 @@ def _process_goal(path: Path) -> None:
                  model="deterministic-time")
         return
 
+    # Slash commands (2026-11-03, operator spec "run just like a TUI"): a spoken
+    # "slash <command>" runs in the LIVE Sensei loop — model switches, modes,
+    # doctor, stats, all of them — deterministic, never via the model.
+    _slash = sensei_slash.parse(transcript)
+    if _slash is not None:
+        response, _already_spoken = _process_slash(goal_id, _slash)
+        if not _already_spoken:
+            _post_speak(response)
+        _write_last_response(transcript, "tahuti-runner-v1 (slash)", response, model="sensei-bridge")
+        _write_caption(_spoken_form(response), "done")
+        _notify("Goal done", response[:300], urgency="normal", sound=True)
+        _archive(claim_path, goal_id, "done", response=response,
+                 model="deterministic-slash")
+        return
+
     approval = _needs_approval(transcript)
     response = ""
     worker = ""
@@ -2627,7 +2944,9 @@ def _process_goal(path: Path) -> None:
 
     _post_speak(response)
     _write_last_response(transcript, worker, response, model=model)
-    _write_caption(response if response else transcript, "done")
+    # The box must show what the voice SAYS (2026-11-03): same text, not the
+    # full answer trimmed a different way.
+    _write_caption(_spoken_form(response) if response else transcript, "done")
     # Full answer in the push body (not a snippet): the phone pane shows the
     # work itself — Termux/Termux read the notification, zero extra build.
     _notify(
