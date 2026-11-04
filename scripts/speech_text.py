@@ -7,14 +7,35 @@ heard. Change the rule here, nowhere else.
 """
 from __future__ import annotations
 
+import html
 import re
 
 # Upper bound on one spoken reply. Long enough for a whole short answer or a
 # list, short enough that a runaway reply is not read for minutes.
 MAX_SPOKEN_CHARS = 1200
 
-_MD_NOISE = re.compile(r"[`*_#>]+")
 _SPACES = re.compile(r"[ \t]+")
+
+# Real markdown only. The old rule deleted EVERY `_ * # >` which turned
+# "tahuti_goal_runner.py" into "tahutigoalrunner.py" and ate "&gt;" (review
+# finding, 2026-11-04). Identifiers, file names and URLs must survive.
+_MD_PATTERNS = [
+    (re.compile(r"`+"), ""),                                        # code ticks
+    (re.compile(r"^\s{0,3}#{1,6}\s+", re.M), ""),                    # "## Heading"
+    (re.compile(r"^\s{0,3}>\s?", re.M), ""),                         # "> quote"
+    (re.compile(r"^\s{0,3}[*+]\s+", re.M), ""),                      # "* bullet"
+    (re.compile(r"\*\*(.+?)\*\*"), r"\1"),                           # **bold**
+    (re.compile(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])"), r"\1"),   # *italic*
+    (re.compile(r"(?<![\w_])__(?!\s)([^_\n]+?)(?<!\s)__(?![\w.])"), r"\1"),  # __bold__
+    (re.compile(r"(?<![\w_])_(?!\s)([^_\n./]+?)(?<!\s)_(?![\w.])"), r"\1"),  # _italic_
+]
+
+
+def _strip_markdown(raw: str) -> str:
+    text = html.unescape(raw)
+    for pat, repl in _MD_PATTERNS:
+        text = pat.sub(repl, text)
+    return text
 
 
 def spoken_form(text: str, limit: int = MAX_SPOKEN_CHARS) -> str:
@@ -29,8 +50,8 @@ def spoken_form(text: str, limit: int = MAX_SPOKEN_CHARS) -> str:
     if not text:
         return ""
     lines = []
-    for raw in text.splitlines():
-        line = _SPACES.sub(" ", _MD_NOISE.sub("", raw)).strip()
+    for raw in _strip_markdown(text).splitlines():
+        line = _SPACES.sub(" ", raw).strip()
         if line:
             lines.append(line)
     out = ""

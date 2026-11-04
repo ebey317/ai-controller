@@ -1257,6 +1257,19 @@ def _reap_orphan_recorders():
 
 
 def stop_and_send():
+    """Send the take. Whatever happens (too short, silent, debounced, ghost
+    recording...), an agent take must not leave the avatar waiting on "sending":
+    on_release already wrote that state, and the avatar now stays up for it
+    (review finding, 2026-11-04). Success writes "heard"/"working" itself."""
+    was_agent_take = _goal_take
+    try:
+        _stop_and_send_impl()
+    finally:
+        if was_agent_take and _read_caption(max_age=120.0).get("state") == "sending":
+            _write_caption("", "idle")
+
+
+def _stop_and_send_impl():
     global recording, rec_proc, rawfile, wavfile, _last_f13_time, _goal_take
     _processing_lock.acquire()
     try:

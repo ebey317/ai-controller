@@ -101,7 +101,8 @@ def menu_for(base: str) -> Optional[dict]:
 
 def is_gated(name: str) -> bool:
     b = _base(name).lower()
-    return b in _GATED_FULL or b.split()[0] in _GATED_FIRST_WORDS
+    words = b.split()
+    return b in _GATED_FULL or (bool(words) and words[0] in _GATED_FIRST_WORDS)
 
 
 # --------------------------------------------------------------------------
@@ -157,7 +158,7 @@ def parse(transcript: str) -> Optional[dict]:
         return {"kind": "readme"}
     m2 = re.match(r"^(?:turn\s+)?(?:the\s+)?(?:readme\s+)?(?:reminders?|nudges?|tips)\s*(on|off)?$", rest)
     if m2 and rest != "tips":
-        return {"kind": "reminders", "on": None if not m2.group(1) and not rest.startswith("turn") else m2.group(1) != "off"}
+        return {"kind": "reminders", "on": None if not m2.group(1) else m2.group(1) == "on"}
     if rest in ("turn off reminders", "turn off the reminders", "turn on reminders", "turn on the reminders"):
         return {"kind": "reminders", "on": " on " in f" {rest} "}
     rest = _ALIASES.get(rest, rest)
@@ -165,24 +166,32 @@ def parse(transcript: str) -> Optional[dict]:
     if menu:
         return {"kind": "menu", "base": menu["base"]}
     rows = load_commands()
-    names = sorted({r[0] for r in rows}, key=lambda n: len(_base(n)), reverse=True)
+    takes_arg = {r[0]: bool(r[2]) for r in rows}
+    names = sorted(takes_arg, key=lambda n: len(_base(n)), reverse=True)
     for name in names:
         b = _base(name).lower()
-        if rest == b or (rest.startswith(b) and rest[len(b)] in " :"):
-            arg = rest[len(b):].lstrip(" :").strip()
+        tail = rest[len(b):].lstrip(" :").strip() if rest.startswith(b) else ""
+        # "slash go to the store" must not become `/go to the store`: words after a
+        # command are an argument only if that command takes input (or it is a bare
+        # number, like `down 3`).
+        if rest == b or (rest.startswith(b) and rest[len(b)] in " :"
+                         and (takes_arg[name] or re.fullmatch(r"\d+", tail))):
+            arg = tail
             # keep the operator's original casing/punctuation for the argument
             if arg:
-                tail = re.split(re.escape(b.split()[-1]), m.group(1), maxsplit=1, flags=re.I)
+                parts = re.split(re.escape(b.split()[-1]), m.group(1), maxsplit=1, flags=re.I)
                 # Use the original casing only if it is the SAME argument once
                 # cleaned — never re-introduce spoken words like "colon".
-                if len(tail) > 1:
-                    cand = tail[-1].lstrip(" :").strip(" .")
+                if len(parts) > 1:
+                    cand = parts[-1].lstrip(" :").strip(" .")
                     if cand and _normalise(cand) == arg:
                         arg = cand
             send = "/" + _base(name) + (":" if name.endswith(":") else "") + (f" {arg}" if arg else "")
             return {"kind": "run", "name": name, "base": _base(name), "arg": arg,
                     "send": send, "gated": is_gated(name)}
     bases = [_base(n) for n in names]
+    if len(rest.split()) > 3:
+        return None   # a sentence that merely starts with "slash" ("slash the budget…"): not a command
     return {"kind": "unknown", "said": rest,
             "suggest": difflib.get_close_matches(rest, bases, n=4, cutoff=0.5)}
 
@@ -396,20 +405,35 @@ def _supervisor_line() -> str:
     return "cd ~ && python3 ~/scripts/master_ai.py"
 
 
+def _sensei_process_exists() -> bool:
+    return bool(subprocess.run(["pgrep", "-f", r"python3? .*master_ai\.py"],
+                               capture_output=True, text=True).stdout.split())
+
+
 def ensure_sensei(timeout: float = 60.0) -> tuple[Optional[str], bool]:
     """(pane_id or None, started_it). Starts Sensei in window 0 if it is down.
 
     Deliberately targets window 0 explicitly: tmux's bare `-t session` means
     the ACTIVE window, which is Tahuti's thread window, not Sensei's.
+
+    One failed process lookup is NOT proof Sensei is down. Ctrl-C into a live
+    Sensei kills its in-flight work, so the restart keys are sent only when
+    repeated lookups agree, no master_ai.py process exists at all, and window 0
+    shows no Sensei screen (review finding, 2026-11-04).
     """
     sess = session_name()
-    pane = sensei_pane(sess)
-    if pane:
-        return pane, False
+    for attempt in range(3):
+        pane = sensei_pane(sess)
+        if pane:
+            return pane, False
+        if attempt < 2:
+            time.sleep(1.0)
     if _tmux("has-session", "-t", sess).returncode != 0:
         subprocess.run(["bash", str(AUTOSTART)], capture_output=True, timeout=30)
     else:
         target = f"{sess}:0"
+        if _sensei_process_exists() or is_ready(target):
+            return None, False   # it is there; I just can't match its pane. Touch nothing.
         _tmux("send-keys", "-t", target, "C-c")
         time.sleep(0.3)
         _tmux("send-keys", "-t", target, "C-u")
@@ -505,15 +529,28 @@ def modal_state(screen: str) -> Optional[str]:
     return None
 
 
-def ensure_idle(pane: str, tries: int = 6) -> bool:
+def ensure_idle(pane: str, tries: int = 6, patience_s: float = 40.0) -> bool:
     """Leave any modal screen so the NEXT thing typed is a real command.
-    True only once Sensei shows its idle prompt."""
-    for _ in range(tries):
+    True only once Sensei shows its idle prompt.
+
+    Keys are sent ONLY to close a menu I can positively see (a picker or pager).
+    If Sensei is simply not ready — still starting, redrawing, answering — I wait:
+    typing `q` + Enter at that moment reaches the model as chat and its agent acts
+    on it (review finding, 2026-11-04)."""
+    deadline = time.time() + patience_s
+    closes = 0
+    while time.time() < deadline:
         state = modal_state(_capture(pane))
         if state is None and is_ready(pane):
             return True
         if state == "prompt":
             return False   # a question is waiting: any key would answer it
+        if state is None:
+            time.sleep(1.5)   # not ready, no menu to close: wait, never type
+            continue
+        if closes >= tries:
+            break
+        closes += 1
         if state == "picker":
             _tmux("send-keys", "-t", pane, "Escape")
         else:
@@ -605,7 +642,8 @@ def extract_output(before: str, after: str, send: str) -> str:
 def run_in_sensei(pane: str, send: str, timeout: float = 25.0) -> str:
     """Type `send` into the live Sensei pane once it is ready, wait for the
     redraw to settle, return what appeared."""
-    wait_ready(pane, timeout=30)
+    if not wait_ready(pane, timeout=30):
+        raise RuntimeError("Sensei isn't ready yet")
     if not ensure_idle(pane):
         # Never type into a screen we can't leave: it would reach the model as chat.
         raise RuntimeError("Sensei is in a menu I couldn't close")

@@ -695,6 +695,19 @@ def mode_output(card: Card, pane: str, send: str, output: str) -> dict:
 
 # --------------------------------------------------------------------------
 def main() -> int:
+    """Always end with ONE JSON result line, whatever goes wrong: the runner reads
+    it, and "no result" used to make it fall through and type the command into
+    Sensei with no card (review finding, 2026-11-04)."""
+    try:
+        return _main()
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log(f"UNCAUGHT {type(exc).__name__}: {exc}")
+        return _out({"ok": False, "action": "error", "reason": f"{type(exc).__name__}: {exc}"})
+
+
+def _main() -> int:
     send = "/model"
     if "--send" in sys.argv:
         send = sys.argv[sys.argv.index("--send") + 1]
@@ -748,7 +761,10 @@ def main() -> int:
             return _out({"ok": False, "action": "cancelled", "reason": "cancelled on the menu"})
         send = chosen_from_menu = choice
         log(f"MENU chose {choice!r}")
-        card = Card()   # fresh card for the command's own result
+        try:
+            card = Card()   # fresh card for the command's own result
+        except Exception as exc:
+            return _out({"ok": False, "action": "error", "reason": f"card unavailable after the menu: {exc}"})
 
     pane, _started = sb.ensure_sensei()
     if not pane:

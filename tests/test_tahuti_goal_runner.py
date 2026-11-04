@@ -670,23 +670,42 @@ def test_open_url_unavailable_when_no_presenter(monkeypatch):
 
 
 def test_open_url_executes_after_once_approval(monkeypatch):
-    launches = []
+    """Agent-opened tabs are MCP tabs (operator rule 2026-11-04) -- and a test must
+    never open a real one, so mcp_tabs.open_tab is replaced."""
+    import mcp_tabs
+    opened = []
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
+    monkeypatch.setattr(mcp_tabs, "open_tab", lambda u: opened.append(u) or {"ok": True})
     monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda *a, **k: launches.append(a))
+                        lambda *a, **k: pytest.fail("must not open a bare xdg-open tab"))
     result = runner._open_url_tool("g1", "facebook.com")
     assert result["ok"] is True
     assert result["opened"] == "https://facebook.com"
-    assert launches and launches[0][0] == ["xdg-open", "https://facebook.com"]
+    assert result["via"] == "mcp-tab"
+    assert opened == ["https://facebook.com"]
+
+
+def test_open_url_bridge_down_fails_without_a_bare_tab(monkeypatch):
+    import mcp_tabs
+    monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
+    monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
+    monkeypatch.setattr(mcp_tabs, "open_tab",
+                        lambda u: {"ok": False, "reason": "bridge_unreachable"})
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("must not fall back to xdg-open"))
+    result = runner._open_url_tool("g1", "example.com")
+    assert result["ok"] is False
+    assert "MCP tab" in result["error"]
 
 
 def test_open_url_session_approval_saves_grant(monkeypatch):
+    import mcp_tabs
     saved = []
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "session")
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
     monkeypatch.setattr(runner, "_save_grant", saved.append)
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: None)
+    monkeypatch.setattr(mcp_tabs, "open_tab", lambda u: {"ok": True})
     result = runner._open_url_tool("g1", "example.com")
     assert result["ok"] is True
     assert saved == ["tahuti:open_url:background"]
@@ -703,10 +722,11 @@ def test_open_url_denied_by_operator(monkeypatch):
 
 
 def test_open_url_saved_grant_skips_box(monkeypatch):
+    import mcp_tabs
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: True)
     monkeypatch.setattr(runner, "_present_approval",
                         lambda *a, **k: pytest.fail("box must not be shown"))
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: None)
+    monkeypatch.setattr(mcp_tabs, "open_tab", lambda u: {"ok": True})
     result = runner._open_url_tool("g1", "example.com")
     assert result["ok"] is True
 
