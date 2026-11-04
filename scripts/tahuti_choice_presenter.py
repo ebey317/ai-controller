@@ -225,7 +225,8 @@ class Card:
         import gi
         gi.require_version("Gtk", "3.0")
         from gi.repository import Gdk, GLib
-        from ninja.state_machine import StatePayload, ThootieState, get_overlay
+        from ninja.state_machine import StatePayload, ThootieState, get_overlay, space_sentences
+        self._space = space_sentences
         self.GLib, self.Gdk = GLib, Gdk
         self.ThootieState, self.StatePayload = ThootieState, StatePayload
         self.overlay = get_overlay(agent="tahuti")
@@ -318,6 +319,7 @@ class Card:
         return rows
 
     def text(self, t: str) -> None:
+        t = self._space(t)   # blank line between sentences; lists untouched
         rows = self._wrap(t)
         if t != getattr(self, "_full", None):
             self._off = 0
