@@ -43,6 +43,16 @@ class _Broadway:
     def __enter__(self):
         if shutil.which("broadwayd") is None:
             pytest.skip("broadwayd not installed")
+        # Broadway is only the display server; the box itself is drawn with
+        # GTK, which needs PyGObject. A machine can have broadwayd and still
+        # lack gi (CI's runner has neither; a headless box may have only
+        # one). Without this guard the presenter subprocess exits non-zero
+        # with "UNAVAILABLE GTK is not available in this process" and the
+        # test fails instead of skipping.
+        try:
+            import gi  # noqa: F401
+        except ImportError:
+            pytest.skip("PyGObject (gi) not installed")
         display = _free_broadway_display()
         if display is None:
             pytest.skip("no free Broadway display")
