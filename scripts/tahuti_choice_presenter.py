@@ -23,14 +23,14 @@ LAST stdout line is one JSON object:
     {"ok": true,  "mode": "picker"|"pager"|"output", "action": ..., ...}
     {"ok": false, "action": "cancelled"|"unavailable"|"error", "reason": "..."}
 """
+
 from __future__ import annotations
 
 import json
 import os
 import re
-import subprocess
-import textwrap
 import sys
+import textwrap
 import time
 import urllib.parse
 import urllib.request
@@ -51,13 +51,17 @@ OUTPUT_CARD_LINES = 22
 NO_SPEECH_GRACE_S = 12.0  # output card: give up waiting for the voice after this
 
 _ITEM_RE = re.compile(r"^[\(\[]([ *xX✓])[\)\]]\s+(.*?)(?:\s+[\^v])?$")
-_TITLE_BAR_RE = re.compile(r"\|\s*(.+?)\s*\|")  # "┌───|  Select Provider  |───┐" / "|  OPENCODE Models  |"
+_TITLE_BAR_RE = re.compile(
+    r"\|\s*(.+?)\s*\|"
+)  # "┌───|  Select Provider  |───┐" / "|  OPENCODE Models  |"
 _SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
 # Sensei draws the CURSOR as a coloured background on the row's bullet; the
 # plain-text "*" only marks the currently ACTIVE choice and never moves.
 _CURSOR_BULLET_RE = re.compile(r"\x1b\[48;2;\d+;\d+;\d+m[\(\[](?:\*| |x|X)[\)\]]")
 _MODEL_FOOTER_RE = re.compile(r"MODEL:\s*([^\s·│|]+)")
-_CHAT_TITLE_RE = re.compile(r"┌[─\s]*\|\s*[^|]*\d{6,}[^|]*\|")  # the input-box title ("… 1793745641 ○")
+_CHAT_TITLE_RE = re.compile(
+    r"┌[─\s]*\|\s*[^|]*\d{6,}[^|]*\|"
+)  # the input-box title ("… 1793745641 ○")
 
 
 _LOG = Path.home() / ".tahuti" / "slash_card.log"
@@ -90,11 +94,16 @@ def parse_picker(screen: str) -> dict | None:
     """Bottom-most picker box -> {title, items, cursor, active}. Pass colour
     text (capture_color) to get the true cursor row."""
     raw_lines = screen.splitlines()
-    plain = [_SGR_RE.sub("", l) for l in raw_lines]
+    plain = [_SGR_RE.sub("", line) for line in raw_lines]
     start = -1
     itop = sb.input_box_top(plain)
     for i in range(len(plain) - 1, -1, -1):
-        if i != itop and "┌" in plain[i] and _TITLE_BAR_RE.search(plain[i]) and not _CHAT_TITLE_RE.search(plain[i]):
+        if (
+            i != itop
+            and "┌" in plain[i]
+            and _TITLE_BAR_RE.search(plain[i])
+            and not _CHAT_TITLE_RE.search(plain[i])
+        ):
             start = i
             break
     if start < 0:
@@ -106,7 +115,9 @@ def parse_picker(screen: str) -> dict | None:
     for j in range(start + 1, len(plain)):
         if "└" in plain[j]:
             break
-        m = _ITEM_RE.match(plain[j].strip(sb._BOX + " "))  # keep inner double-spaces: they split label from note
+        m = _ITEM_RE.match(
+            plain[j].strip(sb._BOX + " ")
+        )  # keep inner double-spaces: they split label from note
         if m:
             if m.group(1).strip():
                 active = len(items)
@@ -115,33 +126,56 @@ def parse_picker(screen: str) -> dict | None:
             items.append(m.group(2).strip())
     if not items:
         return None
-    return {"title": title, "items": items, "cursor": cursor if cursor >= 0 else active, "active": active}
+    return {
+        "title": title,
+        "items": items,
+        "cursor": cursor if cursor >= 0 else active,
+        "active": active,
+    }
 
 
 def render_picker(pk: dict, trail: list[str], width_rows: int = 6) -> str:
     items, cur, act = pk["items"], pk["cursor"], pk.get("active", -1)
     lo = max(0, min(cur - width_rows // 2, max(0, len(items) - width_rows)))
-    window = items[lo:lo + width_rows]
+    window = items[lo : lo + width_rows]
     # Marker columns, so long names never wrap: ▶ = cursor, ● = currently active.
-    rows = [f"{'▶' if lo + i == cur else ' '} {'●' if lo + i == act else ' '}  {label}"
-            for i, label in enumerate(window)]
+    rows = [
+        f"{'▶' if lo + i == cur else ' '} {'●' if lo + i == act else ' '}  {label}"
+        for i, label in enumerate(window)
+    ]
     head = pk["title"].upper() + (f"   ({' › '.join(trail)})" if trail else "")
     more_up = "   ▲ more above" if lo > 0 else ""
     more_dn = "   ▼ more below" if lo + width_rows < len(items) else ""
-    return "\n".join([head, "", *([more_up] if more_up else []), *rows,
-                      *([more_dn] if more_dn else []), "",
-                      f"{cur + 1} of {len(items)}   ·   ▶ cursor   ● current"])
+    return "\n".join(
+        [
+            head,
+            "",
+            *([more_up] if more_up else []),
+            *rows,
+            *([more_dn] if more_dn else []),
+            "",
+            f"{cur + 1} of {len(items)}   ·   ▶ cursor   ● current",
+        ]
+    )
 
 
-def wait_for_change(pane: str, before: dict | None, timeout: float = 3.0) -> dict | None:
+def wait_for_change(
+    pane: str, before: dict | None, timeout: float = 3.0
+) -> dict | None:
     """Sensei redraws slowly (>0.6s seen): poll until the picker differs from
     `before` (cursor moved / new level / closed) or the timeout passes."""
     end = time.time() + timeout
     cur = parse_picker(capture_color(pane))
     while time.time() < end:
-        if (cur is None) != (before is None) or (cur and before and (
-                cur["cursor"] != before["cursor"] or cur["title"] != before["title"]
-                or cur["items"] != before["items"])):
+        if (cur is None) != (before is None) or (
+            cur
+            and before
+            and (
+                cur["cursor"] != before["cursor"]
+                or cur["title"] != before["title"]
+                or cur["items"] != before["items"]
+            )
+        ):
             return cur
         time.sleep(0.2)
         cur = parse_picker(capture_color(pane))
@@ -152,7 +186,7 @@ def pager_text(screen: str, max_lines: int = 24) -> str:
     """The current page of a pager/menu. Prefer the page box itself (from its
     top border to the `n=next b=back q=close` footer); fall back to everything
     above the input box."""
-    plain = [_SGR_RE.sub("", l) for l in screen.splitlines()]
+    plain = [_SGR_RE.sub("", line) for line in screen.splitlines()]
     end = sb.input_box_top(plain)
     foot = -1
     for i in range(end - 1, -1, -1):
@@ -166,19 +200,26 @@ def pager_text(screen: str, max_lines: int = 24) -> str:
                 top = i
                 break
         if top >= 0:
-            page = [sb._clean_line(l) for l in plain[top:foot]]
-            page = [l for l in page if l and set(l) - set("─━═╔╗╚╝╠╣║│ ")]
+            page = [sb._clean_line(line) for line in plain[top:foot]]
+            page = [line for line in page if line and set(line) - set("─━═╔╗╚╝╠╣║│ ")]
             if page:
                 return "\n".join(page[:max_lines])
-    body = [sb._clean_line(l) for l in plain[:end]]
-    body = [l for l in body if l and set(l) - set("─━═╔╗╚╝╠╣║│ ")
-            and not sb._HEADER_RE.search(l) and l.strip(" |") != "chat"]
+    body = [sb._clean_line(line) for line in plain[:end]]
+    body = [
+        line
+        for line in body
+        if line
+        and set(line) - set("─━═╔╗╚╝╠╣║│ ")
+        and not sb._HEADER_RE.search(line)
+        and line.strip(" |") != "chat"
+    ]
     return "\n".join(body[-max_lines:])
 
 
 def tts_playing() -> bool:
     """Shared with the avatar window: one definition of "the voice is still talking"."""
     from ninja.avatar_approval import tts_playing as _playing
+
     return _playing()
 
 
@@ -186,14 +227,21 @@ def speak(text: str) -> bool:
     """POST to the voice bridge, same endpoint/auth the runner uses."""
     if not text:
         return False
-    headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+    }
     key = os.environ.get("VOICE_BRIDGE_API_KEY", "")
     if key:
         headers["x-api-key"] = key
     try:
         base = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8002")
-        req = urllib.request.Request(f"{base}/speak", urllib.parse.urlencode({"text": text}).encode(),
-                                     headers=headers, method="POST")
+        req = urllib.request.Request(
+            f"{base}/speak",
+            urllib.parse.urlencode({"text": text}).encode(),
+            headers=headers,
+            method="POST",
+        )
         urllib.request.urlopen(req, timeout=10).read()
         return True
     except Exception:
@@ -206,9 +254,11 @@ def speak(text: str) -> bool:
 class Card:
     def __init__(self) -> None:
         import gi
+
         gi.require_version("Gtk", "3.0")
         from gi.repository import Gdk, GLib
         from ninja.state_machine import StatePayload, ThootieState, get_overlay
+
         self.GLib, self.Gdk = GLib, Gdk
         self.ThootieState, self.StatePayload = ThootieState, StatePayload
         self.overlay = get_overlay(agent="tahuti")
@@ -222,11 +272,17 @@ class Card:
         ov = self.overlay
         ov.set_agent("tahuti")
         self.text(text)
-        ov.machine.set_state(self.ThootieState.APPROVAL_INCOMING, ov.machine.payload if ov.machine.payload else None)
+        ov.machine.set_state(
+            self.ThootieState.APPROVAL_INCOMING,
+            ov.machine.payload if ov.machine.payload else None,
+        )
         if not ov._win.get_visible():
             ov.show()
         ov._set_active(True)
-        ov.machine.set_state(self.ThootieState.APPROVAL_PRESENTED, self.StatePayload(action_kind="approval"))
+        ov.machine.set_state(
+            self.ThootieState.APPROVAL_PRESENTED,
+            self.StatePayload(action_kind="approval"),
+        )
         self._key_id = ov._win.connect("key-press-event", self._key)
         ov._win.add_events(self.Gdk.EventMask.SCROLL_MASK)
         self._wheel_id = ov._win.connect("scroll-event", self._wheel)
@@ -245,7 +301,9 @@ class Card:
                 gw = self.overlay._win.get_window()
                 if gw is not None and gw.is_viewable():
                     seat = Gdk.Display.get_default().get_default_seat()
-                    st = seat.grab(gw, Gdk.SeatCapabilities.KEYBOARD, False, None, None, None)
+                    st = seat.grab(
+                        gw, Gdk.SeatCapabilities.KEYBOARD, False, None, None, None
+                    )
                     self._grabbed = st == Gdk.GrabStatus.SUCCESS
                     log(f"keyboard grab: {st.value_nick}")
                     return False
@@ -270,13 +328,21 @@ class Card:
     def _key(self, _w, event) -> bool:
         name = self.Gdk.keyval_name(event.keyval) or ""
         if name in ("Page_Up", "Page_Down", "Home", "End") and self.overflow():
-            self.scroll({"Page_Up": -(self.ROWS - 2), "Page_Down": self.ROWS - 2,
-                         "Home": -9999, "End": 9999}[name])
+            self.scroll(
+                {
+                    "Page_Up": -(self.ROWS - 2),
+                    "Page_Down": self.ROWS - 2,
+                    "Home": -9999,
+                    "End": 9999,
+                }[name]
+            )
             return True
         return bool(self.on_key(name)) if self.on_key else False
 
     def _wheel(self, _w, event) -> bool:
-        d = {self.Gdk.ScrollDirection.UP: -3, self.Gdk.ScrollDirection.DOWN: 3}.get(event.direction)
+        d = {self.Gdk.ScrollDirection.UP: -3, self.Gdk.ScrollDirection.DOWN: 3}.get(
+            event.direction
+        )
         if d is None or not self.overflow():
             return False
         self.scroll(d)
@@ -296,8 +362,13 @@ class Card:
                 rows.append("")
                 continue
             lead = min(len(line) - len(line.lstrip()), 6)
-            rows += textwrap.wrap(line, self.COLS, subsequent_indent=" " * lead,
-                                  replace_whitespace=False, break_long_words=True) or [""]
+            rows += textwrap.wrap(
+                line,
+                self.COLS,
+                subsequent_indent=" " * lead,
+                replace_whitespace=False,
+                break_long_words=True,
+            ) or [""]
         return rows
 
     def text(self, t: str) -> None:
@@ -344,7 +415,13 @@ class Card:
         self._off = off
         mark = ("▲" if off > 0 else " ") + ("▼" if off + body < len(rows) else " ")
         self.overlay.set_card_text(
-            "\n".join(rows[off:off + body] + [f"{mark} {off + 1}-{min(off + body, len(rows))}/{len(rows)}  ◀ ▶ more"]))
+            "\n".join(
+                rows[off : off + body]
+                + [
+                    f"{mark} {off + 1}-{min(off + body, len(rows))}/{len(rows)}  ◀ ▶ more"
+                ]
+            )
+        )
 
     def buttons(self, labels: dict, callback) -> None:
         self.overlay.add_approval_buttons(labels=labels, callback=callback)
@@ -432,14 +509,22 @@ def mode_picker(card: Card, pane: str, pk: dict) -> dict:
         return True
 
     card.on_key = on_key
-    labels = {"up": "◀ Prev", "down": "Next ▶", "select": "⏎ Select", "cancel": "Esc ✕ Cancel"}
+    labels = {
+        "up": "◀ Prev",
+        "down": "Next ▶",
+        "select": "⏎ Select",
+        "cancel": "Esc ✕ Cancel",
+    }
 
     def tick() -> bool:  # follow Sensei if it moves on its own
         if state["result"]:
             return False
         new = parse_picker(capture_color(pane))
         if new is not None and (new["cursor"], new["title"], new["items"]) != (
-                state["pk"]["cursor"], state["pk"]["title"], state["pk"]["items"]):
+            state["pk"]["cursor"],
+            state["pk"]["title"],
+            state["pk"]["items"],
+        ):
             state["pk"] = new
             card.text(render_picker(new, trail))
         return True
@@ -451,7 +536,9 @@ def mode_picker(card: Card, pane: str, pk: dict) -> dict:
         _run_loop(card, tick, 700, deadline)
         action, reason = state["result"] or ("cancelled", "timed out")
         if action == "cancelled":
-            for _ in range(MAX_LEVELS):  # Esc once per open level until the picker is gone
+            for _ in range(
+                MAX_LEVELS
+            ):  # Esc once per open level until the picker is gone
                 sb._tmux("send-keys", "-t", pane, "Escape")
                 time.sleep(1.2)
                 if parse_picker(capture_color(pane)) is None:
@@ -461,13 +548,21 @@ def mode_picker(card: Card, pane: str, pk: dict) -> dict:
         trail.append(re.sub(r"\s{2,}.*$", "", chosen))  # drop the "4 models" suffix
         sb._tmux("send-keys", "-t", pane, "Enter")
         nxt = wait_for_change(pane, state["pk"], timeout=5.0)
-        if nxt is None or (nxt["title"] == state["pk"]["title"] and nxt["items"] == state["pk"]["items"]):
+        if nxt is None or (
+            nxt["title"] == state["pk"]["title"]
+            and nxt["items"] == state["pk"]["items"]
+        ):
             break  # picker closed — selection complete
         state["pk"] = nxt
     sb.wait_ready(pane, timeout=10)
     footer = _MODEL_FOOTER_RE.search(sb._capture(pane))
-    return {"ok": True, "mode": "picker", "action": "selected", "path": trail,
-            "model": footer.group(1) if footer else ""}
+    return {
+        "ok": True,
+        "mode": "picker",
+        "action": "selected",
+        "path": trail,
+        "model": footer.group(1) if footer else "",
+    }
 
 
 def menu_card_text(menu: dict, cursor: int = 0) -> str:
@@ -480,7 +575,9 @@ def menu_card_text(menu: dict, cursor: int = 0) -> str:
     return "\n".join(lines)
 
 
-def mode_menu(card: Card, menu: dict, announce: bool = True, timeout_s: float = OVERALL_TIMEOUT_S) -> str | None:
+def mode_menu(
+    card: Card, menu: dict, announce: bool = True, timeout_s: float = OVERALL_TIMEOUT_S
+) -> str | None:
     """Button menu for a command with ready-made options. Touches nothing in
     Sensei; returns the chosen slash command, or None if cancelled / timed out."""
     items = menu["items"]
@@ -559,10 +656,14 @@ def mode_guide(card: Card) -> dict:
 
     card.open(pages[0])
     card.on_key = on_key
-    card.buttons({"back": "◀ Back", "next": "Next ▶", "close": "Esc ✕ Close"}, on_button)
+    card.buttons(
+        {"back": "◀ Back", "next": "Next ▶", "close": "Esc ✕ Close"}, on_button
+    )
     show()
-    speak("Say slash and a command. For example slash compact, slash mode, slash plan, or slash models. "
-          "Use Next to see every command.")
+    speak(
+        "Say slash and a command. For example slash compact, slash mode, slash plan, or slash models. "
+        "Use Next to see every command."
+    )
     _run_loop(card, lambda: not state["done"], 500, deadline)
     return {"ok": True, "mode": "guide", "action": "closed", "pages": len(pages)}
 
@@ -589,7 +690,9 @@ def mode_pager(card: Card, pane: str) -> dict:
         refresh()
 
     def refresh() -> None:
-        scr = sb.capture_visible(pane)   # visible screen only: scrollback is old shell text
+        scr = sb.capture_visible(
+            pane
+        )  # visible screen only: scrollback is old shell text
         if sb.modal_state(scr) is None:
             state["done"] = True
             _stop(card)
@@ -623,17 +726,23 @@ def mode_pager(card: Card, pane: str) -> dict:
         return True
 
     card.on_key = on_key
-    card.buttons({"back": "◀ Back", "next": "Next ▶", "close": "Esc ✕ Close"}, on_button)
+    card.buttons(
+        {"back": "◀ Back", "next": "Next ▶", "close": "Esc ✕ Close"}, on_button
+    )
     refresh()
     _run_loop(card, lambda: (refresh() or True) and not state["done"], 900, deadline)
     return {"ok": True, "mode": "pager", "action": "closed", "pages": state["pages"]}
 
 
 def mode_output(card: Card, pane: str, send: str, output: str) -> dict:
-    lines = [l for l in output.splitlines() if l.strip()]
+    lines = [line for line in output.splitlines() if line.strip()]
     shown = lines[:OUTPUT_CARD_LINES]
     more = len(lines) - len(shown)
-    body = "\n".join(shown) + (f"\n… {more} more lines — full output is in your Tahuti window" if more > 0 else "")
+    body = "\n".join(shown) + (
+        f"\n… {more} more lines — full output is in your Tahuti window"
+        if more > 0
+        else ""
+    )
     digest = sb.spoken_digest(output, send.lstrip("/"))
     state = {"done": False, "spoke": False, "last_speech": 0.0}
     t0 = time.time()
@@ -665,13 +774,21 @@ def mode_output(card: Card, pane: str, send: str, output: str) -> dict:
             state["spoke"] = True
             state["last_speech"] = now
             return True
-        if state["spoke"]:                      # voice finished: leave ~1s later
+        if state["spoke"]:  # voice finished: leave ~1s later
             return now - state["last_speech"] < 1.0
-        return now - t0 < NO_SPEECH_GRACE_S      # never started (muted/suppressed): short grace
+        return (
+            now - t0 < NO_SPEECH_GRACE_S
+        )  # never started (muted/suppressed): short grace
 
     _run_loop(card, tick, 500, deadline)
-    return {"ok": True, "mode": "output", "action": "shown", "output": output,
-            "digest": digest, "spoken": bool(spoken and state["spoke"])}
+    return {
+        "ok": True,
+        "mode": "output",
+        "action": "shown",
+        "output": output,
+        "digest": digest,
+        "spoken": bool(spoken and state["spoke"]),
+    }
 
 
 # --------------------------------------------------------------------------
@@ -685,7 +802,9 @@ def main() -> int:
         raise
     except Exception as exc:  # noqa: BLE001
         log(f"UNCAUGHT {type(exc).__name__}: {exc}")
-        return _out({"ok": False, "action": "error", "reason": f"{type(exc).__name__}: {exc}"})
+        return _out(
+            {"ok": False, "action": "error", "reason": f"{type(exc).__name__}: {exc}"}
+        )
 
 
 def _argv_value(flag: str) -> str | None:
@@ -703,8 +822,9 @@ def _main() -> int:
     send = "/model"
     send_val = _argv_value("--send")
     if "--send" in sys.argv and not send_val:
-        return _out({"ok": False, "action": "error",
-                     "reason": "--send given with no value"})
+        return _out(
+            {"ok": False, "action": "error", "reason": "--send given with no value"}
+        )
     if send_val:
         send = send_val
     if not os.environ.get("DISPLAY"):
@@ -712,31 +832,45 @@ def _main() -> int:
     try:
         card = Card()
     except Exception as exc:
-        return _out({"ok": False, "action": "unavailable", "reason": f"overlay not available: {exc}"})
+        return _out(
+            {
+                "ok": False,
+                "action": "unavailable",
+                "reason": f"overlay not available: {exc}",
+            }
+        )
 
     if "--nudge" in sys.argv:
         import tahuti_nudge as nudge
-        menu = {"title": "Learn Tahuti", "header": "Want to learn more?",
-                "hint": "◀ ▶ + Enter · Esc = later",
-                "items": [("Open README", "open", "all commands"),
-                          ("Later", "later", "in 2 hours"),
-                          ("Turn off", "off", "slash reminders on")]}
+
+        menu = {
+            "title": "Learn Tahuti",
+            "header": "Want to learn more?",
+            "hint": "◀ ▶ + Enter · Esc = later",
+            "items": [
+                ("Open README", "open", "all commands"),
+                ("Later", "later", "in 2 hours"),
+                ("Turn off", "off", "slash reminders on"),
+            ],
+        }
         try:
             choice = mode_menu(card, menu, announce=False, timeout_s=NUDGE_TIMEOUT_S)
         finally:
             card.close()
         if choice == "open":
             opened = nudge.open_readme()
-            if not opened:   # browser bridge down: read it in the card instead
+            if not opened:  # browser bridge down: read it in the card instead
                 log("README: MCP tab unavailable; showing the guide in the card")
-                guide_card = None   # OCR finding F: Card() may fail — the
-                try:               # finally below then had an unbound name
+                guide_card = None  # OCR finding F: Card() may fail — the
+                try:  # finally below then had an unbound name
                     guide_card = Card()
                     mode_guide(guide_card)
                 finally:
                     if guide_card is not None:
                         guide_card.close()
-            return _out({"ok": True, "mode": "nudge", "action": "open", "opened": opened})
+            return _out(
+                {"ok": True, "mode": "nudge", "action": "open", "opened": opened}
+            )
         if choice == "off":
             nudge.set_enabled(False)
             return _out({"ok": True, "mode": "nudge", "action": "off"})
@@ -749,41 +883,71 @@ def _main() -> int:
     if "--menu" in sys.argv:
         menu_val = _argv_value("--menu")
         if not menu_val:
-            return _out({"ok": False, "action": "error",
-                         "reason": "--menu given with no value"})
+            return _out(
+                {"ok": False, "action": "error", "reason": "--menu given with no value"}
+            )
         menu = sb.menu_for(menu_val)
         if menu is None:
-            return _out({"ok": False, "action": "error", "reason": "no menu for that command"})
+            return _out(
+                {"ok": False, "action": "error", "reason": "no menu for that command"}
+            )
         try:
             choice = mode_menu(card, menu)
         finally:
             card.close()
         if not choice:
-            return _out({"ok": False, "action": "cancelled", "reason": "cancelled on the menu"})
+            return _out(
+                {"ok": False, "action": "cancelled", "reason": "cancelled on the menu"}
+            )
         send = choice
         log(f"MENU chose {choice!r}")
         if sb.is_gated(choice.lstrip("/")):
             # Do not run it here: the runner puts the same approval card in front
             # of it that a typed gated command gets, then re-invokes with --send.
-            return _out({"ok": True, "mode": "menu", "action": "needs_gate", "send": choice})
+            return _out(
+                {"ok": True, "mode": "menu", "action": "needs_gate", "send": choice}
+            )
         try:
-            card = Card()   # fresh card for the command's own result
+            card = Card()  # fresh card for the command's own result
         except Exception as exc:
-            return _out({"ok": False, "action": "error", "reason": f"card unavailable after the menu: {exc}"})
+            return _out(
+                {
+                    "ok": False,
+                    "action": "error",
+                    "reason": f"card unavailable after the menu: {exc}",
+                }
+            )
 
     pane, _started = sb.ensure_sensei()
     if not pane:
-        return _out({"ok": False, "action": "unavailable", "reason": "Sensei is not running and could not be started"})
+        return _out(
+            {
+                "ok": False,
+                "action": "unavailable",
+                "reason": "Sensei is not running and could not be started",
+            }
+        )
     sb.wait_ready(pane, timeout=30)
     if not sb.ensure_idle(pane):
-        return _out({"ok": False, "action": "error", "reason": "Sensei is in a menu I couldn't close"})
+        return _out(
+            {
+                "ok": False,
+                "action": "error",
+                "reason": "Sensei is in a menu I couldn't close",
+            }
+        )
 
     log(f"START send={send!r}")
     before = sb.capture_visible(pane)
     sb._tmux("send-keys", "-t", pane, "-l", "--", send)
     sb._tmux("send-keys", "-t", pane, "Enter")
-    after = sb._wait_settled(pane, settle=5.0, timeout=30, min_wait=5.0,
-                             stop=lambda scr: sb.modal_state(scr) is not None)
+    after = sb._wait_settled(
+        pane,
+        settle=5.0,
+        timeout=30,
+        min_wait=5.0,
+        stop=lambda scr: sb.modal_state(scr) is not None,
+    )
     state = sb.modal_state(after)
     after_vis = sb.capture_visible(pane)
     try:
@@ -799,8 +963,15 @@ def _main() -> int:
             txt = "\n".join(sb._live_body(after_vis)[-8:])
             card.open(f"{send}\n\n…")
             log("CARD_OPEN prompt (nothing typed)")
-            return _out(mode_output(card, pane, send,
-                                    "Sensei is asking you a question. Answer it in the Sensei window.\n" + txt))
+            return _out(
+                mode_output(
+                    card,
+                    pane,
+                    send,
+                    "Sensei is asking you a question. Answer it in the Sensei window.\n"
+                    + txt,
+                )
+            )
         if state in ("pager", "hub"):
             card.open(pager_text(after_vis))
             log("CARD_OPEN pager")
@@ -810,7 +981,9 @@ def _main() -> int:
         log("CARD_OPEN output")
         return _out(mode_output(card, pane, send, output))
     except Exception as exc:  # fail closed: leave Sensei out of any menu
-        return _out({"ok": False, "action": "error", "reason": f"{type(exc).__name__}: {exc}"})
+        return _out(
+            {"ok": False, "action": "error", "reason": f"{type(exc).__name__}: {exc}"}
+        )
     finally:
         card.close()
         try:

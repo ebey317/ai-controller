@@ -32,9 +32,9 @@ if SCRIPT_DIR not in sys.path:
 # One implementation, so the bridge and the CLI cannot disagree about
 # which device is playing or what rate it wants.
 import tts_control  # noqa: E402
-from speech_text import spoken_form  # noqa: E402  (shared with the goal runner)
 import voice_goal_schema as vgs  # noqa: E402
 from ai_controller_paths import ai_controller_dir, config_dir, load_env
+from speech_text import spoken_form  # noqa: E402  (shared with the goal runner)
 
 # -----------------------------------------------------------------------------
 # Logging setup — vocal debug output

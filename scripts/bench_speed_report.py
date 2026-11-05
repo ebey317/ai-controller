@@ -87,12 +87,13 @@ def p95(samples: list[float]) -> float:
     return ordered[idx]
 
 
-def report(goals: list[dict], as_json: bool = False,
-           archive: Path = DEFAULT_DIR) -> int:
+def report(
+    goals: list[dict], as_json: bool = False, archive: Path = DEFAULT_DIR
+) -> int:
     data = collect(goals)
     rows = []
     failed = False
-    for name, start, end, target, label in STAGES:
+    for name, _start, _end, target, label in STAGES:
         samples = data[name]
         row = {
             "stage": name,
@@ -111,24 +112,40 @@ def report(goals: list[dict], as_json: bool = False,
             row["verdict"] = "MEASURED (no target)"
         rows.append(row)
     for name, why in NOT_MEASURED.items():
-        rows.append({"stage": name, "what": why, "n": 0, "p50": None, "p95": None,
-                     "target_p95": None, "verdict": "NOT MEASURED"})
+        rows.append(
+            {
+                "stage": name,
+                "what": why,
+                "n": 0,
+                "p50": None,
+                "p95": None,
+                "target_p95": None,
+                "verdict": "NOT MEASURED",
+            }
+        )
 
     if as_json:
         # Round-5 cheap fix: echo the dir the user PASSED, not DEFAULT_DIR —
         # --dir other/dir previously reported a location it did not read.
-        print(json.dumps({"archive": str(archive), "goals": len(goals),
-                          "rows": rows}, indent=2))
+        print(
+            json.dumps(
+                {"archive": str(archive), "goals": len(goals), "rows": rows}, indent=2
+            )
+        )
         return 1 if failed else 0
 
     print(f"\nTAHUTI-BENCH speed — {len(goals)} archived goals\n")
-    print(f"{'stage':5} {'n':>4} {'p50 s':>8} {'p95 s':>8} {'target':>7}  verdict  what")
+    print(
+        f"{'stage':5} {'n':>4} {'p50 s':>8} {'p95 s':>8} {'target':>7}  verdict  what"
+    )
     for r in rows:
         p50 = "-" if r["p50"] is None else f"{r['p50']:.3f}"
         p95v = "-" if r["p95"] is None else f"{r['p95']:.3f}"
         tgt = "-" if r["target_p95"] is None else f"{r['target_p95']:.1f}"
-        print(f"{r['stage']:5} {r['n']:>4} {p50:>8} {p95v:>8} {tgt:>7}  "
-              f"{r['verdict']:<12} {r['what']}")
+        print(
+            f"{r['stage']:5} {r['n']:>4} {p50:>8} {p95v:>8} {tgt:>7}  "
+            f"{r['verdict']:<12} {r['what']}"
+        )
     print()
     if not goals:
         print("No archived goals yet — run a goal, then re-run this report.")
@@ -140,8 +157,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dir", default=str(DEFAULT_DIR), help="goals archive root")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     args = ap.parse_args(argv)
-    return report(load_archives(Path(args.dir).expanduser()), as_json=args.json,
-                  archive=Path(args.dir).expanduser())
+    return report(
+        load_archives(Path(args.dir).expanduser()),
+        as_json=args.json,
+        archive=Path(args.dir).expanduser(),
+    )
 
 
 if __name__ == "__main__":

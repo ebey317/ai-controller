@@ -11,10 +11,10 @@ drift the way hand-typed help did. Writes:
 Run:  python3 make_tahuti_readme.py            # regenerate both
       python3 make_tahuti_readme.py --print    # markdown to stdout
 """
+
 from __future__ import annotations
 
 import html
-import os
 import re
 import sys
 from pathlib import Path
@@ -61,7 +61,9 @@ def build_blocks() -> list[Block]:
     for r in rows:
         sections.setdefault(r[3], []).append(r)
     titles = sb._SECTION_TITLE
-    order = [s for s in sb._SECTION_ORDER if s in sections] + [s for s in sections if s not in sb._SECTION_ORDER]
+    order = [s for s in sb._SECTION_ORDER if s in sections] + [
+        s for s in sections if s not in sb._SECTION_ORDER
+    ]
 
     menus = []
     for base in sorted({sb._base(r[0]).split()[0].lower() for r in rows}):
@@ -71,45 +73,106 @@ def build_blocks() -> list[Block]:
 
     B: list[Block] = []
     B.append(("h1", "Tahuti & Sensei — how to use them"))
-    B.append(("p", "**Tahuti** is the voice you talk to. **Sensei** is the AI that works in your terminal. "
-                   "The avatar on your screen shows what Tahuti is doing and gives you cards to read and click."))
+    B.append(
+        (
+            "p",
+            "**Tahuti** is the voice you talk to. **Sensei** is the AI that works in your terminal. "
+            "The avatar on your screen shows what Tahuti is doing and gives you cards to read and click.",
+        )
+    )
 
     B.append(("h2", "1. Talk to it"))
-    B.append(("ul", [
-        "Hold the trigger (**L + R** on the controller, or **F13** on a keyboard) and speak. Let go when you are done.",
-        "The avatar appears while you talk, stays while it works, and goes away when it has finished speaking.",
-        "Ask anything: \"What is two plus two?\", \"Open YouTube\", \"Give me the newest AI tools updates on a web page.\"",
-    ]))
+    B.append(
+        (
+            "ul",
+            [
+                "Hold the trigger (**L + R** on the controller, or **F13** on a keyboard) and speak. Let go when you are done.",
+                "The avatar appears while you talk, stays while it works, and goes away when it has finished speaking.",
+                'Ask anything: "What is two plus two?", "Open YouTube", "Give me the newest AI tools updates on a web page."',
+            ],
+        )
+    )
 
     B.append(("h2", "2. Slash commands by voice"))
-    B.append(("p", "Say **\"slash\"** and then the command name. Every Sensei slash command works this way, "
-                   "and nothing is sent to an AI model — commands run instantly."))
-    B.append(("table", ["Say", "What happens"], [
-        ["slash compact", "Saves and summarises the chat, then restarts Sensei with a shorter history"],
-        ["slash plan", "Switches Sensei to plan mode (also: slash review)"],
-        ["slash mode", "Opens a menu: current mode, Auto, Connected, Local, Plan, Review"],
-        ["slash models", "Opens the model picker so you can choose which model answers"],
-        ["slash help  (or: how do I use this)", "Opens the command guide — every command and the words to say"],
-        ["slash sensei help", "Opens Sensei's own help pages"],
-        ["slash commands", "Same command guide"],
-    ]))
-    B.append(("p", "If a command has ready-made choices, saying just its name opens a menu of buttons. "
-                   "Menus exist for: " + ", ".join(f"`{m}`" for m in menus) + "."))
-    B.append(("p", "Some commands are protected and ask you to approve first: "
-                   + ", ".join(f"`{w}`" for w in sorted(sb._GATED_FIRST_WORDS)) + ", and "
-                   + ", ".join(f"`{w}`" for w in sorted(sb._GATED_FULL)) + "."))
-    B.append(("p", "If you say a command that does not exist, Tahuti tells you and suggests the closest ones."))
+    B.append(
+        (
+            "p",
+            'Say **"slash"** and then the command name. Every Sensei slash command works this way, '
+            "and nothing is sent to an AI model — commands run instantly.",
+        )
+    )
+    B.append(
+        (
+            "table",
+            ["Say", "What happens"],
+            [
+                [
+                    "slash compact",
+                    "Saves and summarises the chat, then restarts Sensei with a shorter history",
+                ],
+                ["slash plan", "Switches Sensei to plan mode (also: slash review)"],
+                [
+                    "slash mode",
+                    "Opens a menu: current mode, Auto, Connected, Local, Plan, Review",
+                ],
+                [
+                    "slash models",
+                    "Opens the model picker so you can choose which model answers",
+                ],
+                [
+                    "slash help  (or: how do I use this)",
+                    "Opens the command guide — every command and the words to say",
+                ],
+                ["slash sensei help", "Opens Sensei's own help pages"],
+                ["slash commands", "Same command guide"],
+            ],
+        )
+    )
+    B.append(
+        (
+            "p",
+            "If a command has ready-made choices, saying just its name opens a menu of buttons. "
+            "Menus exist for: " + ", ".join(f"`{m}`" for m in menus) + ".",
+        )
+    )
+    B.append(
+        (
+            "p",
+            "Some commands are protected and ask you to approve first: "
+            + ", ".join(f"`{w}`" for w in sorted(sb._GATED_FIRST_WORDS))
+            + ", and "
+            + ", ".join(f"`{w}`" for w in sorted(sb._GATED_FULL))
+            + ".",
+        )
+    )
+    B.append(
+        (
+            "p",
+            "If you say a command that does not exist, Tahuti tells you and suggests the closest ones.",
+        )
+    )
 
     B.append(("h2", "3. Using the cards"))
-    B.append(("table", ["Key", "Does"], [
-        ["◀  (Left)", "Back / previous choice / scroll up"],
-        ["▶  (Right)", "Next / next choice / scroll down"],
-        ["⏎  (Enter)", "Select"],
-        ["Esc", "Close or cancel"],
-        ["1 – 6", "Pick that number in a menu"],
-    ]))
-    B.append(("p", "You can also click the buttons. When a card has more text than fits, the bottom line shows "
-                   "`▼ 1-10/27 ◀ ▶ more` — keep pressing ▶ to read on, or use the mouse wheel."))
+    B.append(
+        (
+            "table",
+            ["Key", "Does"],
+            [
+                ["◀  (Left)", "Back / previous choice / scroll up"],
+                ["▶  (Right)", "Next / next choice / scroll down"],
+                ["⏎  (Enter)", "Select"],
+                ["Esc", "Close or cancel"],
+                ["1 – 6", "Pick that number in a menu"],
+            ],
+        )
+    )
+    B.append(
+        (
+            "p",
+            "You can also click the buttons. When a card has more text than fits, the bottom line shows "
+            "`▼ 1-10/27 ◀ ▶ more` — keep pressing ▶ to read on, or use the mouse wheel.",
+        )
+    )
 
     layouts = controller_layouts()
     if layouts.get("desktop"):
@@ -117,42 +180,91 @@ def build_blocks() -> list[Block]:
         B.append(("table", ["Button", "Does"], [[a, b] for a, b in layouts["desktop"]]))
 
     B.append(("h2", "5. Every slash command (A–Z by group)"))
-    B.append(("p", "\"…\" means the command needs more words after it, for example "
-                   "`slash remember …` then what to remember."))
+    B.append(
+        (
+            "p",
+            '"…" means the command needs more words after it, for example '
+            "`slash remember …` then what to remember.",
+        )
+    )
     for sec in order:
         B.append(("h3", titles.get(sec, sec.title())))
-        B.append(("table", ["Say", "What it does"],
-                  [[f"slash {sb._base(n).replace('_', ' ')}" + (" …" if arg else ""), hint]
-                   for n, hint, arg, _s in sections[sec]]))
+        B.append(
+            (
+                "table",
+                ["Say", "What it does"],
+                [
+                    [
+                        f"slash {sb._base(n).replace('_', ' ')}"
+                        + (" …" if arg else ""),
+                        hint,
+                    ]
+                    for n, hint, arg, _s in sections[sec]
+                ],
+            )
+        )
 
     B.append(("h2", "6. Models"))
-    B.append(("ul", [
-        "Say **slash models** to pick a provider and model. Sensei and Tahuti's voice use the same choice.",
-        "On **Auto**, Sensei's router chooses for typed work and Tahuti answers with Meta Muse.",
-        "If the model you picked ever fails, Tahuti says so out loud and falls back to Muse.",
-        "Meta Muse (Muse Spark / Wonder) is a provider in the picker.",
-    ]))
+    B.append(
+        (
+            "ul",
+            [
+                "Say **slash models** to pick a provider and model. Sensei and Tahuti's voice use the same choice.",
+                "On **Auto**, Sensei's router chooses for typed work and Tahuti answers with Meta Muse.",
+                "If the model you picked ever fails, Tahuti says so out loud and falls back to Muse.",
+                "Meta Muse (Muse Spark / Wonder) is a provider in the picker.",
+            ],
+        )
+    )
 
     B.append(("h2", "7. Where things are"))
-    B.append(("table", ["What", "Where"], [
-        ["Your chats", "`~/.master_ai_chats` — say **slash chats** to browse them"],
-        ["Sensei's settings", "`~/.master_ai_settings` and `~/.master_ai_active_model`"],
-        ["Tahuti's goal queue and history", "`~/.tahuti/goals` (finished goals in `done/`)"],
-        ["Card log (if a card misbehaves)", "`~/.tahuti/slash_card.log`"],
-        ["This README", "`~/.tahuti/README.html` (regenerate: `python3 ~/ai-controller/scripts/make_tahuti_readme.py`)"],
-    ]))
+    B.append(
+        (
+            "table",
+            ["What", "Where"],
+            [
+                [
+                    "Your chats",
+                    "`~/.master_ai_chats` — say **slash chats** to browse them",
+                ],
+                [
+                    "Sensei's settings",
+                    "`~/.master_ai_settings` and `~/.master_ai_active_model`",
+                ],
+                [
+                    "Tahuti's goal queue and history",
+                    "`~/.tahuti/goals` (finished goals in `done/`)",
+                ],
+                ["Card log (if a card misbehaves)", "`~/.tahuti/slash_card.log`"],
+                [
+                    "This README",
+                    "`~/.tahuti/README.html` (regenerate: `python3 ~/ai-controller/scripts/make_tahuti_readme.py`)",
+                ],
+            ],
+        )
+    )
 
     B.append(("h2", "8. The reminder"))
-    B.append(("p", "About every two hours the avatar asks if you want to learn more. Choose **Open README**, "
-                   "**Later**, or **Turn off**. Say **slash reminders on** to bring it back, "
-                   "**slash reminders off** to silence it, or **slash readme** to open this page any time."))
+    B.append(
+        (
+            "p",
+            "About every two hours the avatar asks if you want to learn more. Choose **Open README**, "
+            "**Later**, or **Turn off**. Say **slash reminders on** to bring it back, "
+            "**slash reminders off** to silence it, or **slash readme** to open this page any time.",
+        )
+    )
 
     B.append(("h2", "9. If something is wrong"))
-    B.append(("ul", [
-        "No sound: check the HDMI port is the one your speakers use. Tahuti falls back to a built-in voice if the main voice is out of credits.",
-        "A card is stuck: press **Esc**. If that does not help, say **slash commands** to get a fresh one.",
-        "Services: `systemctl --user status ai-controller-goal-runner voice-bridge ptt-pynput`.",
-    ]))
+    B.append(
+        (
+            "ul",
+            [
+                "No sound: check the HDMI port is the one your speakers use. Tahuti falls back to a built-in voice if the main voice is out of credits.",
+                "A card is stuck: press **Esc**. If that does not help, say **slash commands** to get a fresh one.",
+                "Services: `systemctl --user status ai-controller-goal-runner voice-bridge ptt-pynput`.",
+            ],
+        )
+    )
     return B
 
 
@@ -172,7 +284,9 @@ def to_markdown(blocks: list[Block]) -> str:
         elif k == "table":
             head, rows = b[1], b[2]
             out.append("| " + " | ".join(head) + " |\n|" + "---|" * len(head))
-            out.extend("| " + " | ".join(c.replace("|", "\\|") for c in r) + " |" for r in rows)
+            out.extend(
+                "| " + " | ".join(c.replace("|", "\\|") for c in r) + " |" for r in rows
+            )
             out.append("")
     return "\n".join(out).rstrip() + "\n"
 
@@ -218,18 +332,28 @@ def to_html(blocks: list[Block]) -> str:
         elif k == "p":
             body.append(f"<p>{_inline(b[1])}</p>")
         elif k == "ul":
-            body.append("<ul>" + "".join(f"<li>{_inline(x)}</li>" for x in b[1]) + "</ul>")
+            body.append(
+                "<ul>" + "".join(f"<li>{_inline(x)}</li>" for x in b[1]) + "</ul>"
+            )
         elif k == "table":
             head = "".join(f"<th>{_inline(h)}</th>" for h in b[1])
-            rws = "".join("<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in r) + "</tr>" for r in b[2])
+            rws = "".join(
+                "<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in r) + "</tr>"
+                for r in b[2]
+            )
             body.append(f"<table><tr>{head}</tr>{rws}</table>")
     nav = "<nav>" + "".join(toc) + "</nav>"
     # nav goes right after the h1
     body.insert(1, nav)
-    return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
-            "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            "<title>Tahuti README</title><style>" + _CSS + "</style></head><body><main>"
-            + "\n".join(body) + "</main></body></html>")
+    return (
+        "<!doctype html><html lang=en><head><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<title>Tahuti README</title><style>"
+        + _CSS
+        + "</style></head><body><main>"
+        + "\n".join(body)
+        + "</main></body></html>"
+    )
 
 
 def main() -> int:

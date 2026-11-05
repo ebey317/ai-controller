@@ -23,8 +23,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
-import voice_goal_schema as vgs  # noqa: E402
 import avatar_pulse  # noqa: E402  (shared, verified avatar-pulse kill)
+import voice_goal_schema as vgs  # noqa: E402
 
 # Headless mode (opt-in): AI_CONTROLLER_HEADLESS=1 keeps audio capture, STT,
 # the evdev trigger path, goal takes, and TTS — but skips everything that

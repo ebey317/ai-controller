@@ -29,7 +29,6 @@ import subprocess
 import sys
 import threading
 import time
-import avatar_pulse
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -37,6 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import avatar_pulse
 import httpx
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,11 +44,11 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 import ai_controller_paths
-import voice_goal_schema as vgs  # noqa: E402
-from speech_text import MAX_SPOKEN_CHARS, spoken_form  # noqa: E402
-import sensei_slash  # noqa: E402  (live Sensei TUI driver: slash commands)
 import sensei_model  # noqa: E402  (answer with the model selected in Sensei)
+import sensei_slash  # noqa: E402  (live Sensei TUI driver: slash commands)
+import voice_goal_schema as vgs  # noqa: E402
 from ptt_notify import notify_hermex as notify_hermex_bg
+from speech_text import MAX_SPOKEN_CHARS, spoken_form  # noqa: E402
 
 LOG_DIR = Path(ai_controller_paths.ai_controller_dir()) / "logs"
 LOG_FILE = LOG_DIR / "tahuti-goal-runner.log"
