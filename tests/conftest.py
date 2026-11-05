@@ -12,3 +12,21 @@ import sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+
+
+# CI / fresh machine: Sensei (~/master-ai-cli) is not beside this repo. The slash
+# parser needs its command registry, so fall back to a frozen copy for TESTS only.
+# On the operator's machine the real registry is used.
+def _use_frozen_registry_when_sensei_absent():
+    scripts = os.path.join(_ROOT, "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import pathlib
+
+    import sensei_slash
+
+    if not sensei_slash.REGISTRY_PATH.exists():
+        sensei_slash.REGISTRY_PATH = pathlib.Path(_ROOT) / "tests" / "fixtures" / "command_registry.py"
+
+
+_use_frozen_registry_when_sensei_absent()

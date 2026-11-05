@@ -46,6 +46,7 @@ if SCRIPT_DIR not in sys.path:
 import ai_controller_paths
 import sensei_model  # noqa: E402  (answer with the model selected in Sensei)
 import sensei_slash  # noqa: E402  (live Sensei TUI driver: slash commands)
+import tahuti_operator  # noqa: E402  (what Tahuti already knows: city, folders)
 import voice_goal_schema as vgs  # noqa: E402
 from ptt_notify import notify_hermex as notify_hermex_bg
 from speech_text import MAX_SPOKEN_CHARS, spoken_form  # noqa: E402
@@ -185,6 +186,7 @@ TOOL_DESCRIPTIONS = {
     "write_file": "write_file (queues an approval request in ~/.tahuti/approvals, never writes directly)",
     "open_url": "open_url (open any website now)",
     "open_app": "open_app (launch an app now)",
+    "open_folder": "open_folder (open a folder in the file manager, e.g. projects)",
     "check_email": "check_email (read-only inbox check)",
     "read_page": "read_page (fetch and read a public web page's text, read-only)",
     "check_commits": "check_commits (read-only recent git commits across your repos)",
@@ -429,6 +431,26 @@ FILE_TOOLS = [
             "additionalProperties": False,
         },
     },
+    {
+        "type": "function",
+        "name": "open_folder",
+        "description": (
+            "Open a FOLDER in the file manager, showing that folder itself — not just "
+            "the file manager. Use this for 'open my projects folder', 'open "
+            "downloads', 'open the folder on my desktop'. Pass the name the operator "
+            "said ('projects', 'downloads') or a path under the home directory. "
+            "The harness finds the real folder; the result says which one opened. "
+            "Never tell the operator to navigate there themselves."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Folder name or path, e.g. 'projects', 'projects on my desktop', '~/Desktop/Projects'"},
+            },
+            "required": ["name"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 # Pulled out of FILE_TOOLS for reuse: the fast-chat/fast-lookup lanes strip
@@ -446,7 +468,7 @@ FILE_TOOLS = [
 # ("I open sites with my open_url tool...") until asked a third time,
 # then admitted "I didn't open a site yet in this chat." The fix is
 # giving the tool back, not teaching the model to hedge better.
-OPEN_TOOLS = [t for t in FILE_TOOLS if t["name"] in ("open_url", "open_app")]
+OPEN_TOOLS = [t for t in FILE_TOOLS if t["name"] in ("open_url", "open_app", "open_folder")]
 
 # check_email lives outside FILE_TOOLS and is only offered to the model when
 # the transcript itself plausibly asks about email (see _all_tools below).
@@ -784,6 +806,24 @@ _SECRET_PATHS = [
         Path.home() / ".config" / "email_mcp" / "credentials.json",
         Path.home() / ".hermes" / ".env",
         Path.home() / ".config" / "ai-controller" / "config.env",
+        # Round-6 gate review (2026-11-05): credential stores the blocklist missed.
+        Path.home() / ".gnupg",
+        Path.home() / ".password-store",
+        Path.home() / ".local" / "share" / "keyrings",
+        Path.home() / ".config" / "gcloud",
+        Path.home() / ".config" / "azure",
+        Path.home() / ".azure",
+        Path.home() / ".config" / "gh",
+        Path.home() / ".config" / "rclone",
+        Path.home() / ".kube",
+        Path.home() / ".docker" / "config.json",
+        Path.home() / ".npmrc",
+        Path.home() / ".pypirc",
+        Path.home() / ".netrc",
+        Path.home() / ".git-credentials",
+        Path.home() / ".config" / "google-chrome",   # cookies / saved logins
+        Path.home() / ".config" / "chromium",
+        Path.home() / ".mozilla",
     )
 ]
 
@@ -1434,6 +1474,21 @@ def _raise_last_term() -> bool:
         return False
 
 
+def _open_folder_tool(name: str) -> dict:
+    """Open one real folder in the file manager. Visible, reversible, home
+    directory only, never a secret location — so no approval card (the same
+    reason opening a window is not gated). Says which folder opened."""
+    folder, note = tahuti_operator.resolve_folder(name, is_secret=_is_secret_path)
+    if folder is None:
+        return {"ok": False, "error": note}
+    res = _launch_visible(["xdg-open", str(folder)], f"folder {folder.name}")
+    if res.get("ok"):
+        res["folder"] = str(folder)
+        if note:
+            res["note"] = note
+    return res
+
+
 def _open_app_tool(goal_id: str, name: str) -> dict:
     """Launch an allowlisted app or a named exec pin. Visible always."""
     key = (name or "").strip().lower()
@@ -1957,6 +2012,8 @@ def _execute_file_tool(goal_id: str, call: dict, allowed_names: set) -> dict:
         result = _open_url_tool(goal_id, args.get("url", ""))
     elif name == "open_app":
         result = _open_app_tool(goal_id, args.get("name", ""))
+    elif name == "open_folder":
+        result = _open_folder_tool(args.get("name", ""))
     elif name == "read_page":
         result = _read_page_tool(args.get("url", ""))
     elif name == "check_email":
@@ -2172,7 +2229,8 @@ def _call_model_muse(transcript: str, goal_id: str = "", effort: str = "") -> tu
     else:
         tools = _all_tools(transcript)
 
-    instructions = SAFETY_PROMPT_HEAD + _tools_sentence(tools) + " " + SAFETY_PROMPT_TAIL
+    instructions = (SAFETY_PROMPT_HEAD + _tools_sentence(tools) + " " + SAFETY_PROMPT_TAIL
+                    + tahuti_operator.profile_prompt())
     # Only mention pin names when open_app is actually offered this round --
     # same bug class as the tools sentence above: naming an app you can't
     # actually launch this turn invites the same kind of fabricated claim.
@@ -3119,6 +3177,19 @@ def _process_goal(path: Path) -> None:
         _notify("Goal done", response, urgency="normal", sound=True)
         _archive(claim_path, goal_id, "done", response=response,
                  model="deterministic-time", stages=stages)
+        return
+
+    # Weather (2026-11-05): he lives in Indianapolis and has said so many times;
+    # asking "what city?" is a failure. Real lookup for the known city, or an
+    # honest "couldn't reach it" — never a guess, never a question back.
+    if tahuti_operator.is_weather_question(transcript):
+        _routed()
+        response = (tahuti_operator.weather_line()
+                    or f"I couldn't reach the weather service for {tahuti_operator.city()} just now.")
+        _speak(response)
+        _notify("Goal done", response, urgency="normal", sound=True)
+        _archive(claim_path, goal_id, "done", response=response,
+                 model="deterministic-weather", stages=stages)
         return
 
     # Slash commands (2026-11-03, operator spec "run just like a TUI"): a spoken
