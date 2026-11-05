@@ -688,10 +688,25 @@ def main() -> int:
         return _out({"ok": False, "action": "error", "reason": f"{type(exc).__name__}: {exc}"})
 
 
+def _argv_value(flag: str) -> str | None:
+    """The token after `flag` in sys.argv — None when the flag is absent OR
+    when it dangles as the last argv item with nothing after it (OCR finding
+    G: that used to IndexError). The caller turns a dangling flag into a
+    clear JSON error instead of a stack trace."""
+    if flag not in sys.argv:
+        return None
+    i = sys.argv.index(flag)
+    return sys.argv[i + 1] if i + 1 < len(sys.argv) else None
+
+
 def _main() -> int:
     send = "/model"
-    if "--send" in sys.argv:
-        send = sys.argv[sys.argv.index("--send") + 1]
+    send_val = _argv_value("--send")
+    if "--send" in sys.argv and not send_val:
+        return _out({"ok": False, "action": "error",
+                     "reason": "--send given with no value"})
+    if send_val:
+        send = send_val
     if not os.environ.get("DISPLAY"):
         os.environ["DISPLAY"] = ":0"
     try:
@@ -714,11 +729,13 @@ def _main() -> int:
             opened = nudge.open_readme()
             if not opened:   # browser bridge down: read it in the card instead
                 log("README: MCP tab unavailable; showing the guide in the card")
-                try:
+                guide_card = None   # OCR finding F: Card() may fail — the
+                try:               # finally below then had an unbound name
                     guide_card = Card()
                     mode_guide(guide_card)
                 finally:
-                    guide_card.close()
+                    if guide_card is not None:
+                        guide_card.close()
             return _out({"ok": True, "mode": "nudge", "action": "open", "opened": opened})
         if choice == "off":
             nudge.set_enabled(False)
@@ -729,9 +746,12 @@ def _main() -> int:
             return _out(mode_guide(card))
         finally:
             card.close()
-    chosen_from_menu = ""
     if "--menu" in sys.argv:
-        menu = sb.menu_for(sys.argv[sys.argv.index("--menu") + 1])
+        menu_val = _argv_value("--menu")
+        if not menu_val:
+            return _out({"ok": False, "action": "error",
+                         "reason": "--menu given with no value"})
+        menu = sb.menu_for(menu_val)
         if menu is None:
             return _out({"ok": False, "action": "error", "reason": "no menu for that command"})
         try:
@@ -740,7 +760,7 @@ def _main() -> int:
             card.close()
         if not choice:
             return _out({"ok": False, "action": "cancelled", "reason": "cancelled on the menu"})
-        send = chosen_from_menu = choice
+        send = choice
         log(f"MENU chose {choice!r}")
         if sb.is_gated(choice.lstrip("/")):
             # Do not run it here: the runner puts the same approval card in front

@@ -134,6 +134,21 @@ def _normalise(text: str) -> str:
     return s
 
 
+def _registry_word_needs(rows: list) -> dict[str, bool]:
+    """Majority needs_arg vote per registry WORD (round-4 review #5).
+
+    "status" lives in "git status" (no input), "mouse status" (no input) and
+    "image status" (takes input) — a first word that is a bare noun today
+    must not be hijacked just because SOME row takes input, so a word counts
+    as input-taking only when the MAJORITY of its rows say so (a tie goes to
+    no-input, the conservative side for the C2 negative budget)."""
+    votes: dict[str, list[bool]] = {}
+    for name, _hint, needs_arg, _section in rows:
+        for w in name.rstrip(":").split():
+            votes.setdefault(w, []).append(bool(needs_arg))
+    return {w: (sum(v) * 2 > len(v)) for w, v in votes.items()}
+
+
 def parse(transcript: str) -> Optional[dict]:
     """None if this is not a slash-command utterance (falls through to the model).
 
@@ -195,8 +210,50 @@ def parse(transcript: str) -> Optional[dict]:
             return {"kind": "run", "name": name, "base": _base(name), "arg": arg,
                     "send": send, "gated": is_gated(name)}
     bases = [_base(n) for n in names]
-    if len(rest.split()) > 3 or "/" in m.group(1):
-        return None   # a sentence ("slash the budget…") or a dictated path ("/etc/hosts"): not a command
+    # Round-3 review #9: a dictated PATH keeps us out of the command lane, but a
+    # spoken command with a literal leading slash ("slash /compact") stays in it.
+    # RUN_RE consumes the slash of a BARE utterance ("/etc/hosts" -> "etc/hosts"),
+    # while the "slash ..." form keeps its slash in group(1) — so normalise the
+    # payload first, then path-test.
+    words = rest.split()
+    raw = m.group(1).strip()
+    payload = raw[1:] if raw.startswith("/") else raw   # "slash /compact" keeps its slash; bare "/x" loses it to RUN_RE
+    if "/" in payload:
+        return None   # a dictated path ("/etc/hosts") or any slashed non-command: not a command
+    if words:
+        # Round-4 review #5 — takes over the round-3 first-word rule (which
+        # hijacked ordinary English: "slash review the quarterly numbers",
+        # "slash status of the budget", "slash new hires from the list"):
+        #   * EXACT registry command word: this is a command attempt only
+        #     when the utterance is <= 2 words total ("slash git", "slash
+        #     git comit") or the command takes input (its tail may BE the
+        #     argument, "slash remember dentist"). A command WORD used as a
+        #     VERB inside a bigger sentence is NOT a command -> falls
+        #     through to the residual lanes (which mostly return None).
+        #   * NEAR-MISS first word (close but NOT equal, >= 4 chars — "comit"
+        #     vs "commit"; the same >= 4 floor that keeps English stopwords
+        #     like "it" out of the lane): intercepts at up to 4 words, what
+        #     round-3 called the loud-failure lane for typos.
+        #   * "slash git comit message" keeps its unknown+suggestions via
+        #     the RESIDUAL lane (3 words, "git commit" close-match) — the
+        #     round-3 example survives this rule as-is.
+        registry_words = sorted({w for b in bases for w in b.split()})
+        needs = _registry_word_needs(rows)
+        first = words[0].lstrip("/")
+        if first in registry_words:
+            if len(words) <= 2 or needs.get(first):
+                suggest = (difflib.get_close_matches(rest, bases, n=4, cutoff=0.6)
+                           or difflib.get_close_matches(first, registry_words, n=4, cutoff=0.75))
+                return {"kind": "unknown", "said": rest, "suggest": suggest}
+            # else: sentence — fall through, residual lanes decide below
+        else:
+            close = difflib.get_close_matches(first, registry_words, n=1, cutoff=0.75)
+            if close and len(first) >= 4 and len(words) <= 4:
+                suggest = (difflib.get_close_matches(rest, bases, n=4, cutoff=0.6)
+                           or difflib.get_close_matches(first, registry_words, n=4, cutoff=0.75))
+                return {"kind": "unknown", "said": rest, "suggest": suggest}
+    if len(words) > 3:
+        return None   # a sentence ("slash the budget…"): not a command
     suggest = difflib.get_close_matches(rest, bases, n=4, cutoff=0.6)
     if not suggest:
         return None   # "slash prices now": nothing resembles a command, so let the model answer
@@ -412,9 +469,40 @@ def _supervisor_line() -> str:
     return "cd ~ && python3 ~/scripts/master_ai.py"
 
 
-def _sensei_process_exists() -> bool:
-    return bool(subprocess.run(["pgrep", "-f", r"python3? .*master_ai\.py"],
-                               capture_output=True, text=True).stdout.split())
+def _proc_environ(pid: int) -> str:
+    """The environment of /proc/<pid> as a LF-separated string ('' when the
+    process vanished or is foreign). Test hook for _sensei_process_exists."""
+    try:
+        return Path(f"/proc/{pid}/environ").read_bytes().replace(b"\x00", b"\n").decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def _sensei_process_exists(session: Optional[str] = None) -> bool:
+    """Does a master_ai.py process belong to the tmux SERVER that owns our
+    session? (round-5 review #1)
+
+    Round-3 made this a pane-tree walk — but that is exactly sensei_pane()'s
+    logic, so when the walk misses a live Sensei this returned False too and
+    the ensure_sensei touch-nothing guard could never fire (C-c into a live
+    Sensei in a modal). This is a genuinely DIFFERENT check: machine-wide
+    pgrep for master_ai.py, then each candidate's /proc/<pid>/environ — the
+    TMUX variable inside names the tmux server (socket, server pid, session
+    id). True when any master_ai.py is attached to the tmux server that owns
+    the named session. No session → no process is ours."""
+    sess = session or session_name()
+    if _tmux("has-session", "-t", sess).returncode != 0:
+        return False
+    server = _tmux("display", "-p", "-t", sess, "#{pid}").stdout.strip()
+    if not server:
+        return False
+    pids = subprocess.run(["pgrep", "-f", r"python3? .*master_ai\.py"],
+                          capture_output=True, text=True).stdout.split()
+    for p in pids:
+        m = re.search(r"^TMUX=([^,]*),(\d+),", _proc_environ(int(p)), re.M)
+        if m and m.group(2) == server:
+            return True
+    return False
 
 
 def ensure_sensei(timeout: float = 60.0) -> tuple[Optional[str], bool]:
@@ -439,7 +527,7 @@ def ensure_sensei(timeout: float = 60.0) -> tuple[Optional[str], bool]:
         subprocess.run(["bash", str(AUTOSTART)], capture_output=True, timeout=30)
     else:
         target = f"{sess}:0"
-        if _sensei_process_exists() or is_ready(target):
+        if _sensei_process_exists(sess) or is_ready(target):
             return None, False   # it is there; I just can't match its pane. Touch nothing.
         _tmux("send-keys", "-t", target, "C-c")
         time.sleep(0.3)

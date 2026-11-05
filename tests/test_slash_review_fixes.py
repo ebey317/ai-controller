@@ -16,10 +16,18 @@ import speech_text  # noqa: E402
 @pytest.mark.parametrize("said", [
     "slash the budget by ten percent",
     "slash and burn that draft",
-    "slash go to the store",
 ])
 def test_sentences_starting_with_slash_are_not_commands(said):
     assert sb.parse(said) is None          # falls through to the model
+
+
+def test_first_word_command_with_extra_words_is_unknown_not_model(said=None):
+    # REVERSED by round-4 review #5: "slash go to the store" is ordinary
+    # English with a bare command word used as a verb — it falls through to
+    # the model (None). The round-3 "always intercept" rule ate sentences
+    # like "slash review the quarterly numbers". The LOUD unknown for a 2-word
+    # attempt ("slash git comit") is kept; see test_round4_fixes.py.
+    assert sb.parse("slash go to the store") is None
 
 
 def test_go_alone_is_still_a_gated_command():
@@ -86,7 +94,7 @@ def test_ensure_sensei_does_not_restart_a_live_sensei(monkeypatch):
     sent = []
     monkeypatch.setattr(sb, "session_name", lambda: "master-ai")
     monkeypatch.setattr(sb, "sensei_pane", lambda sess: None)       # lookup keeps missing
-    monkeypatch.setattr(sb, "_sensei_process_exists", lambda: True)  # but the process is there
+    monkeypatch.setattr(sb, "_sensei_process_exists", lambda *a, **k: True)  # but the process is there
     monkeypatch.setattr(sb.time, "sleep", lambda s: None)
     monkeypatch.setattr(sb, "_tmux", lambda *a, **k: sent.append(a) or
                         type("R", (), {"returncode": 0, "stdout": ""})())

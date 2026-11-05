@@ -29,7 +29,7 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.error
+import avatar_pulse
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -890,11 +890,38 @@ def _resolve_public_ip(host: str, port: int) -> Optional[str]:
         return None
     ips = []
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
-                or ip.is_reserved or ip.is_unspecified):
+        original = info[4][0]
+        ip = ipaddress.ip_address(original)
+        # Round-3 review #7: unwrap carrier forms of IPv4 for the SAFETY check
+        # only — ::ffff:a.b.c.d (IPv4-mapped), 2002::/16 (6to4), Teredo, and
+        # NAT64 64:ff9b::/96 embed a real IPv4 address that may be
+        # private/loopback while the WRAPPER address itself is "public".
+        # Round-5 review #2: the unwrapped IPv4 decides SAFETY, but the
+        # caller connects to the ORIGINAL address — the wrapper (not the
+        # embedded bare IPv4) is the routable form for 6to4/Teredo/NAT64, so
+        # pinning the unwrap could point the URL at an unroutable v4.
+        unwrap = ip
+        if isinstance(ip, ipaddress.IPv6Address):
+            if ip.ipv4_mapped:
+                unwrap = ip.ipv4_mapped
+            elif ip.sixtofour:
+                unwrap = ip.sixtofour
+            elif ip.teredo:
+                unwrap = ip.teredo[1]
+        # Round-5 review #3: NAT64 is the well-known /96 — the old `>>96`
+        # test matched the whole /32 (64:ff9b:<X>::… wrongly "unwrapped"),
+        # so require the full 64:ff9b::/96 network, bits 32..95 zero.
+            elif unwrap in ipaddress.ip_network("64:ff9b::/96"):
+                unwrap = ipaddress.IPv4Address(int(unwrap) & 0xFFFFFFFF)
+        # is_global rejects is_private/is_loopback/is_reserved AND the CGNAT
+        # range 100.64.0.0/10 (Tailscale addresses live there deliberately) —
+        # the old explicit chain did not. Multicast and link-local stay
+        # explicitly rejected because ipaddress considers parts of those
+        # ranges "global" (bench B4: 224.0.0.1, ff02::1 are never connect
+        # targets).
+        if unwrap.is_multicast or unwrap.is_link_local or not unwrap.is_global:
             return None
-        ips.append(str(ip))
+        ips.append(str(ip))   # THE ORIGINAL address — connect to it
     # prefer IPv4: simplest for the IP-literal URL below
     ips.sort(key=lambda a: ":" in a)
     return ips[0] if ips else None
@@ -1324,15 +1351,24 @@ def _reachable_pin_names() -> list[str]:
 
 
 _SYSTEMD_RUN_OK: dict = {"at": 0.0, "ok": False}
+_SYSTEMD_RUN_LOCK = threading.Lock()
+_SYSTEMD_OK_CACHE_S = 60        # a SUCCESSFUL probe is good for a minute
+_SYSTEMD_FAIL_RETRY_S = 5       # a FAILED probe is retried quickly (review #8):
+                                # a transient failure must not disable launches
+                                # for a minute
 
 
 def _systemd_run_works() -> bool:
     """Does `systemd-run --user --scope` work from this process right now? Probed with
-    a harmless `true`, cached for a minute. (An app's own fast non-zero exit must NOT
-    be mistaken for a wrapper failure, or the app gets launched twice.)"""
+    a harmless `true`. Success caches for 60 s; a FAILURE only caches for 5 s so a
+    transient probe error can never suppress launches of apps for a whole minute.
+    (An app's own fast non-zero exit must NOT be mistaken for a wrapper failure, or
+    the app gets launched twice — that is about the APP's exit, not the probe's.)"""
     now = time.time()
-    if now - _SYSTEMD_RUN_OK["at"] < 60:
-        return bool(_SYSTEMD_RUN_OK["ok"])
+    with _SYSTEMD_RUN_LOCK:
+        ttl = _SYSTEMD_OK_CACHE_S if _SYSTEMD_RUN_OK["ok"] else _SYSTEMD_FAIL_RETRY_S
+        if now - _SYSTEMD_RUN_OK["at"] < ttl:
+            return bool(_SYSTEMD_RUN_OK["ok"])
     ok = False
     if shutil.which("systemd-run"):
         try:
@@ -1340,7 +1376,8 @@ def _systemd_run_works() -> bool:
                                 capture_output=True, timeout=5).returncode == 0
         except Exception:
             ok = False
-    _SYSTEMD_RUN_OK.update(at=now, ok=ok)
+    with _SYSTEMD_RUN_LOCK:
+        _SYSTEMD_RUN_OK.update(at=now, ok=ok)
     return ok
 
 
@@ -2029,12 +2066,26 @@ def _call_pinned_model(pin: tuple[str, str], transcript: str, goal_id: str, t0: 
             return {"ok": False, "error": (
                 f"Private content is not shared with {pin[0]}. To allow it, add "
                 f"'{pin[0]}' to ~/.tahuti/trusted_providers.")}
-        if call.get("name") not in _READ_ONLY_TOOLS:
+        result = _execute_file_tool(goal_id, call, allowed)
+        # Round-3 review #6: `acted` used to be appended BEFORE the tool ran, so
+        # a denied/failed call was reported as done ("did X then stopped") even
+        # though nothing happened — and a denied call could never fall back to
+        # Muse. Count a tool as acted only when it actually went through.
+        if (call.get("name") not in _READ_ONLY_TOOLS
+                and isinstance(result, dict) and result.get("ok") is not False):
             acted.append(str(call.get("name")))
-        return _execute_file_tool(goal_id, call, allowed)
+        return result
 
     try:
-        text = sensei_model.run(pin, system, _load_conversation_history(), transcript, tools,
+        # Round-3 review #5: conversation history may carry private content
+        # PULLED by earlier turns (files, mail) that a trusted LOCAL model ran
+        # for the operator. Replaying it to an untrusted pinned provider would
+        # leak it without that provider ever running a private tool — so an
+        # untrusted pin gets NO prior history at all. The operator's own
+        # transcript this turn is freely given and stays.
+        trusted = pin[0].lower() in _trusted_providers()
+        history = _load_conversation_history() if trusted else []
+        text = sensei_model.run(pin, system, history, transcript, tools,
                                 execute=_execute)
     except Exception as exc:
         if acted:
@@ -2427,6 +2478,7 @@ def _archive(
     model: str = "",
     elapsed_s: float | None = None,
     route: str = "",
+    stages: dict | None = None,
 ) -> None:
     dest_dir = DONE_DIR if status == "done" else FAILED_DIR
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -2439,6 +2491,9 @@ def _archive(
         "model": model,
         "elapsed_s": elapsed_s,
         "route": route,
+        # Bench A1-A6 (TAHUTI-BENCH v0.1): per-stage wall-clock marks, so speed is
+        # measured from the archive instead of inferred from four separate logs.
+        "stages": stages or {},
         "archived_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
@@ -2578,11 +2633,7 @@ def _run_presenter(pattern_key: str, description: str, extra: dict) -> Optional[
     if not os.environ.get("DISPLAY"):
         return None
     # One avatar on screen during the decision: retire the work pulse.
-    try:
-        pid = int(Path("/tmp/tahuti-pulse.pid").read_text(encoding="utf-8").strip())
-        os.kill(pid, 9)
-    except Exception:
-        pass
+    _kill_avatar_pulse()
     request = json.dumps({
         "pattern_key": pattern_key,
         "description": description,
@@ -2655,6 +2706,23 @@ def _present_approval(pattern_key: str, description: str, goal_id: str = "", **e
     outcome = _run_presenter(pattern_key, description, extra)
     _escalation_record(goal_id, pattern_key, outcome)
     return outcome
+
+
+def _avatar_pid_is_safe(pid: int, cmdline: bytes, proc_uid: int) -> bool:
+    """Deprecated shim — the logic moved to avatar_pulse (round-4 review #3).
+    Kept for import compatibility; tests now exercise avatar_pulse direct."""
+    return avatar_pulse.avatar_pid_is_safe(pid, cmdline, proc_uid)
+
+
+def _kill_avatar_pulse(pidfile: str = "/tmp/tahuti-pulse.pid") -> bool:
+    """Retire the avatar pulse recorded in a pid file — after verifying it.
+    The check (uid match + `avatar_approval` in /proc cmdline) lives in the
+    shared `avatar_pulse` module so ptt_pynput's release path uses the SAME
+    rule (round-4 review #3). Used by every site that used to do a blind
+    `os.kill(<pid>, 9)` off this file: retiring the work pulse before a card
+    (_gate_desktop_action, _run_slash_card), replacing a stacked pulse
+    (_show_work_avatar), and the hold-to-show end-of-job cleanup."""
+    return avatar_pulse.kill_avatar_pulse(pidfile=pidfile)
 
 
 def _gate_desktop_action(goal_id: str, pattern_key: str, description: str,
@@ -2738,11 +2806,7 @@ def _show_work_avatar() -> None:
     instead of letting it fail inside the try/except below.
     """
     pidfile = Path("/tmp/tahuti-pulse.pid")
-    try:
-        old = int(pidfile.read_text(encoding="utf-8").strip())
-        os.kill(old, 9)
-    except Exception:
-        pass
+    _kill_avatar_pulse(pidfile=str(pidfile))   # verified kill (OCR finding E)
     if not os.environ.get("DISPLAY"):
         return
     try:
@@ -2841,10 +2905,7 @@ def _run_slash_card(send: str, menu: str = "", guide: bool = False) -> dict:
     adapts to what Sensei shows — picker, pager/menu, or plain output. Caller
     holds the Sensei lock. Returns the presenter's JSON ({} on failure)."""
     # One avatar on screen: retire the work pulse, like approval cards do.
-    try:
-        os.kill(int(Path("/tmp/tahuti-pulse.pid").read_text(encoding="utf-8").strip()), 9)
-    except Exception:
-        pass
+    _kill_avatar_pulse()
     try:
         proc = subprocess.run(
             [sys.executable, str(_CHOICE_PRESENTER), "--send", send]
@@ -2902,46 +2963,57 @@ def _process_slash(goal_id: str, slash: dict) -> tuple[str, bool]:
         if gate is not None:
             return (gate.get("error") or f"{send} was not run."), False
 
+    # Round-3 review #3: the lock is held ONLY around tmux typing. The approval
+    # gate runs with the lock RELEASED — a menu choice is the same command as the
+    # typed one: gated commands (git commit, hooks disable, clear…) get the same
+    # approval card, and holding the global Sensei lock through the whole card
+    # negotiation deadlocked every other slash command behind one unanswered card.
+    # The presenter's finally-clause closes the menu on deny/timeout itself; a
+    # denial here no longer has to worry about leaving the menu open.
+    started = False
+    res: dict = {}
+    if os.environ.get("DISPLAY"):
+        with sensei_slash.sensei_lock() as got_lock:
+            if not got_lock:
+                # Another command is still using Sensei. Typing now would garble both.
+                return "Sensei is busy with another command. Try again in a moment.", False
+            res = _run_slash_card(send, menu_base)
+        if res.get("action") == "needs_gate":
+            chosen = res["send"]
+            cbase = chosen.lstrip("/")
+            gate = _gate_desktop_action(
+                goal_id, f"tahuti:slash:{cbase.split()[0]}",
+                f"Run {chosen} in Sensei", f"{chosen} was not run")
+            if gate is not None:
+                return (gate.get("error") or f"{chosen} was not run."), False
+            send, base = chosen, cbase
+            with sensei_slash.sensei_lock() as got_lock:
+                if not got_lock:
+                    return "Sensei is busy with another command. Try again in a moment.", False
+                res = _run_slash_card(chosen)
+        if res.get("ok"):
+            mode = res.get("mode")
+            if mode == "picker":
+                path = " then ".join(res.get("path") or [])
+                model = res.get("model") or ""
+                return (f"Done{': ' + path if path else ''}." +
+                        (f" Sensei is now on {model}." if model else "")), False
+            if mode == "pager":
+                return f"Closed the {base} menu.", False
+            out = res.get("output") or ""
+            _write_to_agent_thread(f"slash:{base}", {"command": send},
+                                   {"ok": True, "output": out or "(no output)"})
+            return res.get("digest") or sensei_slash.spoken_digest(out, base), bool(res.get("spoken"))
+        if res.get("action") == "cancelled":
+            return "Okay, I left it as it was.", False
+        if res.get("action") == "error":
+            return f"I couldn't run {send}: {res.get('reason') or 'unknown error'}.", False
+        if menu_base:   # a menu the person never saw must not run anything
+            return f"I couldn't open the {menu_base} menu, so nothing was run.", False
+        # "unavailable" / no result: fall through to the text-only path
     with sensei_slash.sensei_lock() as got_lock:
         if not got_lock:
-            # Another command is still using Sensei. Typing now would garble both.
             return "Sensei is busy with another command. Try again in a moment.", False
-        started = False
-        # Card path (every command): needs a display.
-        if os.environ.get("DISPLAY"):
-            res = _run_slash_card(send, menu_base)
-            if res.get("action") == "needs_gate":
-                # A menu choice is the same command as the typed one: gated commands
-                # (git commit, hooks disable, clear…) get the same approval card.
-                chosen = res["send"]
-                cbase = chosen.lstrip("/")
-                gate = _gate_desktop_action(
-                    goal_id, f"tahuti:slash:{cbase.split()[0]}",
-                    f"Run {chosen} in Sensei", f"{chosen} was not run")
-                if gate is not None:
-                    return (gate.get("error") or f"{chosen} was not run."), False
-                send, base = chosen, cbase
-                res = _run_slash_card(chosen)
-            if res.get("ok"):
-                mode = res.get("mode")
-                if mode == "picker":
-                    path = " then ".join(res.get("path") or [])
-                    model = res.get("model") or ""
-                    return (f"Done{': ' + path if path else ''}." +
-                            (f" Sensei is now on {model}." if model else "")), False
-                if mode == "pager":
-                    return f"Closed the {base} menu.", False
-                out = res.get("output") or ""
-                _write_to_agent_thread(f"slash:{base}", {"command": send},
-                                       {"ok": True, "output": out or "(no output)"})
-                return res.get("digest") or sensei_slash.spoken_digest(out, base), bool(res.get("spoken"))
-            if res.get("action") == "cancelled":
-                return "Okay, I left it as it was.", False
-            if res.get("action") == "error":
-                return f"I couldn't run {send}: {res.get('reason') or 'unknown error'}.", False
-            if menu_base:   # a menu the person never saw must not run anything
-                return f"I couldn't open the {menu_base} menu, so nothing was run.", False
-            # "unavailable" / no result: fall through to the text-only path
         try:
             pane, started = sensei_slash.ensure_sensei()
         except Exception as exc:
@@ -2995,14 +3067,38 @@ def _process_goal(path: Path) -> None:
         _archive(claim_path, goal_id, "failed", error="duplicate goal id")
         return
 
+    # Bench A1-A6 (2026-11-04): stamps for every stage the archive can honestly
+    # measure. A1 needs the trigger's own timestamp (goal["time"]), A3/A6 still
+    # live in their own logs -- the report says so rather than inventing them.
+    stages: dict[str, float] = {}
+    try:
+        stages["goal_time"] = float(goal.get("time") or 0.0)
+    except (TypeError, ValueError):
+        stages["goal_time"] = 0.0
+    stages["claimed"] = time.time()
+
+    # Bench A2 (round-5 cheap fix): `routed` = when the LANE was chosen. It
+    # used to be stamped right after `claimed`, so the report printed a
+    # meaningless ~0.000 s "route" time. Each lane branch below stamps it at
+    # its own decision point (setdefault: only the branch that runs wins).
+    def _routed() -> None:
+        stages.setdefault("routed", time.time())
+
+    def _speak(text: str) -> None:
+        """Speak, and stamp answer-ready vs spoken around it (A4/A5)."""
+        stages.setdefault("answer", time.time())
+        _post_speak(text)
+        stages["spoken"] = time.time()
+
     logger.info("Processing goal %s: %r", goal_id, transcript[:120])
     _write_caption(transcript, "working")
 
     # Deterministic intents bypass the model entirely: zero tokens, instant.
     if goal.get("type") == "show":
+        _routed()
         response = _process_show()
         worker = "tahuti-runner-v1 (show)"
-        _post_speak(response)
+        _speak(response)
         try:
             work = LAST_RESPONSE_FILE.read_text(encoding="utf-8")[:1000] \
                 if LAST_RESPONSE_FILE.exists() else "nothing yet"
@@ -3010,18 +3106,19 @@ def _process_goal(path: Path) -> None:
             work = "nothing yet"
         _notify("Showing work", work, urgency="normal", sound=True)
         _archive(claim_path, goal_id, "done", response=response,
-                 model="deterministic-show")
+                 model="deterministic-show", stages=stages)
         return
 
     # Deterministic clock (2026-11-02): time/date questions never reach
     # the model — the lookup lane hallucinated the date before this.
     if _is_time_question(transcript):
+        _routed()
         response = _process_time()
         worker = "tahuti-runner-v1 (time)"
-        _post_speak(response)
+        _speak(response)
         _notify("Goal done", response, urgency="normal", sound=True)
         _archive(claim_path, goal_id, "done", response=response,
-                 model="deterministic-time")
+                 model="deterministic-time", stages=stages)
         return
 
     # Slash commands (2026-11-03, operator spec "run just like a TUI"): a spoken
@@ -3029,14 +3126,15 @@ def _process_goal(path: Path) -> None:
     # doctor, stats, all of them — deterministic, never via the model.
     _slash = sensei_slash.parse(transcript)
     if _slash is not None:
+        _routed()
         response, _already_spoken = _process_slash(goal_id, _slash)
         if not _already_spoken:
-            _post_speak(response)
+            _speak(response)
         _write_last_response(transcript, "tahuti-runner-v1 (slash)", response, model="sensei-bridge")
         _write_caption(_spoken_form(response), "done")
         _notify("Goal done", response[:300], urgency="normal", sound=True)
         _archive(claim_path, goal_id, "done", response=response,
-                 model="deterministic-slash")
+                 model="deterministic-slash", stages=stages)
         return
 
     approval = _needs_approval(transcript)
@@ -3047,6 +3145,7 @@ def _process_goal(path: Path) -> None:
     route: str = ""
 
     if approval:
+        _routed()          # the approval lane IS the chosen route if it holds
         pattern = f"tahuti:{_verb_for_approval(transcript)}:background"
         if _is_granted(pattern):
             logger.info("grant covers %s — proceeding without the box", pattern)
@@ -3067,6 +3166,7 @@ def _process_goal(path: Path) -> None:
                             "couldn't be shown just now, so nothing was done.")
                 worker = "tahuti-runner-v1 (approval gate)"
     if not approval and not response:
+        _routed()          # the model lane — the slow part starts HERE
         try:
             response, model, elapsed, elapsed_s, route = _call_model(
                 transcript, goal_id=goal_id,
@@ -3078,7 +3178,7 @@ def _process_goal(path: Path) -> None:
             response = f"I ran into a problem: {exc}"
             worker = "tahuti-runner-v1 (model error)"
 
-    _post_speak(response)
+    _speak(response)
     _write_last_response(transcript, worker, response, model=model)
     # The box must show what the voice SAYS (2026-11-03): same text, not the
     # full answer trimmed a different way.
@@ -3103,14 +3203,11 @@ def _process_goal(path: Path) -> None:
         model=model or ("approval-gate" if approval else "unknown"),
         elapsed_s=elapsed_s,
         route=route,
+        stages=stages,
     )
     # Hold-to-show (2026-10-31): job over = window gone. The spoken answer
     # and response file carry the result; next claim raises the next window.
-    try:
-        _pp = Path("/tmp/tahuti-pulse.pid").read_text(encoding="utf-8").strip()
-        os.kill(int(_pp), 9)
-    except Exception:
-        pass
+    _kill_avatar_pulse()
 
 
 def _sleep_or_stop(seconds: float) -> None:

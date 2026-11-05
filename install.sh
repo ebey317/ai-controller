@@ -367,9 +367,33 @@ systemctl --user daemon-reload
 # checkbox (it writes a .desktop autostart entry for the launcher itself),
 # which is the ONLY sanctioned auto-start path.  Enabling the individual
 # services directly would bypass the launcher and is not supported.
+# ONE EXCEPTION (round-5 review #6): the tahuti-readme-nudge TIMER — enabled
+# here on purpose (see section 10a) because it lives OUTSIDE the launcher: a
+# self-offering card ("Turn off") for voice-agent onboarding, quiet while you
+# are busy, and the launcher does not manage it.
 for svc in "${SERVICES[@]}"; do
     systemctl --user disable "${svc}" 2>/dev/null || true
 done
+
+# ── 10a. README NUDGE TIMER (voice-agent onboarding reminder) ────────────────
+# The avatar card ("Want to learn more?") fires from a user timer, not from
+# the launcher-managed services: tahuti_nudge.py stays quiet while you are
+# busy, and the card itself offers "Turn off", so it is safe to enable at
+# install. Disable later with:
+#   systemctl --user disable --now tahuti-readme-nudge.timer
+if [[ -f "${INSTALL_DIR}/systemd/tahuti-readme-nudge.service" && \
+      -f "${INSTALL_DIR}/systemd/tahuti-readme-nudge.timer" ]]; then
+    cp "${INSTALL_DIR}/systemd/tahuti-readme-nudge.service" "${SERVICE_DIR}/"
+    cp "${INSTALL_DIR}/systemd/tahuti-readme-nudge.timer" "${SERVICE_DIR}/"
+    # round-4 review #4: under `set -euo pipefail` a headless run (ssh/sudo/CI,
+    # no user D-Bus) aborted the WHOLE install right here. Warn, don't stop.
+    systemctl --user daemon-reload 2>/dev/null || \
+        echo "WARNING: systemctl daemon-reload failed (no user D-Bus?) — the nudge timer may not activate until you re-run it as your desktop user" >&2
+    systemctl --user enable --now tahuti-readme-nudge.timer 2>/dev/null || \
+        echo "WARNING: could not enable tahuti-readme-nudge.timer — enable it manually: systemctl --user enable --now tahuti-readme-nudge.timer" >&2
+else
+    echo "WARNING: README nudge templates missing — reminder card not wired." >&2
+fi
 
 # ── 11. INSTALL DESKTOP LAUNCHER (launcher app controls services) ──
 echo "→ Installing desktop launcher..."

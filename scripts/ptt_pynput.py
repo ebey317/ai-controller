@@ -24,6 +24,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 import voice_goal_schema as vgs  # noqa: E402
+import avatar_pulse  # noqa: E402  (shared, verified avatar-pulse kill)
 
 # Headless mode (opt-in): AI_CONTROLLER_HEADLESS=1 keeps audio capture, STT,
 # the evdev trigger path, goal takes, and TTS — but skips everything that
@@ -110,13 +111,22 @@ DICTATION_TARGET_FILE = os.path.join(config_dir(), "ai_controller_dictation_targ
 CAPTION_FILE = os.path.join(config_dir(), "tahuti_caption.json")
 
 
-def _write_caption(text: str, state: str) -> None:
+def _write_caption(text: str, state: str) -> float | None:
+    """Write the caption and RETURN the timestamp that actually went to disk
+    (None on failure). round-4 finding #1: callers that must later recognise
+    THEIR OWN caption (the agent take's "sending" → "idle" clear) compare
+    against this — a separate `time.time()` call from the writer's stamps
+    always differs and the guard never fired, leaving the avatar stuck on
+    "sending" again."""
+    ts = time.time()
     try:
         with open(CAPTION_FILE, "w", encoding="utf-8") as f:
             json.dump({"text": text[:300], "state": state,
-                       "time": time.time()}, f)
+                       "time": ts}, f)
+        return ts
     except Exception as exc:
         log.warning(f"caption write failed: {exc}")
+        return None
 
 
 def _read_caption(max_age: float = 60.0) -> dict:
@@ -857,6 +867,10 @@ _SHORT_HALLUCINATIONS = {
 # evdev fallback so Ctrl+F13 works whichever path delivers F13.
 _ctrl_held = False
 _goal_take = False
+# One take per release (round-4 review #2): a counter captured by on_release
+# and by the impl, so a LATE first-take thread can never reset the flag or
+# clear the caption of a take that already superseded it.
+take_seq = 0
 
 
 def _active_window():
@@ -1256,20 +1270,56 @@ def _reap_orphan_recorders():
         pass
 
 
-def stop_and_send():
+def stop_and_send(was_agent_take: bool = False, sending_time: float = 0.0,
+                  take_id: int = 0):
     """Send the take. Whatever happens (too short, silent, debounced, ghost
     recording...), an agent take must not leave the avatar waiting on "sending":
     on_release already wrote that state, and the avatar now stays up for it
-    (review finding, 2026-11-04). Success writes "heard"/"working" itself."""
-    was_agent_take = _goal_take
+    (review finding, 2026-11-04). Success writes "heard"/"working" itself.
+
+    round-4 finding #2: `take_id` is the take counter captured at release —
+    passed into the impl so a LATE run of an older take can never reset the
+    global `_goal_take` out from under a newer take. `sending_time` is the
+    timestamp `_write_caption` actually stamped (round-4 #1): the finally
+    clears to "idle" only when the caption on disk is still THIS release's
+    exact "sending" write."""
     try:
-        _stop_and_send_impl()
+        _stop_and_send_impl(was_agent_take, take_id)
     finally:
-        if was_agent_take and _read_caption(max_age=120.0).get("state") == "sending":
+        if was_agent_take and _take_still_current(take_id) and \
+                _should_clear_to_idle(_read_caption(max_age=120.0), sending_time):
             _write_caption("", "idle")
 
 
-def _stop_and_send_impl():
+def _take_still_current(take_id: int) -> bool:
+    """True when THIS release is still the newest take (round-4 #2): take
+    #2's release bumped the counter, so take #1's late cleanup no longer
+    touches the flag or the caption — take #2's own thread owns them now."""
+    return take_id == take_seq
+
+
+def _should_clear_to_idle(caption: dict, sending_time: float) -> bool:
+    """Pure decision for stop_and_send's finally (kept function-level so the
+    test can exercise the race without importing this side-effectful
+    module): a "sending" caption may be replaced with "idle" only when the
+    caption on disk is STILL the one this release wrote — same state, same
+    timestamp. A separate time.time() from the writer never matches (round-4
+    #1); the compared stamp is _write_caption's OWN return value. Anything
+    else ("heard" from this take's own progress, or a newer take's
+    "sending") is live state and must be left alone."""
+    try:
+        return (caption.get("state") == "sending"
+                and float(caption.get("time", 0)) == float(sending_time))
+    except (TypeError, ValueError):
+        return False
+
+
+def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
+    """`was_agent_take` is the value on_release captured — NOT a global read:
+    by the time this runs, the next take's on_press may already have flipped
+    `_goal_take` back to True (round-3 finding A). Every `_goal_take = False`
+    reset below is guarded by `_take_still_current(take_id)` (round-4 #2):
+    a LATE run of an older take must never clobber a newer take's flag."""
     global recording, rec_proc, rawfile, wavfile, _last_f13_time, _goal_take
     _processing_lock.acquire()
     try:
@@ -1349,7 +1399,7 @@ def _stop_and_send_impl():
             # go to the bridge in execute mode so the response is spoken;
             # text takes stay transcribe-only.
             file_agent = _load_dictation_target() == "agent"
-            bridge_mode = "execute" if (_goal_take or file_agent) else "transcribe_only"
+            bridge_mode = "execute" if (was_agent_take or file_agent) else "transcribe_only"
             r = subprocess.run(
                 ['curl', '-s', '-X', 'POST', endpoint,
                  '-F', f'audio=@{wavfile}', '-F', f'mode={bridge_mode}',
@@ -1376,12 +1426,12 @@ def _stop_and_send_impl():
             # Goal fork: preserve the vocab-corrected transcript before style
             # transforms (bubbly/bold/etc.) so goals get content, not formatting.
             # The slide-keyboard AGENT toggle counts as an agent take too.
-            agent_take = (_goal_take or file_agent) and bool(transcript)
+            agent_take = (was_agent_take or file_agent) and bool(transcript)
             goal_text = transcript if (agent_take and transcript) else None
             if agent_take and goal_text:
                 # Avatar prompt box: show what was heard going to the agent.
                 _write_caption(goal_text, "heard")
-            elif _goal_take:
+            elif was_agent_take:
                 # Agent take heard nothing: release the avatar (event-driven
                 # window would otherwise wait on "sending" forever).
                 _write_caption("", "idle")
@@ -1406,14 +1456,16 @@ def _stop_and_send_impl():
                             _write_goal(goal_text)
                         _append_transcript_log(goal_text, response=response, target="agent")
                         _notify_hermex("Agent transcript", goal_text[:120], urgency="normal")
-                _goal_take = False
+                if _take_still_current(take_id):
+                    _goal_take = False
             elif transcript:
                 if agent_take:
                     if goal_text is not None:
                         _write_goal(goal_text)
                         _append_transcript_log(goal_text, response="", target="agent")
                         _notify_hermex("Agent transcript", goal_text[:120], urgency="normal")
-                    _goal_take = False
+                    if _take_still_current(take_id):
+                        _goal_take = False
                 elif HEADLESS:
                     # No window to type into — speak instead. Goal takes above
                     # behave identically headless or not (file write, no
@@ -1461,7 +1513,8 @@ def _stop_and_send_impl():
                         _type_text_fast(transcript, mode, target_window=target_window)
             else:
                 log.info("(nothing heard)")
-                _goal_take = False
+                if _take_still_current(take_id):
+                    _goal_take = False
         except Exception as ex:
             log.error(f"Error: {ex}")
             # Strip the home directory before this goes into a phone push
@@ -1587,7 +1640,7 @@ def on_press(key):
 
 
 def on_release(key):
-    global _ctrl_held
+    global _ctrl_held, _goal_take, take_seq
     log.debug("Key released: %s (vk=%s)", key, getattr(key, 'vk', None))
     if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
         _ctrl_held = False
@@ -1601,15 +1654,30 @@ def on_release(key):
         # on release — the window is event-driven (avatar_approval.py) and
         # stays through sending/working/speaking, leaving when that is done.
         # A plain dictation take never had a pulse to keep, so it still ends here.
+        # round-4 #3: the dictation branch kills the pulse through the shared
+        # VERIFIED helper (uid + avatar_approval cmdline check), not blind.
+        was_agent_take = False
+        this_take = 0
+        sending_time = 0.0
         if _goal_take:
-            _write_caption("", "sending")
+            was_agent_take = True
+            # round-5 finding #4: the take counter must advance ONLY on agent
+            # takes. It used to bump every release, so a dictation take taken
+            # later superseded the agent take's id and _take_still_current()
+            # went False for a take that was still the newest AGENT take —
+            # its finally never cleared the 'sending' caption again.
+            take_seq = take_seq + 1   # this AGENT release owns a take id
+            this_take = take_seq
+            # round-4 finding #1: capturing a FRESH time.time() here always
+            # differed from the stamp _write_caption writes a moment later,
+            # so the "clear to idle" guard never matched. Use the stamp the
+            # writer actually put on disk instead.
+            sending_time = _write_caption("", "sending") or 0.0
         else:
-            try:
-                _pp = open("/tmp/tahuti-pulse.pid").read().strip()
-                os.kill(int(_pp), 9)
-            except Exception:
-                pass
-        threading.Thread(target=stop_and_send, daemon=True).start()
+            avatar_pulse.kill_avatar_pulse()
+        threading.Thread(target=stop_and_send,
+                         args=(was_agent_take, sending_time, this_take),
+                         daemon=True).start()
 
 
 log.info("Push-to-talk dictation (pynput — Hold RT to speak, release to type)")

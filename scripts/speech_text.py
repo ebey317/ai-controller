@@ -65,6 +65,11 @@ def spoken_form(text: str, limit: int = MAX_SPOKEN_CHARS) -> str:
     end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
     if end > limit // 2:
         return cut[: end + 1].strip()
-    # No sentence end in reach: cut at a WORD boundary, never mid-word.
+    # No sentence end in reach: cut at a WORD boundary, never mid-word. One
+    # character is RESERVED for the appended ellipsis so the spoken prefix
+    # never exceeds `limit` (it used to come out one char long). The
+    # one-long-token case (no useful space anywhere in the cut) has no word
+    # boundary to honour — hard-cut at limit-1 instead of returning the
+    # un-truncated tail.
     space = cut.rfind(" ")
-    return (cut[:space] if space > limit // 2 else cut).strip() + "…"
+    return (cut[:space] if space > limit // 2 else cut[: limit - 1]).strip() + "…"

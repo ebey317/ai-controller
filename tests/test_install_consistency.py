@@ -50,6 +50,36 @@ def test_every_listed_service_has_a_template():
     )
 
 
+def test_readme_nudge_pair_is_installed_and_timer_enabled():
+    # The avatar "Want to learn more?" card fires from tahuti-readme-nudge
+    # (oneshot service driven by its timer). Both templates must exist in
+    # systemd/, and install.sh must deploy the pair and enable the TIMER —
+    # a timer only runs when enabled, unlike the launcher-managed services,
+    # which are installed disabled on purpose.
+    nudge_svc = REPO_ROOT / "systemd" / "tahuti-readme-nudge.service"
+    nudge_timer = REPO_ROOT / "systemd" / "tahuti-readme-nudge.timer"
+    text = (REPO_ROOT / "install.sh").read_text()
+    assert nudge_svc.exists() and nudge_timer.exists(), (
+        "tahuti-readme-nudge service/timer templates must exist in systemd/"
+    )
+    assert "tahuti-readme-nudge.service" in text, (
+        "install.sh never deploys tahuti-readme-nudge.service"
+    )
+    assert "tahuti-readme-nudge.timer" in text, (
+        "install.sh never deploys tahuti-readme-nudge.timer"
+    )
+    assert re.search(
+        r"systemctl\s+--user\s+enable\s+--now\s+tahuti-readme-nudge\.timer", text
+    ), "install.sh must enable --now tahuti-readme-nudge.timer (timers do not run disabled)"
+    # The nudge pair must NOT ride the SERVICES array: that array is disabled
+    # wholesale after install, which would undo a timer enable.
+    listed = _services_in_install_sh()
+    assert "tahuti-readme-nudge.service" not in listed, (
+        "tahuti-readme-nudge.service must stay out of SERVICES (the disable "
+        "loop would defeat the timer)"
+    )
+
+
 def test_optional_services_are_guarded_and_missing_tahuti_is_reported():
     text = (REPO_ROOT / "install.sh").read_text()
     match = re.search(r"OPTIONAL_SERVICES=\((.*?)\)", text, re.DOTALL)
