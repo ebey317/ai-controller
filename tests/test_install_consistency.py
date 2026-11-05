@@ -36,18 +36,18 @@ def test_every_service_template_is_referenced_by_install_sh():
     templates = _service_templates_on_disk()
     text = (REPO_ROOT / "install.sh").read_text()
     orphaned = {svc for svc in templates if svc not in text}
-    assert not orphaned, (
-        f"systemd/ has templates install.sh never references anywhere: {orphaned}"
-    )
+    assert (
+        not orphaned
+    ), f"systemd/ has templates install.sh never references anywhere: {orphaned}"
 
 
 def test_every_listed_service_has_a_template():
     templates = _service_templates_on_disk()
     listed = _services_in_install_sh()
     missing = listed - templates
-    assert not missing, (
-        f"install.sh's SERVICES array references files missing from systemd/: {missing}"
-    )
+    assert (
+        not missing
+    ), f"install.sh's SERVICES array references files missing from systemd/: {missing}"
 
 
 def test_readme_nudge_pair_is_installed_and_timer_enabled():
@@ -59,15 +59,15 @@ def test_readme_nudge_pair_is_installed_and_timer_enabled():
     nudge_svc = REPO_ROOT / "systemd" / "tahuti-readme-nudge.service"
     nudge_timer = REPO_ROOT / "systemd" / "tahuti-readme-nudge.timer"
     text = (REPO_ROOT / "install.sh").read_text()
-    assert nudge_svc.exists() and nudge_timer.exists(), (
-        "tahuti-readme-nudge service/timer templates must exist in systemd/"
-    )
-    assert "tahuti-readme-nudge.service" in text, (
-        "install.sh never deploys tahuti-readme-nudge.service"
-    )
-    assert "tahuti-readme-nudge.timer" in text, (
-        "install.sh never deploys tahuti-readme-nudge.timer"
-    )
+    assert (
+        nudge_svc.exists() and nudge_timer.exists()
+    ), "tahuti-readme-nudge service/timer templates must exist in systemd/"
+    assert (
+        "tahuti-readme-nudge.service" in text
+    ), "install.sh never deploys tahuti-readme-nudge.service"
+    assert (
+        "tahuti-readme-nudge.timer" in text
+    ), "install.sh never deploys tahuti-readme-nudge.timer"
     assert re.search(
         r"systemctl\s+--user\s+enable\s+--now\s+tahuti-readme-nudge\.timer", text
     ), "install.sh must enable --now tahuti-readme-nudge.timer (timers do not run disabled)"
@@ -110,7 +110,10 @@ def test_services_remain_launcher_managed_not_enabled_at_install():
 
 def test_install_sh_installs_from_requirements_txt_not_a_hardcoded_list():
     text = (REPO_ROOT / "install.sh").read_text()
-    assert "-r \"${REPO_DIR}/requirements.txt\"" in text or "-r ${REPO_DIR}/requirements.txt" in text, (
+    assert (
+        '-r "${REPO_DIR}/requirements.txt"' in text
+        or "-r ${REPO_DIR}/requirements.txt" in text
+    ), (
         "install.sh should pip install from requirements.txt, not a separate "
         "hardcoded package list -- the two will drift apart again otherwise"
     )

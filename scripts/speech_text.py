@@ -5,6 +5,7 @@ Both the voice bridge (what is voiced) and the goal runner (what the avatar
 box shows) import spoken_form(), so the words on screen are always the words
 heard. Change the rule here, nowhere else.
 """
+
 from __future__ import annotations
 
 import html
@@ -20,12 +21,12 @@ _SPACES = re.compile(r"[ \t]+")
 # "tahuti_goal_runner.py" into "tahutigoalrunner.py" and ate "&gt;" (review
 # finding, 2026-11-04). Identifiers, file names and URLs must survive.
 _MD_PATTERNS = [
-    (re.compile(r"`+"), ""),                                        # code ticks
-    (re.compile(r"^\s{0,3}#{1,6}\s+", re.M), ""),                    # "## Heading"
-    (re.compile(r"^\s{0,3}>\s?", re.M), ""),                         # "> quote"
-    (re.compile(r"^\s{0,3}[*+]\s+", re.M), ""),                      # "* bullet"
-    (re.compile(r"\*\*(.+?)\*\*"), r"\1"),                           # **bold**
-    (re.compile(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])"), r"\1"),   # *italic*
+    (re.compile(r"`+"), ""),  # code ticks
+    (re.compile(r"^\s{0,3}#{1,6}\s+", re.M), ""),  # "## Heading"
+    (re.compile(r"^\s{0,3}>\s?", re.M), ""),  # "> quote"
+    (re.compile(r"^\s{0,3}[*+]\s+", re.M), ""),  # "* bullet"
+    (re.compile(r"\*\*(.+?)\*\*"), r"\1"),  # **bold**
+    (re.compile(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])"), r"\1"),  # *italic*
     (re.compile(r"(?<![\w_])__(?!\s)([^_\n]+?)(?<!\s)__(?![\w.])"), r"\1"),  # __bold__
     (re.compile(r"(?<![\w_])_(?!\s)([^_\n./]+?)(?<!\s)_(?![\w.])"), r"\1"),  # _italic_
 ]

@@ -205,6 +205,8 @@ Most controller apps map a gamepad to keyboard keys and call it done. AI Control
 | HUD legend | Python + GTK3 | Floating controller button-map overlay |
 | Profile switching | Bash + xdotool | Window-focus watcher, AntiMicroX profile swap |
 | TTS | [edge-tts](https://github.com/rhasspy/rhasspy-edge-tts) | Cloud text-to-speech |
+| Voice agent (Tahuti) | Python + Meta Muse / Groq | Headless goal runner, avatar, approval cards |
+| Slash commands | Sensei registry | Voice-driven terminal commands |
 | Service management | systemd user units | Start/stop/crash recovery/autostart |
 | Device rules | udev | USB autosuspend, controller ACLs, xone/xpad guard |
 
@@ -250,6 +252,23 @@ Most controller apps map a gamepad to keyboard keys and call it done. AI Control
 │                    systemd user services                          │
 │  ptt-pynput │ voice-bridge │ ai-slide-keyboard │ controller-legend │
 │  antimicrox-autoload │ f13-xmodmap-heal │ xone-driver-guard       │
+│  gip-audio-watchdog │ a-button-double-tap-enter                 │
+│  tahuti-readme-nudge │ ai-controller-goal-runner (opt-in)       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+┌─────────────────────────────────────────────────────────────────┐
+│                         Tahuti Voice Agent                        │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │ Ctrl+F13 (L+R) → ptt_pynput.py → writes goal to           │  │
+│  │ ~/.tahuti/goals/ → tahuti_goal_runner.py claims & works   │  │
+│  │   ├─▶ sensei_slash.py → drives live Sensei TUI (tmux)     │  │
+│  │   ├─▶ sensei_model.py → routes to pinned model (Meta, etc)│  │
+│  │   ├─▶ tahuti_operator.py → local knowledge (weather, etc) │  │
+│  │   └─▶ POST /speak → voice_bridge.py → TTS → avatar        │  │
+│  │        avatar_pulse.py → verified kill for approval cards │  │
+│  │        tahuti_choice_presenter.py → approval cards (GTK3) │  │
+│  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -286,6 +305,12 @@ curl -X POST http://localhost:8002/voice?mode=transcribe_only \
 | `antimicrox-autoload.service` | Auto-load default profile |
 | `f13-xmodmap-heal.service` | Restore F13 keymap after X reload |
 | `xone-driver-guard.service` | Block in-kernel xpad + prevent USB autosuspend |
+| `gip-audio-watchdog.service` | Monitor xone-gip audio health, trigger reset |
+| `a-button-double-tap-enter.service` | Double-tap A button → Enter key |
+| `ptt-pynput-headless.service` | Headless PTT (no X11) — opt-in |
+| `voice-bridge-headless.service` | Headless voice bridge — opt-in |
+| `ai-controller-goal-runner.service` | Tahuti headless goal runner — opt-in |
+| `tahuti-readme-nudge.service` | Avatar "want to learn more?" reminder (timer-driven) |
 
 ```bash
 systemctl --user start/stop/restart <service>.service

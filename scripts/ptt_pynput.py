@@ -30,7 +30,12 @@ import voice_goal_schema as vgs  # noqa: E402
 # the evdev trigger path, goal takes, and TTS — but skips everything that
 # needs X11 (pynput listener, X11 F13 grab, focus snapshot, xdotool typing).
 # Unset (default) = current GUI behavior, byte-for-byte.
-HEADLESS = os.environ.get("AI_CONTROLLER_HEADLESS", "").strip().lower() in ("1", "true", "yes", "on")
+HEADLESS = os.environ.get("AI_CONTROLLER_HEADLESS", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 try:
     if HEADLESS:
@@ -121,8 +126,7 @@ def _write_caption(text: str, state: str) -> float | None:
     ts = time.time()
     try:
         with open(CAPTION_FILE, "w", encoding="utf-8") as f:
-            json.dump({"text": text[:300], "state": state,
-                       "time": ts}, f)
+            json.dump({"text": text[:300], "state": state, "time": ts}, f)
         return ts
     except Exception as exc:
         log.warning(f"caption write failed: {exc}")
@@ -138,6 +142,8 @@ def _read_caption(max_age: float = 60.0) -> dict:
         return data
     except Exception:
         return {}
+
+
 TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 
 # ---------------------------------------------------------------------------
@@ -191,46 +197,126 @@ _FRAKTUR_MAP = {
 # Big standalone emoji keyword map — no LLM, no network, instant
 _EMOJI_MAP = {
     # emotions
-    "happy": "happy 😊", "sad": "sad 😢", "love": "love ❤️", "hate": "hate 😠",
-    "heart": "heart ❤️", "excited": "excited 🤩", "bored": "bored 😐",
-    "angry": "angry 😠", "mad": "mad 🤬", "tired": "tired 😴", "sleepy": "sleepy 😴",
-    "sick": "sick 🤒", "surprised": "surprised 😲", "shocked": "shocked 😱",
-    "confused": "confused 😕", "worried": "worried 😟", "proud": "proud 🥹",
-    "embarrassed": "embarrassed 😳", "scared": "scared 😨", "lonely": "lonely 🥺",
+    "happy": "happy 😊",
+    "sad": "sad 😢",
+    "love": "love ❤️",
+    "hate": "hate 😠",
+    "heart": "heart ❤️",
+    "excited": "excited 🤩",
+    "bored": "bored 😐",
+    "angry": "angry 😠",
+    "mad": "mad 🤬",
+    "tired": "tired 😴",
+    "sleepy": "sleepy 😴",
+    "sick": "sick 🤒",
+    "surprised": "surprised 😲",
+    "shocked": "shocked 😱",
+    "confused": "confused 😕",
+    "worried": "worried 😟",
+    "proud": "proud 🥹",
+    "embarrassed": "embarrassed 😳",
+    "scared": "scared 😨",
+    "lonely": "lonely 🥺",
     # reactions
-    "lol": "lol 😂", "haha": "haha 😂", "lmao": "lmao 🤣", "wow": "wow 🤯",
-    "omg": "omg 😱", "yay": "yay 🎉", "woo": "woo 🥳", "yikes": "yikes 😬",
-    "ugh": "ugh 😩", "meh": "meh 😒", "hm": "hm 🤔", "hmm": "hmm 🤔",
+    "lol": "lol 😂",
+    "haha": "haha 😂",
+    "lmao": "lmao 🤣",
+    "wow": "wow 🤯",
+    "omg": "omg 😱",
+    "yay": "yay 🎉",
+    "woo": "woo 🥳",
+    "yikes": "yikes 😬",
+    "ugh": "ugh 😩",
+    "meh": "meh 😒",
+    "hm": "hm 🤔",
+    "hmm": "hmm 🤔",
     # greetings / goodbyes
-    "hello": "hello 👋🏿", "hi": "hi 👋🏿", "hey": "hey 👋🏿",
-    "goodbye": "goodbye 👋🏿", "bye": "bye 👋🏿", "see you": "see you 👋🏿",
-    "good morning": "good morning 🌅", "good night": "good night 🌙",
-    "thank you": "thank you 🙏🏿", "thanks": "thanks 🙏🏿", "please": "please 🥺",
-    "sorry": "sorry 😔", "apologize": "apologize 🙇🏿",
+    "hello": "hello 👋🏿",
+    "hi": "hi 👋🏿",
+    "hey": "hey 👋🏿",
+    "goodbye": "goodbye 👋🏿",
+    "bye": "bye 👋🏿",
+    "see you": "see you 👋🏿",
+    "good morning": "good morning 🌅",
+    "good night": "good night 🌙",
+    "thank you": "thank you 🙏🏿",
+    "thanks": "thanks 🙏🏿",
+    "please": "please 🥺",
+    "sorry": "sorry 😔",
+    "apologize": "apologize 🙇🏿",
     # quality
-    "fire": "fire 🔥", "cool": "cool 😎", "nice": "nice ✨", "great": "great 🎉",
-    "awesome": "awesome 🤩", "amazing": "amazing 🤩", "perfect": "perfect 💯",
-    "good": "good 👍🏿", "bad": "bad 👎🏿", "ok": "ok 👌🏿", "okay": "okay 👌🏿",
-    "yes": "yes ✅", "no": "no ❌", "maybe": "maybe 🤷🏿", "definitely": "definitely 💯",
-    "check": "check ✅", "done": "done ✅", "finished": "finished ✅",
+    "fire": "fire 🔥",
+    "cool": "cool 😎",
+    "nice": "nice ✨",
+    "great": "great 🎉",
+    "awesome": "awesome 🤩",
+    "amazing": "amazing 🤩",
+    "perfect": "perfect 💯",
+    "good": "good 👍🏿",
+    "bad": "bad 👎🏿",
+    "ok": "ok 👌🏿",
+    "okay": "okay 👌🏿",
+    "yes": "yes ✅",
+    "no": "no ❌",
+    "maybe": "maybe 🤷🏿",
+    "definitely": "definitely 💯",
+    "check": "check ✅",
+    "done": "done ✅",
+    "finished": "finished ✅",
     # food / drink
-    "hungry": "hungry 🍔", "coffee": "coffee ☕", "beer": "beer 🍺", "wine": "wine 🍷",
-    "pizza": "pizza 🍕", "taco": "taco 🌮", "burger": "burger 🍔", "fries": "fries 🍟",
-    "cake": "cake 🍰", "ice cream": "ice cream 🍦", "chocolate": "chocolate 🍫",
-    "water": "water 💧", "tea": "tea 🍵", "breakfast": "breakfast 🍳", "dinner": "dinner 🍽️",
+    "hungry": "hungry 🍔",
+    "coffee": "coffee ☕",
+    "beer": "beer 🍺",
+    "wine": "wine 🍷",
+    "pizza": "pizza 🍕",
+    "taco": "taco 🌮",
+    "burger": "burger 🍔",
+    "fries": "fries 🍟",
+    "cake": "cake 🍰",
+    "ice cream": "ice cream 🍦",
+    "chocolate": "chocolate 🍫",
+    "water": "water 💧",
+    "tea": "tea 🍵",
+    "breakfast": "breakfast 🍳",
+    "dinner": "dinner 🍽️",
     # objects / tech
-    "phone": "phone 📱", "computer": "computer 💻", "laptop": "laptop 💻",
-    "game": "game 🎮", "controller": "controller 🎮", "music": "music 🎵",
-    "book": "book 📚", "movie": "movie 🎬", "tv": "tv 📺", "money": "money 💰",
-    "idea": "idea 💡", "light": "light 💡", "warning": "warning ⚠️", "rocket": "rocket 🚀",
-    "time": "time ⏰", "date": "date 📅", "mail": "mail 📧", "email": "email 📧",
+    "phone": "phone 📱",
+    "computer": "computer 💻",
+    "laptop": "laptop 💻",
+    "game": "game 🎮",
+    "controller": "controller 🎮",
+    "music": "music 🎵",
+    "book": "book 📚",
+    "movie": "movie 🎬",
+    "tv": "tv 📺",
+    "money": "money 💰",
+    "idea": "idea 💡",
+    "light": "light 💡",
+    "warning": "warning ⚠️",
+    "rocket": "rocket 🚀",
+    "time": "time ⏰",
+    "date": "date 📅",
+    "mail": "mail 📧",
+    "email": "email 📧",
     # nature / animals
-    "sun": "sun ☀️", "moon": "moon 🌙", "star": "star ⭐", "rain": "rain 🌧️",
-    "snow": "snow ❄️", "ghost": "ghost 👻", "skull": "skull 💀",
-    "cat": "cat 🐱", "dog": "dog 🐶", "bird": "bird 🐦", "fish": "fish 🐟",
+    "sun": "sun ☀️",
+    "moon": "moon 🌙",
+    "star": "star ⭐",
+    "rain": "rain 🌧️",
+    "snow": "snow ❄️",
+    "ghost": "ghost 👻",
+    "skull": "skull 💀",
+    "cat": "cat 🐱",
+    "dog": "dog 🐶",
+    "bird": "bird 🐦",
+    "fish": "fish 🐟",
     # events
-    "party": "party 🎉", "birthday": "birthday 🎂", "congratulations": "congratulations 🎉",
-    "weekend": "weekend 🎉", "work": "work 💼", "job": "job 💼",
+    "party": "party 🎉",
+    "birthday": "birthday 🎂",
+    "congratulations": "congratulations 🎉",
+    "weekend": "weekend 🎉",
+    "work": "work 💼",
+    "job": "job 💼",
 }
 
 
@@ -289,18 +375,18 @@ def _is_hermes_tui_window(window_pid: int) -> bool:
         psutil = None
 
     def iter_cmdline_pids(patterns):
-        for pid_str in os.listdir('/proc'):
+        for pid_str in os.listdir("/proc"):
             if not pid_str.isdigit():
                 continue
             try:
-                with open(f'/proc/{pid_str}/cmdline', 'rb') as f:
-                    cmd = f.read().replace(b'\x00', b' ').decode('utf-8', 'replace')
+                with open(f"/proc/{pid_str}/cmdline", "rb") as f:
+                    cmd = f.read().replace(b"\x00", b" ").decode("utf-8", "replace")
                 if any(p in cmd for p in patterns):
                     yield int(pid_str)
             except (OSError, ValueError):
                 continue
 
-    tui_pids = set(iter_cmdline_pids(['tui_gateway.entry', 'hermes --tui']))
+    tui_pids = set(iter_cmdline_pids(["tui_gateway.entry", "hermes --tui"]))
     if not tui_pids:
         return False
 
@@ -321,7 +407,7 @@ def _is_hermes_tui_window(window_pid: int) -> bool:
         while pid > 1 and pid not in seen:
             seen.add(pid)
             try:
-                with open(f'/proc/{pid}/stat') as f:
+                with open(f"/proc/{pid}/stat") as f:
                     parts = f.read().split()
                     # field 4 is ppid
                     pid = int(parts[3])
@@ -344,41 +430,45 @@ def _find_hermes_tui_window() -> Optional[str]:
     ``Topic · kimi-k2.7-code · ~``). We avoid the "Recover closed session"
     terminal.
     """
-    env = {**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')}
+    env = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
     try:
         out = subprocess.check_output(
-            ['xdotool', 'search', '--onlyvisible', '--class', 'gnome-terminal'],
-            env=env, text=True, timeout=3,
+            ["xdotool", "search", "--onlyvisible", "--class", "gnome-terminal"],
+            env=env,
+            text=True,
+            timeout=3,
         ).strip()
     except Exception:
         return None
     candidates = []
     active = _active_window()
-    for wid in out.split('\n'):
+    for wid in out.split("\n"):
         wid = wid.strip()
         if not wid:
             continue
         try:
             name = subprocess.check_output(
-                ['xdotool', 'getwindowname', wid], env=env, text=True, timeout=2
+                ["xdotool", "getwindowname", wid], env=env, text=True, timeout=2
             ).strip()
         except Exception:
             continue
         # Reject the non-TUI terminal
-        if 'recover closed session' in name.lower():
+        if "recover closed session" in name.lower():
             continue
         # Hermes TUI titles contain the conversation/model separator.
-        if ' · ' in name and ' · kimi' in name:
+        if " · " in name and " · kimi" in name:
             return wid
         # Save fallback candidates: any gnome-terminal that isn't the recover one
         candidates.append(wid)
         # Prefer the currently active window if it looks like a TUI terminal
-        if wid == active and ' · ' in name:
+        if wid == active and " · " in name:
             return wid
     return candidates[0] if candidates else None
 
 
-def _type_text_fast(text: str, mode: str = "pro", target_window: Optional[str] = None) -> None:
+def _type_text_fast(
+    text: str, mode: str = "pro", target_window: Optional[str] = None
+) -> None:
     """Type text into the focused or target window.
 
     Plain ASCII (PRO mode) is injected with xdotool type for speed.
@@ -387,13 +477,15 @@ def _type_text_fast(text: str, mode: str = "pro", target_window: Optional[str] =
     characters one at a time and the Hermes TUI's terminal input buffer drops
     or merges bytes, so clipboard paste is the reliable path for Unicode.
     """
-    env = {**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')}
+    env = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
 
     # Ensure the target window has focus before we type or paste.
     if target_window:
         subprocess.run(
-            ['xdotool', 'windowactivate', target_window],
-            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            ["xdotool", "windowactivate", target_window],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         time.sleep(0.03)
 
@@ -402,8 +494,10 @@ def _type_text_fast(text: str, mode: str = "pro", target_window: Optional[str] =
         # unreliable for multi-byte UTF-8 in the TUI terminal input buffer.
         if _set_clipboard_text(text) and _wait_for_clipboard(text):
             subprocess.run(
-                ['xdotool', 'key', 'ctrl+shift+v'],
-                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                ["xdotool", "key", "ctrl+shift+v"],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         else:
             # Clipboard failed, or never became readable in time — fall back
@@ -413,13 +507,20 @@ def _type_text_fast(text: str, mode: str = "pro", target_window: Optional[str] =
             # unbound/failed Ctrl+Shift+V falls through to the plain key).
             delay = 55 if mode == "bubbly" else 35
             subprocess.run(
-                ['xdotool', 'type', '--clearmodifiers', f'--delay={delay}', '--', text],
+                ["xdotool", "type", "--clearmodifiers", f"--delay={delay}", "--", text],
                 env=env,
             )
         return
 
     # Plain ASCII: fast direct typing.
-    cmd = ['xdotool', 'type', '--clearmodifiers', f'--delay={_XDOTOOL_TYPE_DELAY_MS}', '--', text]
+    cmd = [
+        "xdotool",
+        "type",
+        "--clearmodifiers",
+        f"--delay={_XDOTOOL_TYPE_DELAY_MS}",
+        "--",
+        text,
+    ]
     subprocess.run(cmd, env=env)
 
 
@@ -436,10 +537,15 @@ def _typing_hud(mode: str, text: str):
     }
     try:
         return subprocess.Popen(
-            [sys.executable, os.path.join(os.path.dirname(__file__), "typing_hud.py"),
-             labels.get(mode, "Typing..."), mode],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
+            [
+                sys.executable,
+                os.path.join(os.path.dirname(__file__), "typing_hud.py"),
+                labels.get(mode, "Typing..."),
+                mode,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
         )
     except Exception:
         return None
@@ -498,7 +604,7 @@ def _add_emojis(text: str) -> str:
     for phrase in sorted(_EMOJI_MAP, key=len, reverse=True):
         if phrase in lowered:
             # Strip the keyword prefix from the mapped value to get just the emoji
-            emoji = _EMOJI_MAP[phrase][len(phrase):].strip()
+            emoji = _EMOJI_MAP[phrase][len(phrase) :].strip()
             return f"{text} {emoji}"
     return text
 
@@ -510,16 +616,16 @@ _CASUAL_EMOJIS = ["👋🏿", "☕", "😊", "✌🏿️", "🙌🏿", "🤙🏿
 # Face emojis (😊, 😎, etc.) do not support skin tones in Unicode.
 _SKIN_TONE = "🏿"
 _TONEABLE_BASES = {
-    "\U0001F44B",  # 👋🏿 waving hand
-    "\u270C",       # ✌🏿 victory hand
-    "\U0001F64C",   # 🙌🏿 raising hands
-    "\U0001F919",   # 🤙🏿 call me hand
-    "\U0001F64F",   # 🙏🏿 folded hands
-    "\U0001F647",   # 🙇🏿 person bowing
-    "\U0001F44D",   # 👍🏿 thumbs up
-    "\U0001F44E",   # 👎🏿 thumbs down
-    "\U0001F44C",   # 👌🏿 OK hand
-    "\U0001F937",   # 🤷🏿 shrug
+    "\U0001f44b",  # 👋🏿 waving hand
+    "\u270c",  # ✌🏿 victory hand
+    "\U0001f64c",  # 🙌🏿 raising hands
+    "\U0001f919",  # 🤙🏿 call me hand
+    "\U0001f64f",  # 🙏🏿 folded hands
+    "\U0001f647",  # 🙇🏿 person bowing
+    "\U0001f44d",  # 👍🏿 thumbs up
+    "\U0001f44e",  # 👎🏿 thumbs down
+    "\U0001f44c",  # 👌🏿 OK hand
+    "\U0001f937",  # 🤷🏿 shrug
 }
 
 
@@ -638,8 +744,14 @@ def _active_window_class():
 
 def _is_browser_window():
     cls = _active_window_class()
-    return cls in ("google-chrome", "chrome", "firefox", "librewolf", "brave-browser", "chromium")
-
+    return cls in (
+        "google-chrome",
+        "chrome",
+        "firefox",
+        "librewolf",
+        "brave-browser",
+        "chromium",
+    )
 
 
 DISCORD_QUEUE = os.path.expanduser("~/.cache/ptt_discord_queue.txt")
@@ -687,7 +799,9 @@ def _wait_for_clipboard(text, retries=6, delay=0.02):
         try:
             out = subprocess.run(
                 ["xclip", "-selection", "clipboard", "-out"],
-                env=env, capture_output=True, timeout=1,
+                env=env,
+                capture_output=True,
+                timeout=1,
             )
             if out.returncode == 0 and out.stdout.decode("utf-8", "replace") == text:
                 return True
@@ -752,11 +866,18 @@ def _speak_headless(text: str) -> None:
     """
     if not text:
         return
-    cmd = ['curl', '-s', '-X', 'POST', f'{BRIDGE_URL}/speak',
-           '-F', f'text={text[:500]}']
+    cmd = [
+        "curl",
+        "-s",
+        "-X",
+        "POST",
+        f"{BRIDGE_URL}/speak",
+        "-F",
+        f"text={text[:500]}",
+    ]
     api_key = os.environ.get("VOICE_BRIDGE_API_KEY", "")
     if api_key:
-        cmd += ['-H', f'x-api-key: {api_key}']
+        cmd += ["-H", f"x-api-key: {api_key}"]
     try:
         subprocess.run(cmd, capture_output=True, text=True, timeout=10)
     except Exception as exc:
@@ -788,7 +909,9 @@ def _write_goal(text: str) -> None:
         _notify_hermex("Goal failed", str(exc)[:120], urgency="high", sound=True)
 
 
-def _append_transcript_log(transcript: str, response: str = "", target: str = "") -> None:
+def _append_transcript_log(
+    transcript: str, response: str = "", target: str = ""
+) -> None:
     """Append one JSONL line to the shared transcript log.
 
     Never raises: a log failure must not break a take (the goal file and
@@ -859,8 +982,20 @@ _TYPE_SETTLE_MS = 50
 _XDOTOOL_TYPE_DELAY_MS = 12
 # Short accidental trigger presses often hallucinate these words from fan/mic noise.
 _SHORT_HALLUCINATIONS = {
-    "thank you", "thanks", "thank", "check", "yellow", "yep", "yup",
-    "mm", "hmm", "um", "uh", "mhm", "okay", "ok",
+    "thank you",
+    "thanks",
+    "thank",
+    "check",
+    "yellow",
+    "yep",
+    "yup",
+    "mm",
+    "hmm",
+    "um",
+    "uh",
+    "mhm",
+    "okay",
+    "ok",
 }
 
 # Modifier / goal-fork state. Ctrl is tracked both by pynput (X11) and the
@@ -877,9 +1012,11 @@ def _active_window():
     """Return the currently focused X11 window ID, or None."""
     try:
         out = subprocess.check_output(
-            ['xdotool', 'getactivewindow'],
-            env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-            stderr=subprocess.DEVNULL, timeout=2)
+            ["xdotool", "getactivewindow"],
+            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
         return out.decode().strip()
     except Exception:
         return None
@@ -910,7 +1047,8 @@ def _window_wm_classes(window_id):
         out = subprocess.check_output(
             ["xprop", "-id", window_id, "WM_CLASS"],
             env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
-            stderr=subprocess.DEVNULL, timeout=2,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
         ).decode()
     except Exception:
         return set()
@@ -948,7 +1086,9 @@ def _resolve_type_target(frozen_window):
     matched = _window_wm_classes(current) & _AUTH_PROMPT_CLASSES
     if not matched:
         return frozen_window
-    log.info(f"Auth prompt appeared mid-recording ({next(iter(matched))}) — retargeting to it")
+    log.info(
+        f"Auth prompt appeared mid-recording ({next(iter(matched))}) — retargeting to it"
+    )
     return current
 
 
@@ -990,7 +1130,7 @@ def _mute_tts():
     file's mtime against the time its request began and skips playback.
     """
     try:
-        with open('/tmp/ai_tts_barge', 'w') as _f:
+        with open("/tmp/ai_tts_barge", "w") as _f:
             _f.write(str(time.time()))
     except OSError:
         pass
@@ -1008,7 +1148,8 @@ def _mute_tts():
 
     log.info(
         "barge-in: silenced %d TTS stream(s), signalled %d player(s)",
-        silenced, len(players),
+        silenced,
+        len(players),
     )
 
     # 2026-09-30: the card profile cycle used to fire here, on the strength of
@@ -1023,7 +1164,9 @@ def _mute_tts():
     try:
         if tts_control.controller_audio_wedged():
             _pending_audio_reset = True
-            log.info("barge-in during a real audio wedge; reset deferred until mic closes")
+            log.info(
+                "barge-in during a real audio wedge; reset deferred until mic closes"
+            )
     except Exception as exc:
         log.warning("wedge check failed: %s", exc)
 
@@ -1036,8 +1179,13 @@ def _fire_deferred_audio_reset():
     _pending_audio_reset = False
     log.info("running deferred xone-gip audio reset")
     _audio_reset_proc = subprocess.Popen(
-        ['bash', os.path.expanduser('~/ai-controller/scripts/reset-controller-audio.sh')],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        [
+            "bash",
+            os.path.expanduser("~/ai-controller/scripts/reset-controller-audio.sh"),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def _await_audio_reset(timeout=6.0):
@@ -1055,7 +1203,9 @@ def _await_audio_reset(timeout=6.0):
         try:
             p.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            log.warning("audio reset still running after %.1fs — opening mic anyway", timeout)
+            log.warning(
+                "audio reset still running after %.1fs — opening mic anyway", timeout
+            )
     _audio_reset_proc = None
 
 
@@ -1066,10 +1216,22 @@ def _warmup_mic():
         return
     try:
         subprocess.run(
-            ['parec', '--device', _AUDIO_INPUT,
-             '--rate', str(SAMPLE_RATE), '--channels', str(CHANNELS),
-             '--format', 's16le', '--raw'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.3)
+            [
+                "parec",
+                "--device",
+                _AUDIO_INPUT,
+                "--rate",
+                str(SAMPLE_RATE),
+                "--channels",
+                str(CHANNELS),
+                "--format",
+                "s16le",
+                "--raw",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=0.3,
+        )
     except Exception:
         pass
 
@@ -1121,25 +1283,36 @@ def start_recording():
             if HEADLESS:
                 pass
             elif _focus_window is not None and not _goal_take:
-                subprocess.run(['xdotool', 'key', 'space'],
-                               env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+                subprocess.run(
+                    ["xdotool", "key", "space"],
+                    env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2,
+                )
             elif _goal_take:
                 log.info("skipping auto-space (goal take)")
             else:
                 log.info("skipping auto-space (no focus window)")
-            fd, rawfile = tempfile.mkstemp(suffix='.raw', dir='/tmp')
+            fd, rawfile = tempfile.mkstemp(suffix=".raw", dir="/tmp")
             os.close(fd)
-            fd, wavfile = tempfile.mkstemp(suffix='.wav', dir='/tmp')
+            fd, wavfile = tempfile.mkstemp(suffix=".wav", dir="/tmp")
             os.close(fd)
             rec_cmd = [
-                'stdbuf', '-o0', 'parec',
-                '--rate', str(SAMPLE_RATE), '--channels', str(CHANNELS),
-                '--format', 's16le', '--raw',
+                "stdbuf",
+                "-o0",
+                "parec",
+                "--rate",
+                str(SAMPLE_RATE),
+                "--channels",
+                str(CHANNELS),
+                "--format",
+                "s16le",
+                "--raw",
             ] + _PAREC_DEVICE_ARGS
             rec_proc = subprocess.Popen(
-                rec_cmd,
-                stdout=open(rawfile, 'wb'), stderr=subprocess.DEVNULL)
+                rec_cmd, stdout=open(rawfile, "wb"), stderr=subprocess.DEVNULL
+            )
             recording = True
             _recorder_ready.clear()
             log.info("Recording...")
@@ -1179,12 +1352,12 @@ def _wait_recorder_ready(proc, raw_path):
 def _wav_stats(path):
     """Return (duration_seconds, rms) for a WAV file."""
     try:
-        with wave.open(path, 'rb') as wf:
+        with wave.open(path, "rb") as wf:
             raw = wf.readframes(wf.getnframes())
             rate = wf.getframerate()
         if len(raw) < 2 or rate == 0:
             return 0.0, 0.0
-        samples = struct.unpack(f'<{len(raw)//2}h', raw[:len(raw) & ~1])
+        samples = struct.unpack(f"<{len(raw)//2}h", raw[: len(raw) & ~1])
         rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
         return len(samples) / rate, rms
     except Exception:
@@ -1233,7 +1406,7 @@ def _kill_recorder():
 def _cleanup_temp_files():
     """Drop the raw/wav scratch files for a take we are discarding."""
     global rawfile, wavfile
-    for attr in ('rawfile', 'wavfile'):
+    for attr in ("rawfile", "wavfile"):
         path = globals().get(attr)
         if path:
             try:
@@ -1251,14 +1424,14 @@ def _reap_orphan_recorders():
     """
     try:
         me = os.getpid()
-        for pid in os.listdir('/proc'):
+        for pid in os.listdir("/proc"):
             if not pid.isdigit() or int(pid) == me:
                 continue
             try:
-                with open(f'/proc/{pid}/comm', 'r') as f:
-                    if f.read().strip() != 'parec':
+                with open(f"/proc/{pid}/comm", "r") as f:
+                    if f.read().strip() != "parec":
                         continue
-                with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
                     cmd = f.read()
                 if _AUDIO_INPUT and _AUDIO_INPUT.encode() not in cmd:
                     continue
@@ -1270,8 +1443,9 @@ def _reap_orphan_recorders():
         pass
 
 
-def stop_and_send(was_agent_take: bool = False, sending_time: float = 0.0,
-                  take_id: int = 0):
+def stop_and_send(
+    was_agent_take: bool = False, sending_time: float = 0.0, take_id: int = 0
+):
     """Send the take. Whatever happens (too short, silent, debounced, ghost
     recording...), an agent take must not leave the avatar waiting on "sending":
     on_release already wrote that state, and the avatar now stays up for it
@@ -1286,8 +1460,11 @@ def stop_and_send(was_agent_take: bool = False, sending_time: float = 0.0,
     try:
         _stop_and_send_impl(was_agent_take, take_id)
     finally:
-        if was_agent_take and _take_still_current(take_id) and \
-                _should_clear_to_idle(_read_caption(max_age=120.0), sending_time):
+        if (
+            was_agent_take
+            and _take_still_current(take_id)
+            and _should_clear_to_idle(_read_caption(max_age=120.0), sending_time)
+        ):
             _write_caption("", "idle")
 
 
@@ -1308,8 +1485,9 @@ def _should_clear_to_idle(caption: dict, sending_time: float) -> bool:
     else ("heard" from this take's own progress, or a newer take's
     "sending") is live state and must be left alone."""
     try:
-        return (caption.get("state") == "sending"
-                and float(caption.get("time", 0)) == float(sending_time))
+        return caption.get("state") == "sending" and float(
+            caption.get("time", 0)
+        ) == float(sending_time)
     except (TypeError, ValueError):
         return False
 
@@ -1362,7 +1540,11 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
         rawfile = None
 
         # Minimum ~0.5s of audio
-        if not wavfile or not os.path.exists(wavfile) or os.path.getsize(wavfile) < 16000:
+        if (
+            not wavfile
+            or not os.path.exists(wavfile)
+            or os.path.getsize(wavfile) < 16000
+        ):
             log.info("Too short — skipped.")
             if wavfile and os.path.exists(wavfile):
                 os.unlink(wavfile)
@@ -1379,7 +1561,11 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
 
         duration, rms = _wav_stats(wavfile)
         log.info(f"Sending... ({duration:.2f}s RMS={rms:.1f})")
-        _notify_hermex("Voice recording sent", f"Sent {duration:.1f}s audio for transcription", urgency="low")
+        _notify_hermex(
+            "Voice recording sent",
+            f"Sent {duration:.1f}s audio for transcription",
+            urgency="low",
+        )
 
         # For Unicode modes, show the typing indicator immediately on trigger
         # release so the operator gets feedback while STT runs.
@@ -1399,19 +1585,34 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
             # go to the bridge in execute mode so the response is spoken;
             # text takes stay transcribe-only.
             file_agent = _load_dictation_target() == "agent"
-            bridge_mode = "execute" if (was_agent_take or file_agent) else "transcribe_only"
+            bridge_mode = (
+                "execute" if (was_agent_take or file_agent) else "transcribe_only"
+            )
             r = subprocess.run(
-                ['curl', '-s', '-X', 'POST', endpoint,
-                 '-F', f'audio=@{wavfile}', '-F', f'mode={bridge_mode}',
-                 '-H', 'Accept: application/json'],
-                capture_output=True, text=True, timeout=stt_timeout)
+                [
+                    "curl",
+                    "-s",
+                    "-X",
+                    "POST",
+                    endpoint,
+                    "-F",
+                    f"audio=@{wavfile}",
+                    "-F",
+                    f"mode={bridge_mode}",
+                    "-H",
+                    "Accept: application/json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=stt_timeout,
+            )
             data = json.loads(r.stdout)
             # transcribe_only returns {"text": ...}; execute returns {"transcript": ..., "response": ...}
             # Task-routed takes also carry {"routed": "task"} — the bridge already
             # filed the enriched goal, so ptt must NOT file a duplicate.
-            transcript = data.get('text', data.get('transcript', ''))
-            response = data.get('response', data.get('error', '')).strip()
-            routed_task = data.get('routed', '') == 'task'
+            transcript = data.get("text", data.get("transcript", ""))
+            response = data.get("response", data.get("error", "")).strip()
+            routed_task = data.get("routed", "") == "task"
 
             # Short accidental trigger presses often produce hallucinated single words
             # from controller/mic noise. Skip them instead of typing garbage.
@@ -1451,11 +1652,17 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
                     # goal already; filing here would duplicate the queue.
                     if goal_text is not None:
                         if routed_task:
-                            log.info("Task routed — goal filed by bridge, skipping duplicate")
+                            log.info(
+                                "Task routed — goal filed by bridge, skipping duplicate"
+                            )
                         else:
                             _write_goal(goal_text)
-                        _append_transcript_log(goal_text, response=response, target="agent")
-                        _notify_hermex("Agent transcript", goal_text[:120], urgency="normal")
+                        _append_transcript_log(
+                            goal_text, response=response, target="agent"
+                        )
+                        _notify_hermex(
+                            "Agent transcript", goal_text[:120], urgency="normal"
+                        )
                 if _take_still_current(take_id):
                     _goal_take = False
             elif transcript:
@@ -1463,7 +1670,9 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
                     if goal_text is not None:
                         _write_goal(goal_text)
                         _append_transcript_log(goal_text, response="", target="agent")
-                        _notify_hermex("Agent transcript", goal_text[:120], urgency="normal")
+                        _notify_hermex(
+                            "Agent transcript", goal_text[:120], urgency="normal"
+                        )
                     if _take_still_current(take_id):
                         _goal_take = False
                 elif HEADLESS:
@@ -1471,7 +1680,9 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
                     # behave identically headless or not (file write, no
                     # /speak POST, no xdotool).
                     log.info(f"Output (headless/spoken): {transcript}")
-                    _notify_hermex("Transcript ready", transcript[:120], urgency="normal")
+                    _notify_hermex(
+                        "Transcript ready", transcript[:120], urgency="normal"
+                    )
                     _speak_headless(transcript)
                     _append_transcript_log(transcript, response="", target="headless")
                 else:
@@ -1480,10 +1691,14 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
                     # Only explicit clipboard target skips typing. Everything else goes
                     # through xdotool type — clipboard auto-paste proved unreliable in
                     # the operator's target windows.
-                    use_clipboard = (target == "clipboard")
+                    use_clipboard = target == "clipboard"
 
-                    log.info(f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}")
-                    _notify_hermex("Transcript ready", transcript[:120], urgency="normal")
+                    log.info(
+                        f"Output ({'clipboard' if use_clipboard else 'type'}): {transcript}"
+                    )
+                    _notify_hermex(
+                        "Transcript ready", transcript[:120], urgency="normal"
+                    )
                     time.sleep(_TYPE_SETTLE_MS / 1000.0)
 
                     if use_clipboard:
@@ -1503,9 +1718,15 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
                         if target_window:
                             try:
                                 subprocess.run(
-                                    ['xdotool', 'windowfocus', '--sync', target_window],
-                                    env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':0')},
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+                                    ["xdotool", "windowfocus", "--sync", target_window],
+                                    env={
+                                        **os.environ,
+                                        "DISPLAY": os.environ.get("DISPLAY", ":0"),
+                                    },
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL,
+                                    timeout=2,
+                                )
                             except Exception:
                                 pass
 
@@ -1536,8 +1757,13 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
     # Save a debug copy for later inspection.
     try:
         ts = time.strftime("%Y%m%d_%H%M%S")
-        safe_text = "".join(c if c.isalnum() else "_" for c in transcript)[:40] or "no_transcript"
-        debug_path = os.path.join(DEBUG_DIR, f"ptt_{ts}_{duration:.1f}s_rms{int(rms)}_{safe_text}.wav")
+        safe_text = (
+            "".join(c if c.isalnum() else "_" for c in transcript)[:40]
+            or "no_transcript"
+        )
+        debug_path = os.path.join(
+            DEBUG_DIR, f"ptt_{ts}_{duration:.1f}s_rms{int(rms)}_{safe_text}.wav"
+        )
         os.replace(wavfile, debug_path)
     except Exception:
         if wavfile and os.path.exists(wavfile):
@@ -1546,7 +1772,7 @@ def _stop_and_send_impl(was_agent_take: bool = False, take_id: int = 0):
 
 def on_press(key):
     global _ctrl_held, _goal_take
-    log.debug("Key pressed: %s (vk=%s)", key, getattr(key, 'vk', None))
+    log.debug("Key pressed: %s (vk=%s)", key, getattr(key, "vk", None))
     if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
         _ctrl_held = True
         return
@@ -1619,12 +1845,19 @@ def on_press(key):
                     _reuse = False
                 if not _reuse:
                     _proc = subprocess.Popen(
-                        ["/usr/bin/python3",
-                         os.path.expanduser("~/master-ai-cli/ninja/avatar_approval.py"),
-                         "--pulse", "60"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        [
+                            "/usr/bin/python3",
+                            os.path.expanduser(
+                                "~/master-ai-cli/ninja/avatar_approval.py"
+                            ),
+                            "--pulse",
+                            "60",
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
                         start_new_session=True,
-                        env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")})
+                        env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+                    )
                     open(_pp, "w").write(str(_proc.pid))
             except Exception as exc:
                 log.warning(f"avatar pulse failed: {exc}")
@@ -1641,7 +1874,7 @@ def on_press(key):
 
 def on_release(key):
     global _ctrl_held, _goal_take, take_seq
-    log.debug("Key released: %s (vk=%s)", key, getattr(key, 'vk', None))
+    log.debug("Key released: %s (vk=%s)", key, getattr(key, "vk", None))
     if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
         _ctrl_held = False
         return
@@ -1666,7 +1899,7 @@ def on_release(key):
             # later superseded the agent take's id and _take_still_current()
             # went False for a take that was still the newest AGENT take —
             # its finally never cleared the 'sending' caption again.
-            take_seq = take_seq + 1   # this AGENT release owns a take id
+            take_seq = take_seq + 1  # this AGENT release owns a take id
             this_take = take_seq
             # round-4 finding #1: capturing a FRESH time.time() here always
             # differed from the stamp _write_caption writes a moment later,
@@ -1675,14 +1908,17 @@ def on_release(key):
             sending_time = _write_caption("", "sending") or 0.0
         else:
             avatar_pulse.kill_avatar_pulse()
-        threading.Thread(target=stop_and_send,
-                         args=(was_agent_take, sending_time, this_take),
-                         daemon=True).start()
+        threading.Thread(
+            target=stop_and_send,
+            args=(was_agent_take, sending_time, this_take),
+            daemon=True,
+        ).start()
 
 
 log.info("Push-to-talk dictation (pynput — Hold RT to speak, release to type)")
 log.info("F13=dictation")
 log.info("Ctrl+C to quit.")
+
 
 # ---------------------------------------------------------------------------
 # Evdev fallback: pynput's X11 grab cannot see F13 injected by antimicrox
@@ -1695,6 +1931,7 @@ def _make_fake_key():
     keyboard.Key.f13 is a pynput Key enum member with vk=65482 — identical to
     what pynput's own x11 grab would deliver."""
     return keyboard.Key.f13
+
 
 def _find_antimicrox_keyboard():
     """Re-enumerate /dev/input and return the antimicrox Keyboard Emulation device, or None.
@@ -1713,6 +1950,7 @@ def _find_antimicrox_keyboard():
             return dev
     return None
 
+
 def _run_evdev_listener():
     """Listen for F13 on the antimicrox uinput keyboard device.
 
@@ -1723,12 +1961,15 @@ def _run_evdev_listener():
     and parse the 24-byte input_event struct ourselves."""
     import select as _select
     import struct as _struct
+
     f13 = _make_fake_key()
     backoff = 1.0
     while True:
         target = _find_antimicrox_keyboard()
         if target is None:
-            log.warning("antimicrox keyboard device not found; retrying in %.1fs", backoff)
+            log.warning(
+                "antimicrox keyboard device not found; retrying in %.1fs", backoff
+            )
             time.sleep(backoff)
             backoff = min(backoff * 2, 10.0)
             continue
@@ -1743,7 +1984,11 @@ def _run_evdev_listener():
         # events passively and only act on F13. Other keys (Escape, Enter, etc.)
         # flow through to X11 normally so AntiMicroX button mappings work.
         backoff = 1.0
-        log.info("Evdev fallback listening on %s (%s) for F13 (passive mode)", path, target.name)
+        log.info(
+            "Evdev fallback listening on %s (%s) for F13 (passive mode)",
+            path,
+            target.name,
+        )
         try:
             while True:
                 r, _, _ = _select.select([fd], [], [], 0.5)
@@ -1764,7 +2009,7 @@ def _run_evdev_listener():
                     _ctrl_held = ev_value in (1, 2)
                     continue
                 # Only handle F13 — let all other keys pass through to X11
-                if ev_type == 1 and ev_code == 0xb7:
+                if ev_type == 1 and ev_code == 0xB7:
                     if ev_value == 1:
                         on_press(f13)
                     elif ev_value == 0:
@@ -1772,13 +2017,16 @@ def _run_evdev_listener():
         except OSError as e:
             # ENODEV or similar — antimicrox restarted and the uinput node
             # went away. Close the dead handle, loop back, re-enumerate.
-            log.warning("Evdev listener lost device %s: %s — will re-enumerate", path, e)
+            log.warning(
+                "Evdev listener lost device %s: %s — will re-enumerate", path, e
+            )
         finally:
             try:
                 os.close(fd)
             except OSError:
                 pass
             time.sleep(0.3)
+
 
 # Both overlaid to the F13 keysym by fix-f13-keymap.sh / controller-profile-switcher.sh
 # (`xmodmap -e "keycode 191 = F13"` and `... 202 = F13`). Two raw X11 keycodes carry
@@ -1817,7 +2065,9 @@ def _run_x11_f13_grab():
         from Xlib import X
         from Xlib import display as _xdisplay
     except ImportError:
-        log.warning("python-xlib not available — F13 will keep leaking to focused windows")
+        log.warning(
+            "python-xlib not available — F13 will keep leaking to focused windows"
+        )
         return
     backoff = 1.0
     while True:
@@ -1827,18 +2077,27 @@ def _run_x11_f13_grab():
             grabbed = []
             for keycode in _F13_KEYCODES:
                 try:
-                    root.grab_key(keycode, X.AnyModifier, True, X.GrabModeAsync, X.GrabModeAsync)
+                    root.grab_key(
+                        keycode, X.AnyModifier, True, X.GrabModeAsync, X.GrabModeAsync
+                    )
                     grabbed.append(keycode)
                 except Exception as e:
                     log.warning("X11 F13 grab failed for keycode=%s (%s)", keycode, e)
             if not grabbed:
-                log.warning("Could not grab any F13 keycode %s — retrying in %.1fs", _F13_KEYCODES, backoff)
+                log.warning(
+                    "Could not grab any F13 keycode %s — retrying in %.1fs",
+                    _F13_KEYCODES,
+                    backoff,
+                )
                 disp.close()
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 10.0)
                 continue
             disp.sync()
-            log.info("X11 F13 grab active (keycodes=%s) — F13 will no longer reach focused windows", grabbed)
+            log.info(
+                "X11 F13 grab active (keycodes=%s) — F13 will no longer reach focused windows",
+                grabbed,
+            )
             backoff = 1.0
             while True:
                 disp.next_event()  # drain grabbed KeyPress/KeyRelease; PTT logic lives in the evdev thread
@@ -1871,7 +2130,9 @@ if HEADLESS:
     except KeyboardInterrupt:
         log.info("Stopped.")
 else:
-    _x11_grab_thread = _thr.Thread(target=_run_x11_f13_grab, daemon=True, name="x11-f13-grab")
+    _x11_grab_thread = _thr.Thread(
+        target=_run_x11_f13_grab, daemon=True, name="x11-f13-grab"
+    )
     _x11_grab_thread.start()
 
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:

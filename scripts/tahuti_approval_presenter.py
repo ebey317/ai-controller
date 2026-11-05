@@ -33,6 +33,7 @@ Wire protocol (stdout, line-oriented):
           really was on screen.
   exit code: 0 when a verdict was produced, 2 when UNAVAILABLE.
 """
+
 from __future__ import annotations
 
 import json
@@ -73,7 +74,9 @@ def main() -> int:
         settings = av.get_avatar_settings(av.load_profiles())
     except Exception:
         settings = {}
-    if not settings.get("approval_box", True) or not settings.get("popup_on_approval", True):
+    if not settings.get("approval_box", True) or not settings.get(
+        "popup_on_approval", True
+    ):
         return _unavailable("the approval box is turned off in avatar settings")
 
     timeout = request.get("timeout_seconds")

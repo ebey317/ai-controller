@@ -73,51 +73,69 @@ def test_c1_every_command_routes_exactly_across_phrasings():
             attempts += 1
             got = sb.parse(phrasing)
             if got is None:
-                failures.append((phrasing, name, "NOT INTERCEPTED (fell through to the model)"))
+                failures.append(
+                    (phrasing, name, "NOT INTERCEPTED (fell through to the model)")
+                )
                 continue
             if not _routes_to_expected(got, name):
                 failures.append((phrasing, name, f"-> {got}"))
     accuracy = 1.0 - (len(failures) / attempts)
     assert accuracy >= 0.99, (
         f"C1 slash-parse accuracy {accuracy:.1%} < 99% ({len(failures)}/{attempts} wrong)\n"
-        + "\n".join(f"  say {t!r} -> want {name!r}, {why}" for t, name, why in failures[:25])
+        + "\n".join(
+            f"  say {t!r} -> want {name!r}, {why}" for t, name, why in failures[:25]
+        )
     )
 
 
 def test_c1_special_phrases_still_route():
-    for said, kind in [("slash help", "list"), ("slash commands guide", "list"),
-                       ("slash how do i use this", "list"),
-                       ("slash reminders on", "reminders"), ("slash readme", "readme"),
-                       ("slash model", "picker")]:
+    for said, kind in [
+        ("slash help", "list"),
+        ("slash commands guide", "list"),
+        ("slash how do i use this", "list"),
+        ("slash reminders on", "reminders"),
+        ("slash readme", "readme"),
+        ("slash model", "picker"),
+    ]:
         got = sb.parse(said)
         assert got is not None and got["kind"] == kind, f"{said!r} -> {got}"
     # alias special phrases are runs of their TARGET, not menus
     for said, target in [("slash plan", "mode plan"), ("slash review", "mode review")]:
         got = sb.parse(said)
-        assert got is not None and got["kind"] == "run" and got["send"] == f"/{target}", \
-            f"{said!r} -> {got}"
+        assert (
+            got is not None and got["kind"] == "run" and got["send"] == f"/{target}"
+        ), f"{said!r} -> {got}"
 
 
 def test_c2_negatives_arent_intercepted():
     # False-intercept budget: <= 1%. These are REAL utterances that must go to
     # the model (or nowhere); intercepting ANY of them hijacks ordinary speech.
     negatives = [
-        "slash the budget by ten percent", "slash and burn that draft",
-        "slash the budget for today", "slash prices now",
-        "slash /etc/hosts", "/etc/hosts", "slash /tmp/cache and report",
-        "slash my friend's book list", "slash what time it is",
-        "show me the docker commands", "give me the git commands",
+        "slash the budget by ten percent",
+        "slash and burn that draft",
+        "slash the budget for today",
+        "slash prices now",
+        "slash /etc/hosts",
+        "/etc/hosts",
+        "slash /tmp/cache and report",
+        "slash my friend's book list",
+        "slash what time it is",
+        "show me the docker commands",
+        "give me the git commands",
         "tell me the keyboard commands",
-        "what are the slash commands for git", "slash anything you know",
-        "slash the whole plan down", "slash it out with them",
-        "slash through the budget line by line", "slash prices are up",
-        "slash the tires and rotate", "slash my budget by half",
+        "what are the slash commands for git",
+        "slash anything you know",
+        "slash the whole plan down",
+        "slash it out with them",
+        "slash through the budget line by line",
+        "slash prices are up",
+        "slash the tires and rotate",
+        "slash my budget by half",
     ]
     false_intercepts = [(n, sb.parse(n)) for n in negatives if sb.parse(n) is not None]
     rate = len(false_intercepts) / len(negatives)
-    assert rate <= 0.01, (
-        f"C2 false-intercept rate {rate:.1%} > 1%: "
-        + ", ".join(f"{n!r} -> {got}" for n, got in false_intercepts)
+    assert rate <= 0.01, f"C2 false-intercept rate {rate:.1%} > 1%: " + ", ".join(
+        f"{n!r} -> {got}" for n, got in false_intercepts
     )
 
 

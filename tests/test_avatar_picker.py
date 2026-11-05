@@ -39,8 +39,7 @@ def _script_input(monkeypatch, answers):
     monkeypatch.setattr("builtins.input", lambda prompt="": next(it))
 
 
-def test_picker_lists_all_portraits_first(avatar_env, monkeypatch,
-                                          capsys):
+def test_picker_lists_all_portraits_first(avatar_env, monkeypatch, capsys):
     _script_input(monkeypatch, ["0"])
     assert cs._pick_avatar(avatar_env) is None
     out = capsys.readouterr().out

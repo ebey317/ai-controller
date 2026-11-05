@@ -54,8 +54,7 @@ def test_noise_knobs_are_piper_only():
         assert spec.applies_to("piper")
         assert not spec.applies_to("kokoro")
         assert not spec.applies_to("edge-tts")
-    for field in ("rate", "pitch_semitones", "gain", "bass_db",
-                  "treble_db"):
+    for field in ("rate", "pitch_semitones", "gain", "bass_db", "treble_db"):
         spec = vk.SPECS_BY_FIELD[field]
         assert spec.applies_to("kokoro")
         assert spec.applies_to("piper")
@@ -63,13 +62,11 @@ def test_noise_knobs_are_piper_only():
 
 def test_readout_formats():
     assert vk.format_value(vk.SPECS_BY_FIELD["rate"], 1.07) == "1.07x"
-    assert vk.format_value(
-        vk.SPECS_BY_FIELD["pitch_semitones"], -2.0) == "-2.0 st"
+    assert vk.format_value(vk.SPECS_BY_FIELD["pitch_semitones"], -2.0) == "-2.0 st"
     assert vk.format_value(vk.SPECS_BY_FIELD["gain"], 1.0) == "100%"
     assert vk.format_value(vk.SPECS_BY_FIELD["gain"], 0.5) == "50%"
     assert vk.format_value(vk.SPECS_BY_FIELD["bass_db"], 3) == "+3 dB"
-    assert vk.format_value(
-        vk.SPECS_BY_FIELD["noise_scale"], 0.667) == "0.67"
+    assert vk.format_value(vk.SPECS_BY_FIELD["noise_scale"], 0.667) == "0.67"
 
 
 def test_profile_values_fill_neutrals():
@@ -77,7 +74,8 @@ def test_profile_values_fill_neutrals():
     assert values["rate"] == 1.07
     assert values["gain"] == 1.0
     assert values["noise_scale"] == vp.NOISE_SCALE_DEFAULT
-    tuned = vk.profile_values({"rate": 1.0, "pitch_semitones": 0.0,
-                               "bass_db": -4.0, "gain": 1.5})
+    tuned = vk.profile_values(
+        {"rate": 1.0, "pitch_semitones": 0.0, "bass_db": -4.0, "gain": 1.5}
+    )
     assert tuned["bass_db"] == -4.0
     assert tuned["gain"] == 1.5

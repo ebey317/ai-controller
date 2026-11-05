@@ -130,7 +130,9 @@ def test_read_file_tool_resolves_bare_filename_under_home(monkeypatch, tmp_path)
     # home, so the test failed regardless of whether the contract itself
     # worked. Must check against the same fake home _read_file_tool
     # actually resolves against.
-    monkeypatch.setattr(runner, "_is_under_home", lambda p: tmp_path in p.parents or p == tmp_path)
+    monkeypatch.setattr(
+        runner, "_is_under_home", lambda p: tmp_path in p.parents or p == tmp_path
+    )
     result = runner._read_file_tool("note.txt")
     assert result["ok"] is True
     assert result["content"] == "resolved"
@@ -204,7 +206,8 @@ def test_execute_file_tool_runs_read_file(tmp_path, monkeypatch):
     note = tmp_path / "note.txt"
     note.write_text("dispatch ok")
     result = runner._execute_file_tool(
-        "g1", {"name": "read_file", "arguments": json.dumps({"path": str(note)})},
+        "g1",
+        {"name": "read_file", "arguments": json.dumps({"path": str(note)})},
         {"read_file"},
     )
     assert result["ok"] is True
@@ -291,7 +294,9 @@ def test_call_model_executes_read_file_tool_and_follows_up(monkeypatch):
             "content": "note content",
         },
     )
-    text, model, elapsed, elapsed_s, route = runner._call_model("read my note", goal_id="g1")
+    text, model, elapsed, elapsed_s, route = runner._call_model(
+        "read my note", goal_id="g1"
+    )
     assert text == "I read the note."
     assert len(fake.calls) == 2
     second_payload = fake.calls[1][1]["json"]
@@ -326,7 +331,9 @@ def test_call_model_queues_write_file_tool_and_follows_up(monkeypatch, tmp_path)
     )
     monkeypatch.setattr(runner.httpx, "Client", lambda **kwargs: fake)
     monkeypatch.setattr(runner, "_is_under_home", lambda p: True)
-    text, model, elapsed, elapsed_s, route = runner._call_model("write a note", goal_id="g2")
+    text, model, elapsed, elapsed_s, route = runner._call_model(
+        "write a note", goal_id="g2"
+    )
     assert text == "Queued for approval."
     pending = list(tmp_path.glob("*.pending.json"))
     assert len(pending) == 1
@@ -382,7 +389,8 @@ def _approval_goal(tmp_path, monkeypatch, transcript, outcome, calls):
 def test_approval_box_yes_runs_the_goal(tmp_path, monkeypatch):
     calls = []
     goal_path = _approval_goal(
-        tmp_path, monkeypatch, "run the backup please", "once", calls)
+        tmp_path, monkeypatch, "run the backup please", "once", calls
+    )
     runner._process_goal(goal_path)
     assert calls == ["run the backup please"]
 
@@ -390,7 +398,8 @@ def test_approval_box_yes_runs_the_goal(tmp_path, monkeypatch):
 def test_approval_box_deny_never_runs_the_goal(tmp_path, monkeypatch):
     calls = []
     goal_path = _approval_goal(
-        tmp_path, monkeypatch, "run the backup please", "deny", calls)
+        tmp_path, monkeypatch, "run the backup please", "deny", calls
+    )
     runner._process_goal(goal_path)
     assert calls == []
 
@@ -398,7 +407,8 @@ def test_approval_box_deny_never_runs_the_goal(tmp_path, monkeypatch):
 def test_approval_without_a_box_queues_as_before(tmp_path, monkeypatch):
     calls = []
     goal_path = _approval_goal(
-        tmp_path, monkeypatch, "run the backup please", None, calls)
+        tmp_path, monkeypatch, "run the backup please", None, calls
+    )
     runner._process_goal(goal_path)
     assert calls == []
     pending = list(runner.APPROVALS_DIR.glob("*.pending.json"))
@@ -415,12 +425,18 @@ def test_present_approval_maps_avatar_verdicts(tmp_path, monkeypatch):
     """
     monkeypatch.setenv("DISPLAY", ":0")
     stub = tmp_path / "presenter.py"
-    for spoken, expected in (("once", "once"), ("always", "session"),
-                             ("session", "session"), ("deny", "deny"),
-                             ("garbage", "deny")):
+    for spoken, expected in (
+        ("once", "once"),
+        ("always", "session"),
+        ("session", "session"),
+        ("deny", "deny"),
+        ("garbage", "deny"),
+    ):
         stub.write_text(
             "import sys; sys.stdin.read(); print('READY', flush=True); "
-            f"print({spoken!r}, flush=True)\n", encoding="utf-8")
+            f"print({spoken!r}, flush=True)\n",
+            encoding="utf-8",
+        )
         monkeypatch.setattr(runner, "_PRESENTER", stub)
         assert runner._present_approval("tahuti:run:background", "run it") == expected
     stub.write_text("print('garbage')\n", encoding="utf-8")
@@ -436,7 +452,8 @@ def test_present_approval_headless_has_no_card(monkeypatch):
 def test_approval_box_always_saves_a_grant(tmp_path, monkeypatch):
     calls = []
     goal_path = _approval_goal(
-        tmp_path, monkeypatch, "run the backup please", "session", calls)
+        tmp_path, monkeypatch, "run the backup please", "session", calls
+    )
     runner._process_goal(goal_path)
     assert calls == ["run the backup please"]
     grants = json.loads(runner.GRANTS_FILE.read_text(encoding="utf-8"))
@@ -468,7 +485,8 @@ def test_all_tools_includes_file_tools_for_plain_requests():
 def test_request_approval_once_returns_ok(monkeypatch):
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
     result = runner._request_approval_tool(
-        "g1", "restart the voice service", "it is a gated service action")
+        "g1", "restart the voice service", "it is a gated service action"
+    )
     assert result["ok"] is True
     assert result["decision"] == "once"
 
@@ -477,7 +495,8 @@ def test_request_approval_deny_fails_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "deny")
     result = runner._request_approval_tool(
-        "g1", "delete notes.txt", "irreversible delete")
+        "g1", "delete notes.txt", "irreversible delete"
+    )
     assert result["ok"] is False
     assert result["decision"] == "deny"
 
@@ -485,8 +504,7 @@ def test_request_approval_deny_fails_closed(monkeypatch, tmp_path):
 def test_request_approval_headless_unavailable(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: None)
-    result = runner._request_approval_tool(
-        "g1", "install vlc", "needs install rights")
+    result = runner._request_approval_tool("g1", "install vlc", "needs install rights")
     assert result["ok"] is False
     assert result["decision"] == "unavailable"
 
@@ -498,7 +516,8 @@ def test_request_approval_session_never_persists_grant(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "session")
     result = runner._request_approval_tool(
-        "g1", "restart voice service", "gated service action")
+        "g1", "restart voice service", "gated service action"
+    )
     assert result["ok"] is True
     assert result["decision"] == "session"
     assert not (tmp_path / "grants.json").exists()
@@ -506,15 +525,15 @@ def test_request_approval_session_never_persists_grant(monkeypatch, tmp_path):
 
 def test_request_approval_skips_card_when_grant_covers(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
-    (tmp_path / "grants.json").write_text(json.dumps(
-        {"patterns": {"tahuti:install:background": "always"}}))
+    (tmp_path / "grants.json").write_text(
+        json.dumps({"patterns": {"tahuti:install:background": "always"}})
+    )
 
     def boom(*a, **k):
         raise AssertionError("the card must not be raised for a covered grant")
 
     monkeypatch.setattr(runner, "_present_approval", boom)
-    result = runner._request_approval_tool(
-        "g1", "install vlc", "needs install rights")
+    result = runner._request_approval_tool("g1", "install vlc", "needs install rights")
     assert result["ok"] is True
     assert result["decision"] == "already-granted"
 
@@ -536,13 +555,16 @@ def test_request_approval_offered_on_every_route():
 
 def test_request_approval_dispatched_through_execute_tool(monkeypatch):
     monkeypatch.setattr(
-        runner, "_request_approval_tool",
-        lambda gid, action, reason: {"ok": True, "decision": "once"})
+        runner,
+        "_request_approval_tool",
+        lambda gid, action, reason: {"ok": True, "decision": "once"},
+    )
     result = runner._execute_file_tool(
         "g9",
-        {"name": "request_approval",
-         "arguments": json.dumps({"action": "restart service",
-                                  "reason": "gated"})},
+        {
+            "name": "request_approval",
+            "arguments": json.dumps({"action": "restart service", "reason": "gated"}),
+        },
         {"request_approval"},
     )
     assert result["ok"] is True
@@ -550,10 +572,10 @@ def test_request_approval_dispatched_through_execute_tool(monkeypatch):
 
 
 def test_request_approval_refused_when_not_declared(monkeypatch):
-    monkeypatch.setattr(
-        runner, "_request_approval_tool", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(runner, "_request_approval_tool", lambda *a, **k: {"ok": True})
     result = runner._execute_file_tool(
-        "g9", {"name": "request_approval", "arguments": "{}"}, set())
+        "g9", {"name": "request_approval", "arguments": "{}"}, set()
+    )
     assert result["ok"] is False
     assert "not available" in result["error"]
 
@@ -567,27 +589,34 @@ def test_fast_chat_lane_offers_request_approval(monkeypatch):
     assert "request_approval" in names
 
 
-def test_approved_request_approval_escalates_to_full_tools(
-        monkeypatch, tmp_path):
+def test_approved_request_approval_escalates_to_full_tools(monkeypatch, tmp_path):
     """The operator's 'yes' must re-arm the model with the real toolset:
     permission without capability was approval theater (observed live —
     'approved but I don't have a file-listing tool this turn')."""
     monkeypatch.setattr(runner, "GRANTS_FILE", tmp_path / "grants.json")
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
     monkeypatch.setattr(
-        runner, "_list_dir_tool",
+        runner,
+        "_list_dir_tool",
         lambda path, show_hidden=False: {
             "ok": True,
             "entries": [{"name": "mcp_skill", "type": "dir"}],
-        })
+        },
+    )
     fake = _FakeClient(
         [
             _function_call_response(
-                [("request_approval",
-                  {"action": "search my skills", "reason": "needs file access"})],
-                "r1"),
+                [
+                    (
+                        "request_approval",
+                        {"action": "search my skills", "reason": "needs file access"},
+                    )
+                ],
+                "r1",
+            ),
             _function_call_response(
-                [("list_dir", {"path": "/home/elijah/skills"})], "r2"),
+                [("list_dir", {"path": "/home/elijah/skills"})], "r2"
+            ),
             _text_response("I searched skills and found mcp_skill.", "r3"),
         ]
     )
@@ -616,9 +645,14 @@ def test_denied_request_approval_does_not_escalate(monkeypatch, tmp_path):
     fake = _FakeClient(
         [
             _function_call_response(
-                [("request_approval",
-                  {"action": "delete notes.txt", "reason": "irreversible"})],
-                "r1"),
+                [
+                    (
+                        "request_approval",
+                        {"action": "delete notes.txt", "reason": "irreversible"},
+                    )
+                ],
+                "r1",
+            ),
             _text_response("The operator denied it.", "r2"),
         ]
     )
@@ -656,12 +690,12 @@ import time  # noqa: E402
 
 # ── open_url / open_app are gated like every desktop action ──────────
 
+
 def test_open_url_unavailable_when_no_presenter(monkeypatch):
     launches = []
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: None)
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
-    monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda *a, **k: launches.append(a))
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: launches.append(a))
     result = runner._open_url_tool("g1", "facebook.com")
     assert result["ok"] is False
     assert result["status"] == "unavailable"
@@ -673,12 +707,18 @@ def test_open_url_executes_after_once_approval(monkeypatch):
     """Agent-opened tabs are MCP tabs (operator rule 2026-11-04) -- and a test must
     never open a real one, so mcp_tabs.open_tab is replaced."""
     import mcp_tabs
+
     opened = []
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
-    monkeypatch.setattr(mcp_tabs, "open_tab", lambda u: opened.append(u) or {"ok": True})
-    monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda *a, **k: pytest.fail("must not open a bare xdg-open tab"))
+    monkeypatch.setattr(
+        mcp_tabs, "open_tab", lambda u: opened.append(u) or {"ok": True}
+    )
+    monkeypatch.setattr(
+        runner.subprocess,
+        "Popen",
+        lambda *a, **k: pytest.fail("must not open a bare xdg-open tab"),
+    )
     result = runner._open_url_tool("g1", "facebook.com")
     assert result["ok"] is True
     assert result["opened"] == "https://facebook.com"
@@ -688,12 +728,17 @@ def test_open_url_executes_after_once_approval(monkeypatch):
 
 def test_open_url_bridge_down_fails_without_a_bare_tab(monkeypatch):
     import mcp_tabs
+
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "once")
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
-    monkeypatch.setattr(mcp_tabs, "open_tab",
-                        lambda u: {"ok": False, "reason": "bridge_unreachable"})
-    monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda *a, **k: pytest.fail("must not fall back to xdg-open"))
+    monkeypatch.setattr(
+        mcp_tabs, "open_tab", lambda u: {"ok": False, "reason": "bridge_unreachable"}
+    )
+    monkeypatch.setattr(
+        runner.subprocess,
+        "Popen",
+        lambda *a, **k: pytest.fail("must not fall back to xdg-open"),
+    )
     result = runner._open_url_tool("g1", "example.com")
     assert result["ok"] is False
     assert "MCP tab" in result["error"]
@@ -701,6 +746,7 @@ def test_open_url_bridge_down_fails_without_a_bare_tab(monkeypatch):
 
 def test_open_url_session_approval_saves_grant(monkeypatch):
     import mcp_tabs
+
     saved = []
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "session")
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
@@ -714,8 +760,9 @@ def test_open_url_session_approval_saves_grant(monkeypatch):
 def test_open_url_denied_by_operator(monkeypatch):
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: "deny")
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
-    monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda *a, **k: pytest.fail("must not launch"))
+    monkeypatch.setattr(
+        runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not launch")
+    )
     result = runner._open_url_tool("g1", "facebook.com")
     assert result["ok"] is False
     assert result["status"] == "denied"
@@ -723,9 +770,13 @@ def test_open_url_denied_by_operator(monkeypatch):
 
 def test_open_url_saved_grant_skips_box(monkeypatch):
     import mcp_tabs
+
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: True)
-    monkeypatch.setattr(runner, "_present_approval",
-                        lambda *a, **k: pytest.fail("box must not be shown"))
+    monkeypatch.setattr(
+        runner,
+        "_present_approval",
+        lambda *a, **k: pytest.fail("box must not be shown"),
+    )
     monkeypatch.setattr(mcp_tabs, "open_tab", lambda u: {"ok": True})
     result = runner._open_url_tool("g1", "example.com")
     assert result["ok"] is True
@@ -734,14 +785,16 @@ def test_open_url_saved_grant_skips_box(monkeypatch):
 def test_open_app_unavailable_when_no_presenter(monkeypatch):
     monkeypatch.setattr(runner, "_present_approval", lambda *a, **k: None)
     monkeypatch.setattr(runner, "_is_granted", lambda pattern: False)
-    monkeypatch.setattr(runner, "_launch_visible",
-                        lambda *a, **k: pytest.fail("must not launch"))
+    monkeypatch.setattr(
+        runner, "_launch_visible", lambda *a, **k: pytest.fail("must not launch")
+    )
     result = runner._open_app_tool("g1", "chrome")
     assert result["ok"] is False
     assert result["status"] == "unavailable"
 
 
 # ── presenter transport: fail fast, honest readiness ─────────────────
+
 
 def _write_stub(tmp_path, body: str):
     stub = tmp_path / "stub_presenter.py"
@@ -756,7 +809,8 @@ def test_run_presenter_no_display_returns_none(monkeypatch):
 
 def test_run_presenter_unavailable_stub_fails_fast(tmp_path, monkeypatch):
     stub = _write_stub(
-        tmp_path, "import sys; print('UNAVAILABLE no display'); sys.exit(2)\n")
+        tmp_path, "import sys; print('UNAVAILABLE no display'); sys.exit(2)\n"
+    )
     monkeypatch.setattr(runner, "_PRESENTER", stub)
     monkeypatch.setenv("DISPLAY", ":0")
     t0 = time.monotonic()
@@ -778,7 +832,8 @@ def test_run_presenter_ready_then_verdict(tmp_path, monkeypatch):
     stub = _write_stub(
         tmp_path,
         "import sys; sys.stdin.read(); print('READY', flush=True); "
-        "print('once', flush=True)\n")
+        "print('once', flush=True)\n",
+    )
     monkeypatch.setattr(runner, "_PRESENTER", stub)
     monkeypatch.setenv("DISPLAY", ":0")
     assert runner._run_presenter("p", "d", {}) == "once"
@@ -790,12 +845,17 @@ def test_presenter_script_unavailable_without_display():
     run = subprocess.run(
         [sys.executable, str(presenter)],
         input=json.dumps({"pattern_key": "p", "description": "d"}),
-        capture_output=True, text=True, env=env, timeout=30)
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
     assert run.returncode == 2
     assert run.stdout.startswith("UNAVAILABLE")
 
 
 # ── per-goal escalation bound: never present twice, never retry ──────
+
 
 def test_escalation_unavailable_not_retried_within_goal(monkeypatch):
     calls = []
@@ -840,6 +900,7 @@ def test_escalation_verdict_cached_per_pattern(monkeypatch):
 
 # ── write_file: unavailable fails fast and says so ───────────────────
 
+
 def test_write_file_tool_unavailable_fails_fast(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "_is_under_home", lambda p: True)
     monkeypatch.setattr(runner, "APPROVALS_DIR", tmp_path)
@@ -863,6 +924,7 @@ def test_write_file_tool_unavailable_fails_fast(tmp_path, monkeypatch):
 
 # ── deterministic clock ──────────────────────────────────────────────
 
+
 def test_is_time_question_matches_direct_forms_only():
     assert runner._is_time_question("What time is it in Indianapolis right now?")
     assert runner._is_time_question("What's the date today?")
@@ -879,17 +941,20 @@ def test_process_time_reports_real_indianapolis_time():
 
     text = runner._process_time()
     now = datetime.now(ZoneInfo("America/Indiana/Indianapolis"))
-    assert now.strftime("%A") in text       # correct weekday
-    assert now.strftime("%B") in text       # correct month
-    assert str(now.day) in text             # correct day of month
+    assert now.strftime("%A") in text  # correct weekday
+    assert now.strftime("%B") in text  # correct month
+    assert str(now.day) in text  # correct day of month
     assert str(now.year) in text
-    assert now.strftime("%Z") in text       # EST or EDT, as in force
+    assert now.strftime("%Z") in text  # EST or EDT, as in force
     assert "Indianapolis" in text
 
 
 # ── goal level: honest gate label, and the queue moves on ────────────
 
-def test_process_goal_gate_unavailable_honest_then_next_goal_runs(tmp_path, monkeypatch):
+
+def test_process_goal_gate_unavailable_honest_then_next_goal_runs(
+    tmp_path, monkeypatch
+):
     goals = tmp_path / "goals"
     done = goals / "done"
     failed = goals / "failed"
@@ -907,8 +972,13 @@ def test_process_goal_gate_unavailable_honest_then_next_goal_runs(tmp_path, monk
     monkeypatch.setattr(runner, "_write_caption", lambda *a, **k: None)
     monkeypatch.setattr(runner, "_show_work_avatar", lambda: None)
 
-    g1 = {"id": "gate-goal-1", "transcript": "Delete the scratch file",
-          "type": "task", "time": "t", "source": "test"}
+    g1 = {
+        "id": "gate-goal-1",
+        "transcript": "Delete the scratch file",
+        "type": "task",
+        "time": "t",
+        "source": "test",
+    }
     p1 = goals / "gate-goal-1.json"
     p1.write_text(json.dumps(g1), encoding="utf-8")
     runner._process_goal(p1)
@@ -918,8 +988,13 @@ def test_process_goal_gate_unavailable_honest_then_next_goal_runs(tmp_path, monk
     assert "queued" not in rec["response"].lower()
 
     # The very next goal is processed normally — no stall, no residue.
-    g2 = {"id": "time-goal-1", "transcript": "What time is it right now?",
-          "type": "task", "time": "t", "source": "test"}
+    g2 = {
+        "id": "time-goal-1",
+        "transcript": "What time is it right now?",
+        "type": "task",
+        "time": "t",
+        "source": "test",
+    }
     p2 = goals / "time-goal-1.json"
     p2.write_text(json.dumps(g2), encoding="utf-8")
     runner._process_goal(p2)

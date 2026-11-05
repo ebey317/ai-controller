@@ -9,6 +9,7 @@ The facts live in an editable file, not in a prompt string:
 
     from tahuti_operator import profile_text, resolve_folder, weather_line
 """
+
 from __future__ import annotations
 
 import re
@@ -53,13 +54,19 @@ def profile_text() -> str:
 def profile_prompt() -> str:
     """One prompt clause telling the model what it already knows."""
     t = profile_text()
-    return (" WHAT YOU ALREADY KNOW ABOUT THE OPERATOR (use it, never ask him "
-            "for it again): " + re.sub(r"\s+", " ", t)) if t else ""
+    return (
+        (
+            " WHAT YOU ALREADY KNOW ABOUT THE OPERATOR (use it, never ask him "
+            "for it again): " + re.sub(r"\s+", " ", t)
+        )
+        if t
+        else ""
+    )
 
 
 def city() -> str:
     m = re.search(r"Lives in ([^.\n]+)", profile_text())
-    return (m.group(1).strip() if m else "Indianapolis, Indiana")
+    return m.group(1).strip() if m else "Indianapolis, Indiana"
 
 
 def _expand(a: str) -> Path:
@@ -73,9 +80,13 @@ def _expand(a: str) -> Path:
 def _candidates(name: str) -> list[Path]:
     n = re.sub(r"\s+", " ", (name or "").strip().lower())
     n = re.sub(r"^(my|the)\s+", "", n)
-    n = re.sub(r"\s+(that'?s |which is |that is )?(on|in|from) (my |the )?desktop$", "", n).strip()
+    n = re.sub(
+        r"\s+(that'?s |which is |that is )?(on|in|from) (my |the )?desktop$", "", n
+    ).strip()
     n = re.sub(r"\s+(folder|directory|dir)$", "", n).strip()
-    on_desktop = bool(re.search(r"\bdesktop\b", (name or "").lower())) and n != "desktop"
+    on_desktop = (
+        bool(re.search(r"\bdesktop\b", (name or "").lower())) and n != "desktop"
+    )
     out: list[Path] = []
     if name.strip().startswith(("~", "/")):
         out.append(_expand(name))
@@ -121,11 +132,19 @@ def weather_line(fetch=None) -> str | None:
     """One spoken sentence of current weather for the operator's city, or
     None when the lookup fails (the caller then says so — no guessing)."""
     where = city()
-    url = "https://wttr.in/" + re.sub(r"[^A-Za-z0-9]+", "+", where).strip("+") + "?format=%C,+%t,+feels+like+%f,+wind+%w,+humidity+%h&u"
+    url = (
+        "https://wttr.in/"
+        + re.sub(r"[^A-Za-z0-9]+", "+", where).strip("+")
+        + "?format=%C,+%t,+feels+like+%f,+wind+%w,+humidity+%h&u"
+    )
     try:
         if fetch is None:
             import httpx
-            fetch = lambda u: httpx.get(u, timeout=6, headers={"User-Agent": "tahuti"}).text  # noqa: E731
+
+            def _fetch(u: str) -> str:
+                return httpx.get(u, timeout=6, headers={"User-Agent": "tahuti"}).text
+
+            fetch = _fetch
         raw = (fetch(url) or "").strip()
     except Exception:
         return None
@@ -134,7 +153,10 @@ def weather_line(fetch=None) -> str | None:
     return f"In {where} right now: {raw}."
 
 
-_WEATHER_RE = re.compile(r"\b(weather|temperature|forecast|how (hot|cold|warm) is it|is it (raining|snowing))\b", re.I)
+_WEATHER_RE = re.compile(
+    r"\b(weather|temperature|forecast|how (hot|cold|warm) is it|is it (raining|snowing))\b",
+    re.I,
+)
 
 
 def is_weather_question(text: str) -> bool:

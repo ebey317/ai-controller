@@ -33,7 +33,14 @@ def _default_session_id() -> str:
     # don't need to pass it every time.
     candidates = [
         os.environ.get("HERMES_SESSION_ID", ""),
-        Path("~/.config/ai-controller/hermes_session_id").expanduser().read_text().strip() if Path("~/.config/ai-controller/hermes_session_id").expanduser().exists() else "",
+        (
+            Path("~/.config/ai-controller/hermes_session_id")
+            .expanduser()
+            .read_text()
+            .strip()
+            if Path("~/.config/ai-controller/hermes_session_id").expanduser().exists()
+            else ""
+        ),
     ]
     for c in candidates:
         if c:
@@ -58,7 +65,9 @@ def notify_hermex(
     if not title and not body:
         raise ValueError("title or body is required")
 
-    base = (base_url or os.environ.get("HERMES_WEBUI_URL", "http://127.0.0.1:8787")).rstrip("/")
+    base = (
+        base_url or os.environ.get("HERMES_WEBUI_URL", "http://127.0.0.1:8787")
+    ).rstrip("/")
     sid = (session_id or _default_session_id()).strip()
     if not sid:
         sid = "*"
@@ -90,7 +99,9 @@ def main() -> int:
     parser.add_argument("--title", required=True, help="Notification heading")
     parser.add_argument("--body", default="", help="Notification message")
     parser.add_argument("--session-id", default=None, help="Hermes session id")
-    parser.add_argument("--urgency", default="normal", choices=["low", "normal", "high"])
+    parser.add_argument(
+        "--urgency", default="normal", choices=["low", "normal", "high"]
+    )
     parser.add_argument("--action", default="", help="Route/path to open on tap")
     parser.add_argument("--sound", action="store_true", help="Play alert sound")
     parser.add_argument("--base-url", default=None, help="hermes-webui base URL")

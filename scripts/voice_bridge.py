@@ -3,6 +3,7 @@
 Voice bridge — audio → Groq Whisper → TTS
 Runs on :8002. push-to-talk.sh POSTs audio to /voice?mode=transcribe_only.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -53,8 +54,8 @@ logging.basicConfig(
         logging.handlers.RotatingFileHandler(
             LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3
         ),
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 logger = logging.getLogger(__name__)
 logger.info("Voice Bridge starting up — logs at %s", LOG_FILE)
@@ -65,7 +66,9 @@ logger.info("Voice Bridge starting up — logs at %s", LOG_FILE)
 # -----------------------------------------------------------------------------
 
 _env = load_env()
-CLAF_URL = (os.environ.get("CLAF_URL") or _env.get("CLAF_URL") or "http://localhost:8000").rstrip("/")
+CLAF_URL = (
+    os.environ.get("CLAF_URL") or _env.get("CLAF_URL") or "http://localhost:8000"
+).rstrip("/")
 VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
 
 
@@ -83,7 +86,7 @@ def _load_groq_key() -> str:
         try:
             for line in keychain.read_text().splitlines():
                 if line.strip().startswith("GROQ_API_KEY="):
-                    key = line.split("=", 1)[1].strip().strip('"\'')
+                    key = line.split("=", 1)[1].strip().strip("\"'")
                     if key and not key.startswith("***") and len(key) > 20:
                         return key
         except Exception:
@@ -107,7 +110,7 @@ def _load_elevenlabs_key() -> str:
         try:
             for line in keychain.read_text().splitlines():
                 if line.strip().startswith("ELEVENLABS_API_KEY="):
-                    key = line.split("=", 1)[1].strip().strip('"\'')
+                    key = line.split("=", 1)[1].strip().strip("\"'")
                     if key and not key.startswith("***") and len(key) > 20:
                         return key
         except Exception:
@@ -134,7 +137,9 @@ def _write_goal_file(transcript: str) -> Path:
     """
     GOALS_DIR.mkdir(parents=True, exist_ok=True)
     path = GOALS_DIR / f"{uuid.uuid4().hex}.json"
-    path.write_text(json.dumps(vgs.build_goal_payload(transcript), indent=2), encoding="utf-8")
+    path.write_text(
+        json.dumps(vgs.build_goal_payload(transcript), indent=2), encoding="utf-8"
+    )
     return path
 
 
@@ -156,8 +161,10 @@ EDGE_RATE = "+18%"
 # choices for latency + realism, "edge" to go back to the free Microsoft
 # voice above. Override in ~/.config/ai-controller/config.env, no code
 # change needed to flip back.
-TTS_ENGINE = (os.environ.get("TTS_ENGINE", "").strip()
-              or load_env().get("TTS_ENGINE", "elevenlabs").strip()).lower()
+TTS_ENGINE = (
+    os.environ.get("TTS_ENGINE", "").strip()
+    or load_env().get("TTS_ENGINE", "elevenlabs").strip()
+).lower()
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
 # Default voice: Sarah (premade, free-tier). Auditioned 2026-11-01 —
 # Rachel (21m00Tcm4TlvDq8ikWAM) is library-gated (paid only, 402
@@ -165,26 +172,35 @@ ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
 # EdgeAria}.mp3. Laura is the backup pick. Override ELEVENLABS_VOICE_ID in
 # config.env to switch.
 # Sarah - Mature, Reassuring, Confident:
-ELEVENLABS_VOICE_ID = (os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
-                        or load_env().get("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL").strip())
+ELEVENLABS_VOICE_ID = (
+    os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
+    or load_env().get("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL").strip()
+)
 # Human-tune (2026-11-01, free-tier Flash): stability 0.5 keeps expression
 # without wobble; similarity_boost 0.75 (docs default); style 0.0 (neutral —
 # raise to ~0.3 only if she sounds flat); use_speaker_boost true (clarity).
 # v4 models drop style/speed — these settings target eleven_flash_v2_5.
-ELEVENLABS_STABILITY = float(os.environ.get("ELEVENLABS_STABILITY", "")
-                             or load_env().get("ELEVENLABS_STABILITY", "0.5"))
-ELEVENLABS_SIMILARITY = float(os.environ.get("ELEVENLABS_SIMILARITY", "")
-                              or load_env().get("ELEVENLABS_SIMILARITY", "0.75"))
-ELEVENLABS_STYLE = float(os.environ.get("ELEVENLABS_STYLE", "")
-                         or load_env().get("ELEVENLABS_STYLE", "0.0"))
+ELEVENLABS_STABILITY = float(
+    os.environ.get("ELEVENLABS_STABILITY", "")
+    or load_env().get("ELEVENLABS_STABILITY", "0.5")
+)
+ELEVENLABS_SIMILARITY = float(
+    os.environ.get("ELEVENLABS_SIMILARITY", "")
+    or load_env().get("ELEVENLABS_SIMILARITY", "0.75")
+)
+ELEVENLABS_STYLE = float(
+    os.environ.get("ELEVENLABS_STYLE", "") or load_env().get("ELEVENLABS_STYLE", "0.0")
+)
 # Free-tier quota guard (Flash = 20k chars/mo). Usage tracked locally;
 # synthesis refuses into Edge fallback past the cap — never a bill.
 ELEVENLABS_QUOTA_FILE = os.path.join(config_dir(), "elevenlabs_usage.json")
 ELEVENLABS_MONTHLY_CAP = 20000
 # Flash model: lowest latency ElevenLabs offers -- this switch's whole point
 # is cutting response time, not just changing the voice.
-ELEVENLABS_MODEL = (os.environ.get("ELEVENLABS_MODEL", "").strip()
-                     or load_env().get("ELEVENLABS_MODEL", "eleven_flash_v2_5").strip())
+ELEVENLABS_MODEL = (
+    os.environ.get("ELEVENLABS_MODEL", "").strip()
+    or load_env().get("ELEVENLABS_MODEL", "eleven_flash_v2_5").strip()
+)
 
 # Strong refs to in-flight background TTS tasks. asyncio only holds weak refs to
 # tasks, so without this a speak task can be garbage-collected mid-generation.
@@ -211,21 +227,30 @@ def _speak_bg(text: str) -> None:
 def _generate_edge(spoken: str, mp3_path: str) -> None:
     """Generate speech via Edge TTS (AriaNeural) with tuned voice settings."""
     subprocess.run(
-        [sys.executable, "-m", "edge_tts", "--voice", EDGE_VOICE,
-         "--pitch=" + EDGE_PITCH,
-         "--rate=" + EDGE_RATE,
-         "--text", spoken,
-         "--write-media", mp3_path],
+        [
+            sys.executable,
+            "-m",
+            "edge_tts",
+            "--voice",
+            EDGE_VOICE,
+            "--pitch=" + EDGE_PITCH,
+            "--rate=" + EDGE_RATE,
+            "--text",
+            spoken,
+            "--write-media",
+            mp3_path,
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=True,
-        timeout=30
+        timeout=30,
     )
 
 
 def _elevenlabs_quota_ok(n_chars: int) -> bool:
     """Free-tier guard: refuse into Edge fallback past the monthly cap."""
     import datetime as _dt
+
     month = _dt.date.today().strftime("%Y-%m")
     try:
         usage = json.loads(Path(ELEVENLABS_QUOTA_FILE).read_text())
@@ -254,18 +279,27 @@ def _generate_elevenlabs(spoken: str, mp3_path: str) -> None:
     if not _elevenlabs_quota_ok(len(spoken)):
         raise RuntimeError("quota cap")
     # stream endpoint, not convert: chunks arrive while generating.
-    req = {"text": spoken, "model_id": ELEVENLABS_MODEL,
-           "voice_settings": {"stability": ELEVENLABS_STABILITY,
-                              "similarity_boost": ELEVENLABS_SIMILARITY,
-                              "style": ELEVENLABS_STYLE,
-                              "use_speaker_boost": True}}
+    req = {
+        "text": spoken,
+        "model_id": ELEVENLABS_MODEL,
+        "voice_settings": {
+            "stability": ELEVENLABS_STABILITY,
+            "similarity_boost": ELEVENLABS_SIMILARITY,
+            "style": ELEVENLABS_STYLE,
+            "use_speaker_boost": True,
+        },
+    }
     data = json.dumps(req).encode()
-    url = (f"{ELEVENLABS_TTS_URL}/{ELEVENLABS_VOICE_ID}/stream"
-           f"?model_id={ELEVENLABS_MODEL}&output_format=mp3_22050_32")
+    url = (
+        f"{ELEVENLABS_TTS_URL}/{ELEVENLABS_VOICE_ID}/stream"
+        f"?model_id={ELEVENLABS_MODEL}&output_format=mp3_22050_32"
+    )
     hreq = urllib.request.Request(
-        url, data=data,
+        url,
+        data=data,
         headers={"xi-api-key": ELEVENLABS_KEY, "Content-Type": "application/json"},
-        method="POST")
+        method="POST",
+    )
     with urllib.request.urlopen(hreq, timeout=20) as resp:
         body = resp.read()
     if len(body) < 1000:
@@ -298,13 +332,15 @@ def _speak(text: str) -> None:
             try:
                 _generate_elevenlabs(spoken, mp3_path)
             except Exception as exc:
-                logger.warning("ElevenLabs TTS failed (%s) -- falling back to Edge TTS", exc)
+                logger.warning(
+                    "ElevenLabs TTS failed (%s) -- falling back to Edge TTS", exc
+                )
                 _generate_edge(spoken, mp3_path)
         else:
             _generate_edge(spoken, mp3_path)
 
         try:
-            if os.path.getmtime('/tmp/ai_tts_barge') >= t0:
+            if os.path.getmtime("/tmp/ai_tts_barge") >= t0:
                 logger.info("TTS suppressed: barge-in during generation window")
                 os.unlink(mp3_path)
                 return
@@ -337,9 +373,15 @@ def _speak(text: str) -> None:
             # targeted at all.
             rate, channels = tts_control.sink_spec(tts_control.apply_driver())
             subprocess.Popen(
-                ["mpv", "--no-video", "--force-media-title=AI_TTS_BARGE",
-                 f"--audio-samplerate={rate}", f"--audio-channels={channels}",
-                 "--audio-format=s16", mp3_path],
+                [
+                    "mpv",
+                    "--no-video",
+                    "--force-media-title=AI_TTS_BARGE",
+                    f"--audio-samplerate={rate}",
+                    f"--audio-channels={channels}",
+                    "--audio-format=s16",
+                    mp3_path,
+                ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -358,6 +400,7 @@ def _speak(text: str) -> None:
 # Security: local-only + optional API key
 # -----------------------------------------------------------------------------
 
+
 def _local_only(request: Request) -> None:
     """Reject requests that do not originate from localhost."""
     host = request.client.host if request.client else None
@@ -365,6 +408,7 @@ def _local_only(request: Request) -> None:
     allowed = {"127.0.0.1", "::1", "localhost", "testclient", None}
     if host not in allowed:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=403, detail="voice bridge is localhost-only")
 
 
@@ -375,6 +419,7 @@ def _api_key_ok(request: Request) -> None:
     header = request.headers.get("x-api-key", "")
     if header != VOICE_BRIDGE_API_KEY:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
@@ -399,6 +444,7 @@ def _extract_claf_text(payload: dict) -> str:
 # -----------------------------------------------------------------------------
 # Routes
 # -----------------------------------------------------------------------------
+
 
 @app.post("/voice")
 async def voice(

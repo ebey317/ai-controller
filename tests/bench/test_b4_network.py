@@ -2,6 +2,7 @@
 
 All DNS and HTTP are stubbed; these tests never access the network or desktop.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -33,16 +34,28 @@ def _addr(ip: str):
 
 
 def test_resolve_public_ip_rejects_private_and_mixed_answers(monkeypatch):
-    for answers in ([ _addr("10.0.0.1") ], [_addr(PUBLIC_IP), _addr("127.0.0.1")]):
-        monkeypatch.setattr(socket, "getaddrinfo", lambda *a, _answers=answers, **k: _answers)
+    for answers in ([_addr("10.0.0.1")], [_addr(PUBLIC_IP), _addr("127.0.0.1")]):
+        monkeypatch.setattr(
+            socket, "getaddrinfo", lambda *a, _answers=answers, **k: _answers
+        )
         assert runner._resolve_public_ip("example.test", 443) is None
 
 
 def test_resolve_public_ip_returns_public_address_and_prefers_ipv4(monkeypatch):
-    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [
-        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:2800:220:1:248:1893:25c8:1946", 443, 0, 0)),
-        _addr(PUBLIC_IP),
-    ])
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **k: [
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("2606:2800:220:1:248:1893:25c8:1946", 443, 0, 0),
+            ),
+            _addr(PUBLIC_IP),
+        ],
+    )
     assert runner._resolve_public_ip("example.test", 443) == PUBLIC_IP
 
 
@@ -101,7 +114,9 @@ def _install_fakes(monkeypatch, ips, responses):
     return dns_calls, clients
 
 
-def test_read_page_pins_public_ip_ignores_proxy_and_preserves_https_host_sni(monkeypatch):
+def test_read_page_pins_public_ip_ignores_proxy_and_preserves_https_host_sni(
+    monkeypatch,
+):
     dns, clients = _install_fakes(monkeypatch, [PUBLIC_IP], [_Response()])
     result = runner._read_page_tool("https://www.example.test/path")
     assert result["ok"] is True
@@ -117,7 +132,8 @@ def test_read_page_pins_public_ip_ignores_proxy_and_preserves_https_host_sni(mon
 
 def test_read_page_refuses_public_redirect_to_private_before_http(monkeypatch):
     dns, clients = _install_fakes(
-        monkeypatch, [PUBLIC_IP, "10.0.0.1"],
+        monkeypatch,
+        [PUBLIC_IP, "10.0.0.1"],
         [_Response(302, {"location": "http://internal.example.test/admin"})],
     )
     result = runner._read_page_tool("https://www.example.test/")
@@ -136,19 +152,22 @@ def test_read_page_enforces_redirect_hop_limit(monkeypatch):
     assert len(clients) == 5
 
 
-@pytest.mark.parametrize("ip", [
-    "10.1.2.3",       # RFC1918 private
-    "127.0.0.1",      # loopback
-    "169.254.1.2",    # link-local
-    "224.0.0.1",      # multicast
-    "240.0.0.1",      # reserved
-    "192.0.2.1",      # documentation/reserved
-    "::1",            # IPv6 loopback
-    "fc00::1",        # IPv6 unique-local
-    "fe80::1",        # IPv6 link-local
-    "ff02::1",        # IPv6 multicast
-    "2001:db8::1",    # IPv6 documentation/reserved
-])
+@pytest.mark.parametrize(
+    "ip",
+    [
+        "10.1.2.3",  # RFC1918 private
+        "127.0.0.1",  # loopback
+        "169.254.1.2",  # link-local
+        "224.0.0.1",  # multicast
+        "240.0.0.1",  # reserved
+        "192.0.2.1",  # documentation/reserved
+        "::1",  # IPv6 loopback
+        "fc00::1",  # IPv6 unique-local
+        "fe80::1",  # IPv6 link-local
+        "ff02::1",  # IPv6 multicast
+        "2001:db8::1",  # IPv6 documentation/reserved
+    ],
+)
 def test_resolve_public_ip_rejects_non_public_address_classes(monkeypatch, ip):
     family = socket.AF_INET6 if ":" in ip else socket.AF_INET
     sockaddr = (ip, 443, 0, 0) if family == socket.AF_INET6 else (ip, 443)
@@ -186,7 +205,8 @@ def test_read_page_connects_to_validated_ip_if_dns_would_rebind(monkeypatch):
 
 def test_read_page_follows_public_redirect_and_rechecks_target(monkeypatch):
     dns, clients = _install_fakes(
-        monkeypatch, [PUBLIC_IP, "1.1.1.1"],
+        monkeypatch,
+        [PUBLIC_IP, "1.1.1.1"],
         [_Response(302, {"location": "https://cdn.example.test/asset"}), _Response()],
     )
 
@@ -196,4 +216,3 @@ def test_read_page_follows_public_redirect_and_rechecks_target(monkeypatch):
     assert dns == [("www.example.test", 443), ("cdn.example.test", 443)]
     assert len(clients) == 2
     assert clients[1].calls[0][1] == "https://1.1.1.1/asset"
-

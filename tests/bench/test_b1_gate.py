@@ -3,6 +3,7 @@
 Covers parser recognition and denial behavior only; intentionally does not claim
 full application-entry-path coverage. All external/action paths are monkeypatched.
 """
+
 from __future__ import annotations
 
 import sys
@@ -62,18 +63,36 @@ def test_denied_gate_produces_no_action_at_process_slash_seam(
         return {"error": "approval denied"}
 
     monkeypatch.setattr(runner, "_gate_desktop_action", denied)
-    monkeypatch.setattr(runner, "_run_slash_card", lambda *a, **k: effects.append(("card", a, k)))
-    monkeypatch.setattr(runner, "_write_to_agent_thread", lambda *a, **k: effects.append(("thread", a, k)))
-    monkeypatch.setattr(slash, "sensei_lock", lambda *a, **k: pytest.fail("lock must not be acquired"))
-    monkeypatch.setattr(slash, "ensure_sensei", lambda *a, **k: pytest.fail("Sensei must not start"))
-    monkeypatch.setattr(slash, "run_in_sensei", lambda *a, **k: pytest.fail("command must not run"))
+    monkeypatch.setattr(
+        runner, "_run_slash_card", lambda *a, **k: effects.append(("card", a, k))
+    )
+    monkeypatch.setattr(
+        runner,
+        "_write_to_agent_thread",
+        lambda *a, **k: effects.append(("thread", a, k)),
+    )
+    monkeypatch.setattr(
+        slash, "sensei_lock", lambda *a, **k: pytest.fail("lock must not be acquired")
+    )
+    monkeypatch.setattr(
+        slash, "ensure_sensei", lambda *a, **k: pytest.fail("Sensei must not start")
+    )
+    monkeypatch.setattr(
+        slash, "run_in_sensei", lambda *a, **k: pytest.fail("command must not run")
+    )
     monkeypatch.setenv("DISPLAY", ":b1-isolated")
 
     response, already_spoken = runner._process_slash("b1-goal", parsed)
 
     expected_pattern = f"tahuti:slash:{parsed['base'].split()[0]}"
     assert effects == [
-        ("gate", "b1-goal", expected_pattern, f"Run {expected_send} in Sensei", f"{expected_send} was not run")
+        (
+            "gate",
+            "b1-goal",
+            expected_pattern,
+            f"Run {expected_send} in Sensei",
+            f"{expected_send} was not run",
+        )
     ]
     assert "approval denied" in response
     assert already_spoken is False

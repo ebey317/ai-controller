@@ -12,6 +12,7 @@ pin, calls that provider's OpenAI-compatible endpoint with the SAME keys
 Pure helpers (pin parsing, key lookup, tool conversion) are separate from the
 network loop so they can be tested without a network.
 """
+
 from __future__ import annotations
 
 import json
@@ -31,17 +32,30 @@ _ZEN = "https://opencode.ai/zen/v1/chat/completions"
 PROVIDERS: dict[str, tuple[str, list[str]]] = {
     "local": ("http://localhost:11434/v1/chat/completions", []),
     "ollama": ("http://localhost:11434/v1/chat/completions", []),
-    "opencode": (_ZEN, []),                       # Zen: keyless, needs a session header
+    "opencode": (_ZEN, []),  # Zen: keyless, needs a session header
     "opencode-free": (_ZEN, []),
-    "opencode-go": ("https://opencode.ai/zen/go/v1/chat/completions",
-                    ["OPENCODE_GO_API_KEY", "OPENCODE_API_KEY"]),
+    "opencode-go": (
+        "https://opencode.ai/zen/go/v1/chat/completions",
+        ["OPENCODE_GO_API_KEY", "OPENCODE_API_KEY"],
+    ),
     "ollama-cloud": ("https://ollama.com/v1/chat/completions", ["OLLAMA_API_KEY"]),
-    "openrouter": ("https://openrouter.ai/api/v1/chat/completions", ["OPENROUTER_API_KEY"]),
-    "nvidia": ("https://integrate.api.nvidia.com/v1/chat/completions", ["NVIDIA_API_KEY"]),
+    "openrouter": (
+        "https://openrouter.ai/api/v1/chat/completions",
+        ["OPENROUTER_API_KEY"],
+    ),
+    "nvidia": (
+        "https://integrate.api.nvidia.com/v1/chat/completions",
+        ["NVIDIA_API_KEY"],
+    ),
     "cerebras": ("https://api.cerebras.ai/v1/chat/completions", ["CEREBRAS_API_KEY"]),
-    "poolside": ("https://inference.poolside.ai/v1/chat/completions", ["POOLSIDE_API_KEY"]),
-    "qwen": ("https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
-             ["QWEN_TOKENPLAN_API_KEY"]),
+    "poolside": (
+        "https://inference.poolside.ai/v1/chat/completions",
+        ["POOLSIDE_API_KEY"],
+    ),
+    "qwen": (
+        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+        ["QWEN_TOKENPLAN_API_KEY"],
+    ),
 }
 
 
@@ -141,18 +155,34 @@ def to_chat_tools(tools: list[dict]) -> list[dict]:
     out = []
     for t in tools or []:
         if t.get("type") == "function" and t.get("name"):
-            out.append({"type": "function", "function": {
-                "name": t["name"], "description": t.get("description", ""),
-                "parameters": t.get("parameters") or {"type": "object", "properties": {}}}})
+            out.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t["name"],
+                        "description": t.get("description", ""),
+                        "parameters": t.get("parameters")
+                        or {"type": "object", "properties": {}},
+                    },
+                }
+            )
     return out
 
 
 # --------------------------------------------------------------------------
 # the call
 # --------------------------------------------------------------------------
-def run(pin: tuple[str, str], system: str, history: list[dict], user: str,
-        tools: list[dict], execute: Callable[[dict], dict],
-        max_rounds: int = 6, timeout: float = 90.0, max_tokens: int = 2048) -> str:
+def run(
+    pin: tuple[str, str],
+    system: str,
+    history: list[dict],
+    user: str,
+    tools: list[dict],
+    execute: Callable[[dict], dict],
+    max_rounds: int = 6,
+    timeout: float = 90.0,
+    max_tokens: int = 2048,
+) -> str:
     """One goal answered by the pinned model, with Tahuti's tool loop.
 
     `execute(call)` takes {"name","arguments"(JSON str),"call_id"} and returns a
@@ -168,17 +198,26 @@ def run(pin: tuple[str, str], system: str, history: list[dict], user: str,
     if key_names:
         key = find_key(key_names)
         if not key:
-            raise ProviderError(f"no API key for {provider} (looked for {', '.join(key_names)})")
+            raise ProviderError(
+                f"no API key for {provider} (looked for {', '.join(key_names)})"
+            )
         headers["Authorization"] = f"Bearer {key}"
     if "opencode.ai/zen/v1" in url:
         headers["x-opencode-session"] = _zen_session()
 
     chat_tools = to_chat_tools(tools)
-    messages: list[dict] = [{"role": "system", "content": system}, *history,
-                            {"role": "user", "content": user}]
+    messages: list[dict] = [
+        {"role": "system", "content": system},
+        *history,
+        {"role": "user", "content": user},
+    ]
     with httpx.Client(timeout=timeout) as client:
         for round_num in range(max_rounds + 1):
-            body: dict = {"model": model, "messages": messages, "max_tokens": max_tokens}
+            body: dict = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+            }
             if chat_tools and round_num < max_rounds:
                 body["tools"] = chat_tools
                 body["tool_choice"] = "auto"
@@ -198,17 +237,37 @@ def run(pin: tuple[str, str], system: str, history: list[dict], user: str,
                 if not text:
                     raise ProviderError("empty reply")
                 return text
-            messages.append({"role": "assistant", "content": msg.get("content") or "",
-                             "tool_calls": calls})
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": msg.get("content") or "",
+                    "tool_calls": calls,
+                }
+            )
             for c in calls:
                 fn = c.get("function") or {}
-                result = execute({"name": fn.get("name"),
-                                  "arguments": fn.get("arguments") or "{}",
-                                  "call_id": c.get("id", "")})
-                messages.append({"role": "tool", "tool_call_id": c.get("id", ""),
-                                 "content": json.dumps(result)})
+                result = execute(
+                    {
+                        "name": fn.get("name"),
+                        "arguments": fn.get("arguments") or "{}",
+                        "call_id": c.get("id", ""),
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": c.get("id", ""),
+                        "content": json.dumps(result),
+                    }
+                )
             if round_num + 1 >= max_rounds:  # out of budget: force a real answer
-                messages.append({"role": "user", "content": (
-                    "You've used your tool budget. Write your real answer now from only "
-                    "what you actually found above; if you did not finish, say exactly that.")})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "You've used your tool budget. Write your real answer now from only "
+                            "what you actually found above; if you did not finish, say exactly that."
+                        ),
+                    }
+                )
     raise ProviderError("tool loop ended without an answer")

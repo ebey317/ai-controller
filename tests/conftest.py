@@ -26,7 +26,9 @@ def _use_frozen_registry_when_sensei_absent():
     import sensei_slash
 
     if not sensei_slash.REGISTRY_PATH.exists():
-        sensei_slash.REGISTRY_PATH = pathlib.Path(_ROOT) / "tests" / "fixtures" / "command_registry.py"
+        sensei_slash.REGISTRY_PATH = (
+            pathlib.Path(_ROOT) / "tests" / "fixtures" / "command_registry.py"
+        )
 
 
 _use_frozen_registry_when_sensei_absent()

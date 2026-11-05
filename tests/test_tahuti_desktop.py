@@ -60,7 +60,10 @@ class _AvatarModule:
     decide whether to register a callback at all (2026-11-01)."""
 
     def __init__(self, approval_box=True, popup_on_approval=True):
-        self._settings = {"approval_box": approval_box, "popup_on_approval": popup_on_approval}
+        self._settings = {
+            "approval_box": approval_box,
+            "popup_on_approval": popup_on_approval,
+        }
 
     def load_profiles(self):
         return {}
@@ -73,9 +76,14 @@ class _AvatarModule:
     @staticmethod
     def card_details(pattern_key, description, extra):
         return {
-            "who": "Tahuti — your AI Controller", "what": description,
-            "where": "Your active Linux desktop", "when": "Immediately after you choose Yes",
-            "why": "test", "how": "test", "effect": "test", "pattern_key": pattern_key,
+            "who": "Tahuti — your AI Controller",
+            "what": description,
+            "where": "Your active Linux desktop",
+            "when": "Immediately after you choose Yes",
+            "why": "test",
+            "how": "test",
+            "effect": "test",
+            "pattern_key": pattern_key,
         }
 
     @staticmethod
@@ -106,11 +114,17 @@ def test_native_callback_installs_on_existing_gate(monkeypatch):
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.setattr(desktop, "_import_from_path", lambda *_: _AvatarModule())
     monkeypatch.setattr(
-        desktop, "_ask_ninja_avatar",
-        lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("ninja not available in tests")),
+        desktop,
+        "_ask_ninja_avatar",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            RuntimeError("ninja not available in tests")
+        ),
     )
     desktop._install_tahuti_callback(gate)
-    assert gate.callback("cua:type:foreground", "Type 1 character", action="type") == "once"
+    assert (
+        gate.callback("cua:type:foreground", "Type 1 character", action="type")
+        == "once"
+    )
 
 
 def test_native_callback_skipped_when_approval_popup_disabled(monkeypatch):
@@ -123,7 +137,8 @@ def test_native_callback_skipped_when_approval_popup_disabled(monkeypatch):
     gate = _FakeGate()
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.setattr(
-        desktop, "_import_from_path",
+        desktop,
+        "_import_from_path",
         lambda *_: _AvatarModule(approval_box=False, popup_on_approval=True),
     )
     desktop._install_tahuti_callback(gate)
@@ -136,7 +151,8 @@ def test_native_callback_skipped_when_popup_on_approval_disabled(monkeypatch):
     gate = _FakeGate()
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.setattr(
-        desktop, "_import_from_path",
+        desktop,
+        "_import_from_path",
         lambda *_: _AvatarModule(approval_box=True, popup_on_approval=False),
     )
     desktop._install_tahuti_callback(gate)

@@ -13,6 +13,7 @@ may create a window: a second surface is a bug, not a feature.
 The box blocks only Tahuti's requesting thread until the operator
 decides or the request expires. Close and timeout deny. Fail closed.
 """
+
 from __future__ import annotations
 
 import os
@@ -29,9 +30,11 @@ if str(HERE) not in sys.path:
 
 try:
     import gi
+
     gi.require_version("Gtk", "3.0")
     gi.require_version("Gdk", "3.0")
     from gi.repository import GdkPixbuf, GLib, Gtk
+
     GTK_AVAILABLE = True
 except Exception:  # pragma: no cover - import-safe on non-desktop CI
     GTK_AVAILABLE = False
@@ -47,17 +50,26 @@ CORNER_LOOP = ("top-left", "bottom-left", "bottom-right")
 DEFAULT_NOTIFICATION_CORNER = "top-right"
 
 
-def card_details(pattern_key: str, description: str, extra: dict[str, Any] | None = None) -> dict[str, str]:
+def card_details(
+    pattern_key: str, description: str, extra: dict[str, Any] | None = None
+) -> dict[str, str]:
     """Build the card's fixed trust fields without inventing action details."""
     extra = extra or {}
-    action = str(extra.get("action") or (pattern_key.split(":")[1] if ":" in pattern_key else pattern_key))
+    action = str(
+        extra.get("action")
+        or (pattern_key.split(":")[1] if ":" in pattern_key else pattern_key)
+    )
     mode = str(extra.get("mode") or "foreground")
     return {
         "who": "Tahuti — your AI Controller",
         "what": description,
         "where": "Your active Linux desktop",
         "when": "Immediately after you choose Yes",
-        "why": str(extra.get("why") or extra.get("reason") or "This action needs your approval before Tahuti runs it"),
+        "why": str(
+            extra.get("why")
+            or extra.get("reason")
+            or "This action needs your approval before Tahuti runs it"
+        ),
         "how": f"{action} through the Tahuti desktop bridge ({mode})",
         "effect": "Nothing runs until you choose Yes or Always for this session.",
         "pattern_key": pattern_key,
@@ -83,14 +95,22 @@ def corners_for(settings: dict[str, Any]) -> list[str]:
     return corners or list(CORNER_LOOP)
 
 
-def corner_position(corner: str, width: int, height: int,
-                    screen_width: int, screen_height: int, margin: int = 16) -> tuple[int, int]:
+def corner_position(
+    corner: str,
+    width: int,
+    height: int,
+    screen_width: int,
+    screen_height: int,
+    margin: int = 16,
+) -> tuple[int, int]:
     """Top-left (x, y) for the box at a corner, clamped on-screen."""
     if corner == "bottom-left":
         return (margin, max(margin, screen_height - height - margin))
     if corner == "bottom-right":
-        return (max(margin, screen_width - width - margin),
-                max(margin, screen_height - height - margin))
+        return (
+            max(margin, screen_width - width - margin),
+            max(margin, screen_height - height - margin),
+        )
     if corner == "top-right":
         return (max(margin, screen_width - width - margin), margin)
     return (margin, margin)  # top-left and any unknown corner
@@ -149,7 +169,8 @@ if GTK_AVAILABLE:
             self._css.load_from_data(_CARD_CSS)
             self._screen = win.get_screen()
             Gtk.StyleContext.add_provider_for_screen(
-                self._screen, self._css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+                self._screen, self._css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
 
             root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             root.set_border_width(12)
@@ -188,8 +209,14 @@ if GTK_AVAILABLE:
             subtitle.set_xalign(0)
             query.pack_start(subtitle, False, False, 0)
             self._fields: dict[str, Any] = {}
-            for key, title in (("who", "WHO"), ("what", "WHAT"), ("where", "WHERE"),
-                               ("when", "WHEN"), ("why", "WHY"), ("how", "HOW")):
+            for key, title in (
+                ("who", "WHO"),
+                ("what", "WHAT"),
+                ("where", "WHERE"),
+                ("when", "WHEN"),
+                ("why", "WHY"),
+                ("how", "HOW"),
+            ):
                 row = Gtk.Box(spacing=8)
                 k = Gtk.Label(label=title)
                 k.set_name("subhead")
@@ -209,9 +236,14 @@ if GTK_AVAILABLE:
             self._effect.set_line_wrap(True)
             query.pack_start(self._effect, False, False, 4)
             grid = Gtk.Grid(column_spacing=8, row_spacing=8)
-            for n, (text, value, style) in enumerate((
-                    ("Yes", "once", ""), ("Always for this session", "session", "session"),
-                    ("Deny", "deny", "deny"), ("Edit", "edit", ""))):
+            for n, (text, value, style) in enumerate(
+                (
+                    ("Yes", "once", ""),
+                    ("Always for this session", "session", "session"),
+                    ("Deny", "deny", "deny"),
+                    ("Edit", "edit", ""),
+                )
+            ):
                 button = Gtk.Button(label=text)
                 if style:
                     button.set_name(style)
@@ -231,13 +263,16 @@ if GTK_AVAILABLE:
             edit.pack_start(edit_title, False, False, 0)
             edit_body = Gtk.Label(
                 label="Change the requested task at its source, then Tahuti "
-                      "will present the revised request.")
+                "will present the revised request."
+            )
             edit_body.set_name("value")
             edit_body.set_xalign(0)
             edit_body.set_line_wrap(True)
             edit.pack_start(edit_body, False, False, 0)
             back = Gtk.Button(label="Back to request")
-            back.connect("clicked", lambda _b: self._stack.set_visible_child_name("query"))
+            back.connect(
+                "clicked", lambda _b: self._stack.set_visible_child_name("query")
+            )
             edit.pack_end(back, False, False, 0)
             self._stack.add_named(edit, "edit")
 
@@ -289,15 +324,22 @@ if GTK_AVAILABLE:
 
         # -- the one public act ------------------------------------------
 
-        def present(self, card: dict[str, str], settings: dict[str, Any],
-                    timeout: int = TIMEOUT_SECONDS) -> str:
+        def present(
+            self,
+            card: dict[str, str],
+            settings: dict[str, Any],
+            timeout: int = TIMEOUT_SECONDS,
+        ) -> str:
             """Show the query inside this box; return once/session/deny."""
             px = _avatar_px(settings)
             portrait = _avatar_path()
             if portrait:
                 try:
                     self._portrait.set_from_pixbuf(
-                        GdkPixbuf.Pixbuf.new_from_file_at_scale(str(portrait), px, px, True))
+                        GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                            str(portrait), px, px, True
+                        )
+                    )
                 except Exception:
                     self._portrait.clear()
             else:
@@ -392,9 +434,13 @@ def prompt(pattern_key: str, description: str, **extra: Any) -> str:
         return "deny"
     try:
         settings = get_avatar_settings(load_profiles())
-        if not settings.get("approval_box", True) or not settings.get("popup_on_approval", True):
+        if not settings.get("approval_box", True) or not settings.get(
+            "popup_on_approval", True
+        ):
             return "deny"
-        request = _PendingRequest(card_details(pattern_key, description, extra), settings, threading.Event())
+        request = _PendingRequest(
+            card_details(pattern_key, description, extra), settings, threading.Event()
+        )
         with _PROMPT_LOCK:
             driver = not _PROMPT_ACTIVE
             _PENDING.append(request)
@@ -410,7 +456,9 @@ def prompt(pattern_key: str, description: str, **extra: Any) -> str:
                     return request.verdict
                 active = _PENDING.popleft()
             try:
-                active.verdict = _get_box().present(active.card, active.settings, TIMEOUT_SECONDS)
+                active.verdict = _get_box().present(
+                    active.card, active.settings, TIMEOUT_SECONDS
+                )
             except Exception:
                 active.verdict = "deny"
             finally:

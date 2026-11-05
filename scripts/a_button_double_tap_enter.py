@@ -8,6 +8,7 @@ release timing and, when it sees two quick taps in a row, fires a real
 `xdotool key Return`. A single tap or a long press-and-hold (drag) never
 triggers it, so the existing click/drag behavior on A is untouched.
 """
+
 import subprocess
 import time
 
@@ -17,7 +18,7 @@ from evdev import ecodes
 DEVICE_NAME = "Microsoft Xbox Controller"
 BUTTON_CODE = ecodes.BTN_SOUTH  # A button (304)
 
-QUICK_TAP_MAX = 0.30   # press-to-release longer than this = hold/drag, not a tap
+QUICK_TAP_MAX = 0.30  # press-to-release longer than this = hold/drag, not a tap
 DOUBLE_TAP_GAP = 0.35  # max gap between the two taps' releases/press
 
 
@@ -60,7 +61,10 @@ def main():
                 last_quick_tap_time = None
                 continue
 
-            if last_quick_tap_time is not None and (now - last_quick_tap_time) <= DOUBLE_TAP_GAP:
+            if (
+                last_quick_tap_time is not None
+                and (now - last_quick_tap_time) <= DOUBLE_TAP_GAP
+            ):
                 fire_enter()
                 last_quick_tap_time = None
             else:

@@ -97,6 +97,8 @@ def canonical_engine(engine) -> str:
     canonicalize instead of forcing a file migration.
     """
     return "edge" if engine in EDGE_ENGINES else engine
+
+
 RATE_MIN, RATE_MAX = 0.5, 2.0
 PITCH_MIN, PITCH_MAX = -12.0, 12.0
 SCALE_MIN, SCALE_MAX = 0.25, 3.0
@@ -111,7 +113,7 @@ TREBLE_MIN, TREBLE_MAX, TREBLE_DEFAULT = -15.0, 15.0, 0.0
 NOISE_SCALE_MIN, NOISE_SCALE_MAX = 0.0, 1.0
 NOISE_SCALE_DEFAULT = 0.667  # the piper binary's own default
 NOISE_W_MIN, NOISE_W_MAX = 0.0, 1.0
-NOISE_W_DEFAULT = 0.8        # the piper binary's own default
+NOISE_W_DEFAULT = 0.8  # the piper binary's own default
 
 KNOB_FIELDS = ("gain", "bass_db", "treble_db", "noise_scale", "noise_w")
 KNOB_DEFAULTS = {
@@ -141,8 +143,12 @@ SHOW_TRIGGERS = ("talk_buttons", "always_on")
 # L/R released, agent working -> avatar STAYS, work animations;
 # work done -> the result lands, then the avatar fades to black;
 # approval needed at any time -> avatar pops up with its box.
-LIFECYCLE_KEYS = ("show_on_talk", "stay_while_working",
-                  "fade_when_done", "popup_on_approval")
+LIFECYCLE_KEYS = (
+    "show_on_talk",
+    "stay_while_working",
+    "fade_when_done",
+    "popup_on_approval",
+)
 SHOW_TRIGGER_LABELS = {
     "talk_buttons": "on L/R talk-button press",
     "always_on": "always on while the keyboard is up",
@@ -154,8 +160,7 @@ AVATAR_SIZE_MIN_PX, AVATAR_SIZE_MAX_PX = 120, 400
 # Corner loop: top-left -> bottom-left -> bottom-right. The
 # notification corner is never parked in.
 MOVEMENT_PATTERNS = ("corner_loop", "stay_put")
-NOTIFICATION_CORNERS = ("top-right", "top-left", "bottom-right",
-                        "bottom-left")
+NOTIFICATION_CORNERS = ("top-right", "top-left", "bottom-right", "bottom-left")
 
 DEFAULT_PROFILES = {
     "version": 1,
@@ -222,9 +227,7 @@ PREVIEW_LINES = {
         "nothing moves without your approval."
     ),
 }
-DEFAULT_PREVIEW_LINE = (
-    "This is {name}, speaking at the pace and pitch you set for me."
-)
+DEFAULT_PREVIEW_LINE = "This is {name}, speaking at the pace and pitch you set for me."
 
 
 def profiles_path() -> str:
@@ -266,9 +269,7 @@ def validate_profiles(data) -> list:
                 problems.append(f"{where} is not an object")
                 continue
             if prof.get("engine") not in ENGINES:
-                problems.append(
-                    f"{where}.engine must be one of {', '.join(ENGINES)}"
-                )
+                problems.append(f"{where}.engine must be one of {', '.join(ENGINES)}")
             if not isinstance(prof.get("voice"), str) or not prof.get("voice"):
                 problems.append(f"{where}.voice must be a non-empty string")
             _check_rate_pitch(prof, where, problems)
@@ -282,24 +283,18 @@ def validate_profiles(data) -> list:
             problems.append("avatar.enabled_by_default must be true/false")
         scale = av.get("scale")
         if not _is_number(scale) or not (SCALE_MIN <= scale <= SCALE_MAX):
-            problems.append(
-                f"avatar.scale must be a number {SCALE_MIN}..{SCALE_MAX}"
-            )
+            problems.append(f"avatar.scale must be a number {SCALE_MIN}..{SCALE_MAX}")
         # Extended avatar-setup keys: checked when present, so files
         # written before they existed still validate (load_profiles
         # merges the defaults in anyway).
         if "active_avatar" in av and (
-            not isinstance(av.get("active_avatar"), str)
-            or not av.get("active_avatar")
+            not isinstance(av.get("active_avatar"), str) or not av.get("active_avatar")
         ):
+            problems.append("avatar.active_avatar must be a non-empty string")
+        if "show_trigger" in av and (av.get("show_trigger") not in SHOW_TRIGGERS):
             problems.append(
-                "avatar.active_avatar must be a non-empty string")
-        if "show_trigger" in av and (
-            av.get("show_trigger") not in SHOW_TRIGGERS
-        ):
-            problems.append(
-                "avatar.show_trigger must be one of "
-                + ", ".join(SHOW_TRIGGERS))
+                "avatar.show_trigger must be one of " + ", ".join(SHOW_TRIGGERS)
+            )
         if "size_px" in av:
             size = av.get("size_px")
             if not _is_number(size) or not (
@@ -307,22 +302,27 @@ def validate_profiles(data) -> list:
             ):
                 problems.append(
                     f"avatar.size_px must be a number "
-                    f"{AVATAR_SIZE_MIN_PX}..{AVATAR_SIZE_MAX_PX}")
-        if "movement" in av and (
-            av.get("movement") not in MOVEMENT_PATTERNS
-        ):
+                    f"{AVATAR_SIZE_MIN_PX}..{AVATAR_SIZE_MAX_PX}"
+                )
+        if "movement" in av and (av.get("movement") not in MOVEMENT_PATTERNS):
             problems.append(
-                "avatar.movement must be one of "
-                + ", ".join(MOVEMENT_PATTERNS))
+                "avatar.movement must be one of " + ", ".join(MOVEMENT_PATTERNS)
+            )
         if "notification_corner" in av and (
             av.get("notification_corner") not in NOTIFICATION_CORNERS
         ):
             problems.append(
                 "avatar.notification_corner must be one of "
-                + ", ".join(NOTIFICATION_CORNERS))
-        for flag in ("respect_notification_corner", "approval_box",
-                     "show_on_talk", "stay_while_working",
-                     "fade_when_done", "popup_on_approval"):
+                + ", ".join(NOTIFICATION_CORNERS)
+            )
+        for flag in (
+            "respect_notification_corner",
+            "approval_box",
+            "show_on_talk",
+            "stay_while_working",
+            "fade_when_done",
+            "popup_on_approval",
+        ):
             if flag in av and not isinstance(av.get(flag), bool):
                 problems.append(f"avatar.{flag} must be true/false")
     return problems
@@ -337,8 +337,7 @@ def _check_knobs(section, where, problems):
         lo, hi = KNOB_BOUNDS[field]
         value = section.get(field)
         if not _is_number(value) or not (lo <= value <= hi):
-            problems.append(
-                f"{where}.{field} must be a number {lo}..{hi}")
+            problems.append(f"{where}.{field} must be a number {lo}..{hi}")
 
 
 def knob_values(profile) -> dict:
@@ -364,8 +363,7 @@ def _check_rate_pitch(section, where, problems):
     pitch = section.get("pitch_semitones")
     if not _is_number(pitch) or not (PITCH_MIN <= pitch <= PITCH_MAX):
         problems.append(
-            f"{where}.pitch_semitones must be a number "
-            f"{PITCH_MIN}..{PITCH_MAX}"
+            f"{where}.pitch_semitones must be a number " f"{PITCH_MIN}..{PITCH_MAX}"
         )
 
 
@@ -424,8 +422,7 @@ def get_avatar_profile(data, name) -> dict:
     prof = data.get("avatars", {}).get(name)
     if isinstance(prof, dict):
         return prof
-    return {"engine": "piper", "voice": name,
-            "pitch_semitones": 0.0, "rate": 1.0}
+    return {"engine": "piper", "voice": name, "pitch_semitones": 0.0, "rate": 1.0}
 
 
 def preview_line(name) -> str:
@@ -435,6 +432,7 @@ def preview_line(name) -> str:
 
 
 # ── avatar overlay helpers ───────────────────────────────────────────
+
 
 def avatars_dir() -> str:
     """Where the avatar portraits live (assets/avatars in the repo)."""

@@ -1,6 +1,7 @@
 """Regression tests for the 2026-11-04 code-review findings (slash/voice work).
 
 Pure logic only: no tmux, no network, no real browser tabs."""
+
 import sys
 from pathlib import Path
 
@@ -13,12 +14,15 @@ import speech_text  # noqa: E402
 
 
 # -- parser ----------------------------------------------------------------
-@pytest.mark.parametrize("said", [
-    "slash the budget by ten percent",
-    "slash and burn that draft",
-])
+@pytest.mark.parametrize(
+    "said",
+    [
+        "slash the budget by ten percent",
+        "slash and burn that draft",
+    ],
+)
 def test_sentences_starting_with_slash_are_not_commands(said):
-    assert sb.parse(said) is None          # falls through to the model
+    assert sb.parse(said) is None  # falls through to the model
 
 
 def test_first_word_command_with_extra_words_is_unknown_not_model(said=None):
@@ -93,11 +97,17 @@ def test_ensure_idle_never_answers_a_waiting_question(monkeypatch):
 def test_ensure_sensei_does_not_restart_a_live_sensei(monkeypatch):
     sent = []
     monkeypatch.setattr(sb, "session_name", lambda: "master-ai")
-    monkeypatch.setattr(sb, "sensei_pane", lambda sess: None)       # lookup keeps missing
-    monkeypatch.setattr(sb, "_sensei_process_exists", lambda *a, **k: True)  # but the process is there
+    monkeypatch.setattr(sb, "sensei_pane", lambda sess: None)  # lookup keeps missing
+    monkeypatch.setattr(
+        sb, "_sensei_process_exists", lambda *a, **k: True
+    )  # but the process is there
     monkeypatch.setattr(sb.time, "sleep", lambda s: None)
-    monkeypatch.setattr(sb, "_tmux", lambda *a, **k: sent.append(a) or
-                        type("R", (), {"returncode": 0, "stdout": ""})())
+    monkeypatch.setattr(
+        sb,
+        "_tmux",
+        lambda *a, **k: sent.append(a)
+        or type("R", (), {"returncode": 0, "stdout": ""})(),
+    )
     pane, started = sb.ensure_sensei(timeout=1)
     assert pane is None and started is False
     assert not any("C-c" in a for a in sent)
@@ -107,14 +117,19 @@ def test_ensure_sensei_does_not_restart_a_live_sensei(monkeypatch):
 def test_pinned_failure_after_a_side_effect_is_not_retried_on_muse(monkeypatch):
     import tahuti_goal_runner as runner
 
-    monkeypatch.setattr(runner.sensei_model, "active_pin", lambda: ("ollama-cloud", "kimi-x"))
+    monkeypatch.setattr(
+        runner.sensei_model, "active_pin", lambda: ("ollama-cloud", "kimi-x")
+    )
 
     def partial(*a, **k):
         raise runner.PinnedPartialFailure(["open_url"], RuntimeError("HTTP 500"))
 
     monkeypatch.setattr(runner, "_call_pinned_model", partial)
-    monkeypatch.setattr(runner, "_call_model_muse",
-                        lambda *a, **k: pytest.fail("must not repeat the side effect on Muse"))
+    monkeypatch.setattr(
+        runner,
+        "_call_model_muse",
+        lambda *a, **k: pytest.fail("must not repeat the side effect on Muse"),
+    )
     text, model, _e, _s, route = runner._call_model("open youtube", "g1")
     assert "open url" in text and "did not run it again" in text
     assert route == "sensei-pinned-partial"
@@ -126,23 +141,33 @@ def test_read_page_refuses_when_any_address_is_private(monkeypatch):
     import tahuti_goal_runner as runner
 
     def fake(host, port, *a, **k):
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port)),
-                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port)),
+        ]
 
     monkeypatch.setattr(socket, "getaddrinfo", fake)
     assert runner._resolve_public_ip("mixed.test", 80) is None
 
 
 # ===== second review round (2026-11-04) =====================================
-@pytest.mark.parametrize("said", [
-    "show me the docker commands", "give me the git commands",
-    "tell me the keyboard commands", "slash prices now", "/etc/hosts",
-])
+@pytest.mark.parametrize(
+    "said",
+    [
+        "show me the docker commands",
+        "give me the git commands",
+        "tell me the keyboard commands",
+        "slash prices now",
+        "/etc/hosts",
+    ],
+)
 def test_ordinary_requests_are_not_hijacked_by_the_slash_lane(said):
     assert sb.parse(said) is None
 
 
-@pytest.mark.parametrize("said", ["list slash commands", "show commands", "slash commands", "slash"])
+@pytest.mark.parametrize(
+    "said", ["list slash commands", "show commands", "slash commands", "slash"]
+)
 def test_real_list_requests_still_open_the_list(said):
     assert sb.parse(said)["kind"] == "list"
 
@@ -154,6 +179,7 @@ def test_speech_cut_never_lands_mid_word():
 
 def _runner():
     import tahuti_goal_runner as runner
+
     return runner
 
 
@@ -162,21 +188,38 @@ def test_menu_choice_that_is_gated_goes_through_the_approval_card(monkeypatch):
     gated, ran = [], []
 
     class Lock:
-        def __enter__(self): return True
-        def __exit__(self, *a): return False
+        def __enter__(self):
+            return True
+
+        def __exit__(self, *a):
+            return False
 
     monkeypatch.setattr(runner.sensei_slash, "sensei_lock", lambda: Lock())
     monkeypatch.setenv("DISPLAY", ":0")
 
     def fake_card(send, menu="", guide=False):
-        if menu:                       # first call: the menu, person picked a gated command
-            return {"ok": True, "mode": "menu", "action": "needs_gate", "send": "/git commit"}
-        ran.append(send)               # second call: the command itself
-        return {"ok": True, "mode": "output", "output": "done", "digest": "ok", "spoken": True}
+        if menu:  # first call: the menu, person picked a gated command
+            return {
+                "ok": True,
+                "mode": "menu",
+                "action": "needs_gate",
+                "send": "/git commit",
+            }
+        ran.append(send)  # second call: the command itself
+        return {
+            "ok": True,
+            "mode": "output",
+            "output": "done",
+            "digest": "ok",
+            "spoken": True,
+        }
 
     monkeypatch.setattr(runner, "_run_slash_card", fake_card)
-    monkeypatch.setattr(runner, "_gate_desktop_action",
-                        lambda gid, pattern, desc, denied: gated.append(pattern) or None)
+    monkeypatch.setattr(
+        runner,
+        "_gate_desktop_action",
+        lambda gid, pattern, desc, denied: gated.append(pattern) or None,
+    )
     monkeypatch.setattr(runner, "_write_to_agent_thread", lambda *a, **k: None)
     runner._process_slash("g1", {"kind": "menu", "base": "git"})
     assert gated == ["tahuti:slash:git"] and ran == ["/git commit"]
@@ -187,15 +230,26 @@ def test_menu_choice_runs_nothing_when_the_gate_denies(monkeypatch):
     ran = []
 
     class Lock:
-        def __enter__(self): return True
-        def __exit__(self, *a): return False
+        def __enter__(self):
+            return True
+
+        def __exit__(self, *a):
+            return False
 
     monkeypatch.setattr(runner.sensei_slash, "sensei_lock", lambda: Lock())
     monkeypatch.setenv("DISPLAY", ":0")
-    monkeypatch.setattr(runner, "_run_slash_card",
-                        lambda send, menu="", guide=False: {"ok": True, "action": "needs_gate", "send": "/hooks disable"}
-                        if menu else ran.append(send) or {})
-    monkeypatch.setattr(runner, "_gate_desktop_action", lambda *a, **k: {"error": "denied"})
+    monkeypatch.setattr(
+        runner,
+        "_run_slash_card",
+        lambda send, menu="", guide=False: (
+            {"ok": True, "action": "needs_gate", "send": "/hooks disable"}
+            if menu
+            else ran.append(send) or {}
+        ),
+    )
+    monkeypatch.setattr(
+        runner, "_gate_desktop_action", lambda *a, **k: {"error": "denied"}
+    )
     text, _ = runner._process_slash("g1", {"kind": "menu", "base": "hooks"})
     assert ran == [] and "denied" in text
 
@@ -204,13 +258,24 @@ def test_busy_sensei_lock_means_nothing_is_typed(monkeypatch):
     runner = _runner()
 
     class Busy:
-        def __enter__(self): return False
-        def __exit__(self, *a): return False
+        def __enter__(self):
+            return False
+
+        def __exit__(self, *a):
+            return False
 
     monkeypatch.setattr(runner.sensei_slash, "sensei_lock", lambda: Busy())
-    monkeypatch.setattr(runner, "_run_slash_card", lambda *a, **k: pytest.fail("must not run"))
-    monkeypatch.setattr(runner.sensei_slash, "ensure_sensei", lambda: pytest.fail("must not touch Sensei"))
-    text, _ = runner._process_slash("g1", {"kind": "run", "base": "mode", "send": "/mode", "gated": False})
+    monkeypatch.setattr(
+        runner, "_run_slash_card", lambda *a, **k: pytest.fail("must not run")
+    )
+    monkeypatch.setattr(
+        runner.sensei_slash,
+        "ensure_sensei",
+        lambda: pytest.fail("must not touch Sensei"),
+    )
+    text, _ = runner._process_slash(
+        "g1", {"kind": "run", "base": "mode", "send": "/mode", "gated": False}
+    )
     assert "busy" in text.lower()
 
 
@@ -228,11 +293,16 @@ def test_launcher_uses_the_plain_command_when_systemd_run_does_not_work(monkeypa
     monkeypatch.setitem(runner._SYSTEMD_RUN_OK, "ok", False)
     assert runner._detached(["xdg-open", "x"]) == ["xdg-open", "x"]
     monkeypatch.setitem(runner._SYSTEMD_RUN_OK, "ok", True)
-    assert runner._detached(["xdg-open", "x"])[:3] == ["systemd-run", "--user", "--scope"]
+    assert runner._detached(["xdg-open", "x"])[:3] == [
+        "systemd-run",
+        "--user",
+        "--scope",
+    ]
 
 
 def test_read_page_ignores_proxy_environment(monkeypatch):
     import httpx
+
     runner = _runner()
     seen = {}
 

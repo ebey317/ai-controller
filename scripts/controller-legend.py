@@ -3,10 +3,11 @@
 Controller Legend HUD — horizontal strip below cursor with smoke pointer.
 Supports pagination (Left/Right to scroll through button mapping pages).
 """
+
 import gi
 
-gi.require_version('Gtk', '3.0')
-gi.require_version('Gdk', '3.0')
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 import fcntl
 import glob
 import os
@@ -52,14 +53,14 @@ TYPING_STATE_FILE = "/tmp/ptt_typing_state"
 # the hardcoded list stays only as a fallback if that file goes missing or
 # fails to parse.
 _DESKTOP_FALLBACK = [
-    ("A",    "Click"),
-    ("B",    "Bksp"),
-    ("X",    "Del"),
-    ("Y",    "Super"),
-    ("LB",   "Shift"),
-    ("RB",   "R·Clk"),
-    ("LT",   "Ctrl"),
-    ("RT",   "Talk"),
+    ("A", "Click"),
+    ("B", "Bksp"),
+    ("X", "Del"),
+    ("Y", "Super"),
+    ("LB", "Shift"),
+    ("RB", "R·Clk"),
+    ("LT", "Ctrl"),
+    ("RT", "Talk"),
     ("⧉", "Kbd"),  # View/Back = toggle on-screen keyboard
     ("☰", "Tab"),  # Start = Tab
     ("LS", "Esc"),  # LS click = Escape
@@ -67,7 +68,8 @@ _DESKTOP_FALLBACK = [
 ]
 
 LOCKED_PROFILE_PATH = os.path.join(
-    os.path.expanduser("~/.config/antimicrox"), "dont delete .gamecontroller.amgp")
+    os.path.expanduser("~/.config/antimicrox"), "dont delete .gamecontroller.amgp"
+)
 
 # AntiMicroX <button index> for an Xbox controller, standard SDL mapping
 # (SDL_CONTROLLER_BUTTON_* is 0-indexed; AntiMicroX's index is that +1).
@@ -77,23 +79,32 @@ LOCKED_PROFILE_PATH = os.path.join(
 # has never had a HUD slot, kept that way per the 2026-09-07 request that
 # it stay empty regardless of what the profile binds it to.
 LEGEND_SLOT_ORDER = [
-    ("A", ("button", 1)), ("B", ("button", 2)),
-    ("X", ("button", 3)), ("Y", ("button", 4)),
-    ("LB", ("button", 10)), ("RB", ("button", 11)),
-    ("LT", ("trigger", 5)), ("RT", ("trigger", 6)),
-    ("⧉", ("button", 5)),   # Back / View
-    ("☰", ("button", 7)),   # Start
-    ("LS", ("stick", 1)),   # left-stick click
-    ("RS", ("stick", 2)),   # right-stick click
+    ("A", ("button", 1)),
+    ("B", ("button", 2)),
+    ("X", ("button", 3)),
+    ("Y", ("button", 4)),
+    ("LB", ("button", 10)),
+    ("RB", ("button", 11)),
+    ("LT", ("trigger", 5)),
+    ("RT", ("trigger", 6)),
+    ("⧉", ("button", 5)),  # Back / View
+    ("☰", ("button", 7)),  # Start
+    ("LS", ("stick", 1)),  # left-stick click
+    ("RS", ("stick", 2)),  # right-stick click
 ]
 
 # Qt key codes this specific profile actually emits -> short display label.
 # Deliberately not a general Qt-keycode table: an unrecognized code shows
 # its raw hex instead of silently guessing a wrong label.
 _KEY_LABELS = {
-    "0x1000000": "Esc", "0x1000001": "Tab", "0x1000003": "Bksp",
-    "0x1000007": "Del", "0x1000004": "Enter", "0x1000020": "Shift",
-    "0x1000021": "Ctrl", "0x100003c": "Talk",  # F13, wired to push-to-talk
+    "0x1000000": "Esc",
+    "0x1000001": "Tab",
+    "0x1000003": "Bksp",
+    "0x1000007": "Del",
+    "0x1000004": "Enter",
+    "0x1000020": "Shift",
+    "0x1000021": "Ctrl",
+    "0x100003c": "Talk",  # F13, wired to push-to-talk
     "0x61000028": "Enter",  # observed on RS-click (AntiMicroX keypad-flagged Enter)
 }
 # 2026-09-07: verified in full against AntiMicroX's actual source
@@ -103,11 +114,17 @@ _KEY_LABELS = {
 # closes browser tabs) AND mislabeled 4/5 as side buttons when they're
 # actually scroll wheel up/down -- side buttons are 8/9. Don't edit this
 # without re-checking that source file; it is not the generic X11
-#1=left/2=right/3=middle convention.
+# 1=left/2=right/3=middle convention.
 _MOUSE_LABELS = {
-    "1": "Click", "2": "M·Clk", "3": "R·Clk",
-    "4": "Whl↑", "5": "Whl↓", "6": "Whl←", "7": "Whl→",
-    "8": "Side1", "9": "Side2",
+    "1": "Click",
+    "2": "M·Clk",
+    "3": "R·Clk",
+    "4": "Whl↑",
+    "5": "Whl↓",
+    "6": "Whl←",
+    "7": "Whl→",
+    "8": "Side1",
+    "9": "Side2",
 }
 # execute-mode script basename -> short display label. Extend as new
 # scripts get bound to buttons; unknown scripts fall back to a truncated
@@ -161,7 +178,9 @@ def load_desktop_layout(path=LOCKED_PROFILE_PATH):
     if set_el is None:
         return None
 
-    buttons = {int(b.get("index", "0")): _first_label(b) for b in set_el.findall("button")}
+    buttons = {
+        int(b.get("index", "0")): _first_label(b) for b in set_el.findall("button")
+    }
     triggers = {}
     for trig in set_el.findall("trigger"):
         idx = int(trig.get("index", "0"))
@@ -184,40 +203,40 @@ def load_desktop_layout(path=LOCKED_PROFILE_PATH):
 ALL_LAYOUTS = {
     "desktop": load_desktop_layout() or _DESKTOP_FALLBACK,
     "browser": [
-        ("A",   "Click"),
-        ("B",   "Back"),
-        ("X",   "Reload"),
-        ("Y",   "New Tab"),
-        ("○●",  "Address"),
-        ("●○",  "Bookmark"),
-        ("LB",  "← Tab"),
-        ("RB",  "Tab →"),
-        ("LT",  "R·Clk"),
-        ("RT",  "Talk"),
-        ("L3",  "Space"),
-        ("D↔",  "Bk/Fwd"),
-        ("D↑",  "Scroll↑"),
-        ("D↓",  "Scroll↓"),
+        ("A", "Click"),
+        ("B", "Back"),
+        ("X", "Reload"),
+        ("Y", "New Tab"),
+        ("○●", "Address"),
+        ("●○", "Bookmark"),
+        ("LB", "← Tab"),
+        ("RB", "Tab →"),
+        ("LT", "R·Clk"),
+        ("RT", "Talk"),
+        ("L3", "Space"),
+        ("D↔", "Bk/Fwd"),
+        ("D↑", "Scroll↑"),
+        ("D↓", "Scroll↓"),
     ],
     "iptv": [
-        ("A",   "▶ ‖"),
-        ("B",   "Stop"),
-        ("X",   "Info"),
-        ("Y",   "Full"),
-        ("○●",  "Menu"),
-        ("●○",  "Guide"),
-        ("LB",  "Ch ↑"),
-        ("RB",  "Ch ↓"),
-        ("LT",  "◀◀"),
-        ("RT",  "▶▶"),
-        ("L3",  "Space"),
-        ("D↕",  "Ch/Vol"),
-        ("D←",  "Prev"),
-        ("D→",  "Next"),
+        ("A", "▶ ‖"),
+        ("B", "Stop"),
+        ("X", "Info"),
+        ("Y", "Full"),
+        ("○●", "Menu"),
+        ("●○", "Guide"),
+        ("LB", "Ch ↑"),
+        ("RB", "Ch ↓"),
+        ("LT", "◀◀"),
+        ("RT", "▶▶"),
+        ("L3", "Space"),
+        ("D↕", "Ch/Vol"),
+        ("D←", "Prev"),
+        ("D→", "Next"),
     ],
 }
 
-LEGEND_BOX_SCALE = 0.42   # shrink the chrome/margins of the legend
+LEGEND_BOX_SCALE = 0.42  # shrink the chrome/margins of the legend
 LEGEND_FONT_SCALE = 1.05  # make button/action text readable
 BUTTONS_PER_PAGE = 14  # Fit desktop layout on a single page
 POINTER_H = 4  # height of the smoke triangle above the box
@@ -228,6 +247,7 @@ window {
     background-color: transparent;
 }
 """
+
 
 class Legend(Gtk.Window):
     def __init__(self):
@@ -247,7 +267,8 @@ class Legend(Gtk.Window):
         css = Gtk.CssProvider()
         css.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(
-            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         self.connect("draw", self.on_draw)
         self.connect("realize", self._make_clickthrough)
@@ -280,7 +301,9 @@ class Legend(Gtk.Window):
 
         # Page indicator bottom-right
         self.page_lbl = Gtk.Label()
-        self.page_lbl.set_markup(f'<span font_family="monospace" font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="#666666">1/1</span>')
+        self.page_lbl.set_markup(
+            f'<span font_family="monospace" font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="#666666">1/1</span>'
+        )
         self.page_lbl.set_halign(Gtk.Align.END)
         self.content_box.pack_start(self.page_lbl, False, False, 0)
 
@@ -291,8 +314,10 @@ class Legend(Gtk.Window):
         self.typing_lbl.set_valign(Gtk.Align.CENTER)
         self.typing_lbl.set_line_wrap(True)
         self.typing_lbl.set_justify(Gtk.Justification.CENTER)
-        self.typing_lbl.set_markup('<span font_family="monospace" weight="bold" '
-                                    f'font_size="16000" foreground="{_ACCENT_HEX}">✨  Typing...</span>')
+        self.typing_lbl.set_markup(
+            '<span font_family="monospace" weight="bold" '
+            f'font_size="16000" foreground="{_ACCENT_HEX}">✨  Typing...</span>'
+        )
         outer.pack_start(self.typing_lbl, True, True, 0)
         self.typing_lbl.hide()
 
@@ -378,17 +403,17 @@ class Legend(Gtk.Window):
             # Left arrow
             if self._current_page > 0:
                 cr.set_source_rgba(*_ACCENT_RGB, 0.6)
-                cr.move_to(25, by + bh/2)
-                cr.line_to(20, by + bh/2 - 8)
-                cr.line_to(20, by + bh/2 + 8)
+                cr.move_to(25, by + bh / 2)
+                cr.line_to(20, by + bh / 2 - 8)
+                cr.line_to(20, by + bh / 2 + 8)
                 cr.close_path()
                 cr.fill()
             # Right arrow
             if self._current_page < total_pages - 1:
                 cr.set_source_rgba(*_ACCENT_RGB, 0.6)
-                cr.move_to(w - 25, by + bh/2)
-                cr.line_to(w - 20, by + bh/2 - 8)
-                cr.line_to(w - 20, by + bh/2 + 8)
+                cr.move_to(w - 25, by + bh / 2)
+                cr.line_to(w - 20, by + bh / 2 - 8)
+                cr.line_to(w - 20, by + bh / 2 + 8)
                 cr.close_path()
                 cr.fill()
 
@@ -417,10 +442,12 @@ class Legend(Gtk.Window):
         self._current_layout = layout
         total_pages = self._get_total_pages(layout)
         self.page_lbl.set_markup(
-            f'<span font_family="monospace" font_size="6000" foreground="#666666">{self._current_page + 1}/{total_pages}</span>')
+            f'<span font_family="monospace" font_size="6000" foreground="#666666">{self._current_page + 1}/{total_pages}</span>'
+        )
         self.mode_lbl.set_markup(
             f'<span font_family="monospace" weight="bold" '
-            f'font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="{_ACCENT_HEX}">{profile.upper()}</span>')
+            f'font_size="{int(6000 * LEGEND_BOX_SCALE)}" foreground="{_ACCENT_HEX}">{profile.upper()}</span>'
+        )
         # Update button labels for current page
         page_layout = self._get_page_layout(layout, self._current_page)
         for i, (bl, al) in enumerate(zip(self.btn_labels, self.act_labels)):
@@ -428,10 +455,14 @@ class Legend(Gtk.Window):
                 b, a = page_layout[i]
                 bl.show()
                 al.show()
-                bl.set_markup(f'<span font_family="monospace" weight="bold" '
-                               f'font_size="{int(9000 * LEGEND_FONT_SCALE)}" foreground="{_ACCENT_HEX}">{b}</span>')
-                al.set_markup(f'<span font_family="monospace" '
-                               f'font_size="{int(8000 * LEGEND_FONT_SCALE)}" foreground="#eeeeee">{a}</span>')
+                bl.set_markup(
+                    f'<span font_family="monospace" weight="bold" '
+                    f'font_size="{int(9000 * LEGEND_FONT_SCALE)}" foreground="{_ACCENT_HEX}">{b}</span>'
+                )
+                al.set_markup(
+                    f'<span font_family="monospace" '
+                    f'font_size="{int(8000 * LEGEND_FONT_SCALE)}" foreground="#eeeeee">{a}</span>'
+                )
             else:
                 bl.hide()
                 al.hide()
@@ -454,7 +485,7 @@ class Legend(Gtk.Window):
 
     def tick(self):
         # Auto-detect: hide when no controller plugged in
-        controller_present = bool(glob.glob('/dev/input/js*'))
+        controller_present = bool(glob.glob("/dev/input/js*"))
         if not controller_present:
             if self.get_visible():
                 self.hide()
@@ -483,7 +514,7 @@ class Legend(Gtk.Window):
         sh = self.get_screen().get_height()
 
         OFFSET_X = 60  # pixels right of cursor
-        OFFSET_Y = 2   # keep legend tight under the cursor
+        OFFSET_Y = 2  # keep legend tight under the cursor
 
         # If legend would go off the bottom, flip it above the cursor.
         if cy + OFFSET_Y + h + 4 > sh:
@@ -554,15 +585,17 @@ def get_profile():
     except Exception:
         return "desktop"
 
+
 def load_page():
     try:
         return int(open(PAGE_STATE).read().strip())
     except Exception:
         return 0
 
+
 def save_page(page):
     try:
-        with open(PAGE_STATE, 'w') as f:
+        with open(PAGE_STATE, "w") as f:
             f.write(str(page))
     except Exception:
         pass

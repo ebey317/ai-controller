@@ -28,7 +28,7 @@ The installer will:
 5. Copy AntiMicroX profile with install-path placeholders replaced
 6. Ask consent before modifying system driver config (xpad blacklist + initramfs)
 7. Install udev rules for antimicrox device access
-8. Install 7 systemd user services (does NOT enable autostart by default)
+8. Install systemd user services (core 7 + opt-in Tahuti/headless services; does NOT enable autostart by default; `tahuti-readme-nudge.timer` is the only timer enabled at install)
 9. Create a desktop shortcut
 
 ## Post-Install

@@ -9,6 +9,7 @@ other half on a private Broadway display (never the operator's :0):
 - the real presenter subprocess prints READY only when the box is up,
   and an unanswered card comes back as the box's own timeout "deny".
 """
+
 from __future__ import annotations
 
 import json
@@ -48,7 +49,9 @@ class _Broadway:
         self.display = display
         self.server = subprocess.Popen(
             ["broadwayd", f":{display}"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         port = 8080 + display
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
@@ -63,7 +66,8 @@ class _Broadway:
             "PATH": "/usr/bin:/bin:/usr/local/bin",
             "HOME": str(Path.home()),
             "XDG_RUNTIME_DIR": os.environ.get(
-                "XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
+                "XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"
+            ),
             "GDK_BACKEND": "broadway",
             "BROADWAY_DISPLAY": f":{display}",
             "DISPLAY": f":{display}",
@@ -84,8 +88,12 @@ def test_runner_approval_through_one_box():
     with _Broadway() as bw:
         run = subprocess.run(
             [sys.executable, str(DRIVER)],
-            cwd=str(REPO), env=bw.env, capture_output=True, text=True,
-            timeout=180)
+            cwd=str(REPO),
+            env=bw.env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
         if run.returncode != 0:
             pytest.fail(f"runner approval driver failed:\n{run.stdout}\n{run.stderr}")
         results = json.loads(run.stdout.strip().splitlines()[-1])
@@ -106,17 +114,23 @@ def test_presenter_subprocess_ready_and_unanswered_deny():
         t0 = time.monotonic()
         run = subprocess.run(
             [sys.executable, str(PRESENTER)],
-            input=json.dumps({
-                "pattern_key": "tahuti:write_file:background",
-                "description": "Write a proof note",
-                "extra": {"why": "presenter protocol proof"},
-                "timeout_seconds": 2,
-            }),
-            cwd=str(REPO), env=bw.env, capture_output=True, text=True,
-            timeout=120)
+            input=json.dumps(
+                {
+                    "pattern_key": "tahuti:write_file:background",
+                    "description": "Write a proof note",
+                    "extra": {"why": "presenter protocol proof"},
+                    "timeout_seconds": 2,
+                }
+            ),
+            cwd=str(REPO),
+            env=bw.env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
         elapsed = time.monotonic() - t0
     assert run.returncode == 0, run.stderr
     lines = [ln.strip() for ln in run.stdout.splitlines() if ln.strip()]
-    assert lines[0] == "READY"          # the box really was presented
-    assert lines[-1] == "deny"          # unanswered -> the box's timeout deny
-    assert 1.5 <= elapsed < 30          # the 2s answer window, not a hang
+    assert lines[0] == "READY"  # the box really was presented
+    assert lines[-1] == "deny"  # unanswered -> the box's timeout deny
+    assert 1.5 <= elapsed < 30  # the 2s answer window, not a hang

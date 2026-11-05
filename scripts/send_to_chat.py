@@ -8,6 +8,7 @@ and the chat is not busy.
 
     python3 send_to_chat.py <aoe-id-or-title> "message"
 """
+
 from __future__ import annotations
 
 import re
@@ -15,8 +16,11 @@ import subprocess
 import sys
 import time
 
-BUSY = re.compile(r"esc interrupt|ctrl\+c cancel|pondering|thinking|brainstorming|waiting on|"
-                  r"msg=interrupt|type to redirect", re.I)
+BUSY = re.compile(
+    r"esc interrupt|ctrl\+c cancel|pondering|thinking|brainstorming|waiting on|"
+    r"msg=interrupt|type to redirect",
+    re.I,
+)
 # Round-5 finding #5: bare "running" matched the USER's own pending text
 # ("running out of time, remind me later") sitting in the input box, so the
 # submit-Enter never fired. An agent's ACTIVITY line is a status-drawing
@@ -26,12 +30,16 @@ RUNNING_LINE = re.compile(r"^[\s●•◆✦✧✱✳✻❋*]+running\b", re.I)
 
 
 def tmux_session_for(sid: str) -> str | None:
-    out = subprocess.run(["tmux", "ls", "-F", "#{session_name}"], capture_output=True, text=True).stdout
+    out = subprocess.run(
+        ["tmux", "ls", "-F", "#{session_name}"], capture_output=True, text=True
+    ).stdout
     return next((n for n in out.splitlines() if n.endswith(sid[:8])), None)
 
 
 def pane_tail(session: str, n: int = 8) -> list[str]:
-    txt = subprocess.run(["tmux", "capture-pane", "-t", session, "-p"], capture_output=True, text=True).stdout
+    txt = subprocess.run(
+        ["tmux", "capture-pane", "-t", session, "-p"], capture_output=True, text=True
+    ).stdout
     return [ln for ln in txt.splitlines() if ln.strip()][-n:]
 
 
@@ -43,8 +51,11 @@ def needs_enter(tail: list[str], message: str) -> bool:
     # Round-5 finding #5: lines that are the USER's own pending message (the
     # probe was typed into the box and echoed back) are never busy evidence —
     # "running" INSIDE my own text must not block the submit.
-    busy = any(BUSY.search(ln) or RUNNING_LINE.search(ln.strip())
-               for ln in flat if not (probe and probe in ln))
+    busy = any(
+        BUSY.search(ln) or RUNNING_LINE.search(ln.strip())
+        for ln in flat
+        if not (probe and probe in ln)
+    )
     return still_there and not busy
 
 

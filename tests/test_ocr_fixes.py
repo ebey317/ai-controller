@@ -28,6 +28,7 @@ PRESENTER_SRC = SCRIPTS / "tahuti_choice_presenter.py"
 
 # ── Finding A: the second take's "sending" caption must survive ──────────────
 
+
 class _QuietLog:
     warning = staticmethod(lambda *a, **k: None)  # type: ignore[attr-defined]
 
@@ -52,20 +53,29 @@ def race_ns(tmp_path):
     """
     capfile = tmp_path / "caption.json"
     tree = ast.parse(PTT_SRC.read_text(encoding="utf-8"))
-    want = {"stop_and_send", "_should_clear_to_idle", "_write_caption",
-            "_read_caption", "_take_still_current"}
-    chunks = [ast.unparse(n) for n in tree.body
-              if isinstance(n, ast.FunctionDef) and n.name in want]
+    want = {
+        "stop_and_send",
+        "_should_clear_to_idle",
+        "_write_caption",
+        "_read_caption",
+        "_take_still_current",
+    }
+    chunks = [
+        ast.unparse(n)
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name in want
+    ]
     missing = want - {getattr(n, "name", "") for n in tree.body}
     assert not missing, f"extraction lost {missing}"
     ns: dict = {
         "CAPTION_FILE": str(capfile),
         "log": _QuietLog(),
-        "json": json, "os": os,
+        "json": json,
+        "os": os,
         "time": type("_Clock", (), {"time": staticmethod(lambda: 300.0)}),
         # replaced per-test; the real impl is unimportable
         "_stop_and_send_impl": lambda was, take: None,
-        "take_seq": 0,   # unit tests exercise the CURRENT take (id 0)
+        "take_seq": 0,  # unit tests exercise the CURRENT take (id 0)
     }
     exec(compile("\n".join(chunks), str(PTT_SRC), "exec"), ns)  # noqa: S102
     return ns, capfile
@@ -81,21 +91,22 @@ def test_second_takes_sending_survives_first_takes_finally(race_ns):
     fresh on the fixture clock). The old finally (any 'sending', no time
     check) rewrote it to 'idle' and left take #2's avatar on a dead state."""
     ns, capfile = race_ns
-    T1, T2 = 100.0, 250.0   # clock is pinned at 300.0: both stamps are fresh
+    T1, T2 = 100.0, 250.0  # clock is pinned at 300.0: both stamps are fresh
     capfile.write_text(json.dumps({"text": "", "state": "sending", "time": T2}))
-    ns["stop_and_send"](True, T1, 0)   # take_id 0 == take_seq: current take
+    ns["stop_and_send"](True, T1, 0)  # take_id 0 == take_seq: current take
     data = json.loads(capfile.read_text())
-    assert data["state"] == "sending" and data["time"] == T2, \
-        "a NEWER take's sending stamp was clobbered to idle"
+    assert (
+        data["state"] == "sending" and data["time"] == T2
+    ), "a NEWER take's sending stamp was clobbered to idle"
 
 
 def test_own_stale_sending_is_still_cleared(race_ns):
     """No race: the caption still carries THIS release's stamp — the avatar
     must be released (the old bug going the other way: never 'idle' again)."""
     ns, capfile = race_ns
-    T1 = 250.0   # fresh atNOW=300
+    T1 = 250.0  # fresh atNOW=300
     capfile.write_text(json.dumps({"text": "", "state": "sending", "time": T1}))
-    ns["stop_and_send"](True, T1, 0)   # take_id 0 == take_seq: current take
+    ns["stop_and_send"](True, T1, 0)  # take_id 0 == take_seq: current take
     assert json.loads(capfile.read_text())["state"] == "idle"
 
 
@@ -116,7 +127,7 @@ def test_dictation_take_never_touches_the_avatar_caption(race_ns):
     capfile.write_text(json.dumps({"text": "", "state": "sending", "time": 250.0}))
     ns["stop_and_send"](False, 0.0, 0)
     data = json.loads(capfile.read_text())
-    assert data["state"] == "sending"   # plain dictation had no avatar
+    assert data["state"] == "sending"  # plain dictation had no avatar
 
 
 def test_should_clear_to_idle_pure_cases(race_ns):
@@ -129,6 +140,7 @@ def test_should_clear_to_idle_pure_cases(race_ns):
 
 
 # ── Finding C: open_tab needs POSITIVE evidence of a created tab ─────────────
+
 
 class _FakeBridge:
     def __init__(self, reply):
@@ -152,12 +164,17 @@ def _bridge(monkeypatch):
         monkeypatch.setattr(mcp_tabs, "_server", lambda: fake)
         holder["fake"] = fake
         return fake
+
     return install
 
 
 def test_open_tab_ok_when_tab_created_anywhere_nested(_bridge, monkeypatch):
-    _bridge({"ok": True, "result": {"result": {"result": {
-        "ok": True, "tab_created": {"id": 7}}}}})
+    _bridge(
+        {
+            "ok": True,
+            "result": {"result": {"result": {"ok": True, "tab_created": {"id": 7}}}},
+        }
+    )
     out = mcp_tabs.open_tab("https://example.com")
     assert out["ok"] is True and out["detail"]["id"] == 7
 
@@ -170,8 +187,12 @@ def test_open_tab_rejects_ok_true_without_created_tab(_bridge):
 
 
 def test_open_tab_rejects_json_rpc_error_and_odd_envelopes(_bridge):
-    for reply in [{"error": {"code": -1, "message": "no extension"}},
-                  None, "garbage string", {"result": {"result": {}}}]:
+    for reply in [
+        {"error": {"code": -1, "message": "no extension"}},
+        None,
+        "garbage string",
+        {"result": {"result": {}}},
+    ]:
         _bridge(reply)
         assert mcp_tabs.open_tab("https://example.com")["ok"] is False, reply
 
@@ -192,10 +213,18 @@ def test_find_tab_created_requires_intable_id(race_ns_unused=None):
 
 # ── Finding D: to_url — URIs are not files; empty target is an error ─────────
 
-@pytest.mark.parametrize("uri", [
-    "mailto:you@example.com", "tel:911", "data:text/plain,hi",
-    "magnet:?xt=urn:btih:x", "https://example.com/x?y=1", "file:///tmp/a.html",
-])
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "mailto:you@example.com",
+        "tel:911",
+        "data:text/plain,hi",
+        "magnet:?xt=urn:btih:x",
+        "https://example.com/x?y=1",
+        "file:///tmp/a.html",
+    ],
+)
 def test_to_url_passes_schemes_through_untouched(uri):
     assert mcp_tabs.to_url(uri) == uri
 
@@ -226,11 +255,13 @@ def test_to_url_still_maps_paths_to_file_uri(tmp_path):
 # round-4 review #3 moved the logic to scripts/avatar_pulse.py (shared with
 # ptt_pynput's release path); these stay as the delegation checks.
 
+
 def test_goal_runner_delegates_pulse_kill_to_avatar_pulse(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr("avatar_pulse.kill_avatar_pulse",
-                        lambda pidfile="/tmp/tahuti-pulse.pid":
-                        calls.append(pidfile) or True)
+    monkeypatch.setattr(
+        "avatar_pulse.kill_avatar_pulse",
+        lambda pidfile="/tmp/tahuti-pulse.pid": calls.append(pidfile) or True,
+    )
     assert runner._kill_avatar_pulse(pidfile=str(tmp_path / "x.pid")) is True
     assert calls == [str(tmp_path / "x.pid")]
 
@@ -241,15 +272,18 @@ def test_all_pulse_kill_sites_use_the_checked_helper():
     for script in ("tahuti_goal_runner.py", "ptt_pynput.py"):
         src = (SCRIPTS / script).read_text(encoding="utf-8")
         lines = [ln for ln in src.splitlines() if "tahuti-pulse.pid" in ln]
-        bare = [ln for ln in lines
-                if ("os.kill" in ln or "read_text" in ln)
-                and "_kill_avatar_pulse" not in ln
-                and "kill_avatar_pulse" not in ln
-                and "world-writable" not in ln]
+        bare = [
+            ln
+            for ln in lines
+            if ("os.kill" in ln or "read_text" in ln)
+            and "_kill_avatar_pulse" not in ln
+            and "kill_avatar_pulse" not in ln
+            and "world-writable" not in ln
+        ]
         assert not bare, f"{script}: bare pid-file kill returned: {bare}"
     goal_src = (SCRIPTS / "tahuti_goal_runner.py").read_text(encoding="utf-8")
-    assert goal_src.count("_kill_avatar_pulse()") == 3   # gate, slash card, job end
-    assert "_kill_avatar_pulse(pidfile=" in goal_src     # _show_work_avatar's own file
+    assert goal_src.count("_kill_avatar_pulse()") == 3  # gate, slash card, job end
+    assert "_kill_avatar_pulse(pidfile=" in goal_src  # _show_work_avatar's own file
     for script in ("tahuti_goal_runner.py", "ptt_pynput.py"):
         src = (SCRIPTS / script).read_text(encoding="utf-8")
         assert "import avatar_pulse" in src, f"{script} missing the shared import"
@@ -257,28 +291,36 @@ def test_all_pulse_kill_sites_use_the_checked_helper():
 
 # ── Finding F: guide_card cannot be unbound in the finally anymore ───────────
 
+
 def test_presenter_guide_card_initialized_and_guarded():
     tree = ast.parse(PRESENTER_SRC.read_text(encoding="utf-8"))
-    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_main")
+    fn = next(
+        n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_main"
+    )
     seen_assign_none = False
     for node in ast.walk(fn):
-        if (isinstance(node, ast.Assign)
-                and getattr(node.targets[0], "id", "") == "guide_card"
-                and getattr(node.value, "value", None) is None):
+        if (
+            isinstance(node, ast.Assign)
+            and getattr(node.targets[0], "id", "") == "guide_card"
+            and getattr(node.value, "value", None) is None
+        ):
             seen_assign_none = True
         # ast.Finally does not exist: the finally body lives on ast.Try
         if isinstance(node, ast.Try) and node.finalbody:
             body_src = "\n".join(ast.unparse(n) for n in node.finalbody)
             if "guide_card.close()" in body_src:
-                assert "if guide_card is not None" in body_src, (
-                    "guide_card.close() in a finally without a None guard")
+                assert (
+                    "if guide_card is not None" in body_src
+                ), "guide_card.close() in a finally without a None guard"
     assert seen_assign_none, "guide_card lost its None initialisation"
 
 
 # ── Finding G (unmarked): a dangling flag is a clean JSON error ──────────────
 
+
 def test_argv_value_dangling_flag_returns_none(monkeypatch):
     import tahuti_choice_presenter as presenter
+
     monkeypatch.setattr(presenter.sys, "argv", ["prog.py", "--send"])
     assert presenter._argv_value("--send") is None
     assert presenter._argv_value("--sendx") is None
@@ -287,6 +329,7 @@ def test_argv_value_dangling_flag_returns_none(monkeypatch):
 
 
 # ── Finding B (unmarked): the truncation never exceeds the limit ─────────────
+
 
 def test_spoken_form_never_exceeds_limit():
     limit = speech_text.MAX_SPOKEN_CHARS

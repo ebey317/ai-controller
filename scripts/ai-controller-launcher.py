@@ -10,13 +10,14 @@ Features:
 - Check for and install updates
 - Show current version and service status
 """
+
 import os
 import shutil
 import subprocess
 
 import gi
 
-gi.require_version('Gtk', '3.0')
+gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk
 from theme import load_theme
 
@@ -82,7 +83,8 @@ class Launcher(Gtk.Window):
         css = Gtk.CssProvider()
         css.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(
-            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         panel.set_name("panel")
@@ -170,7 +172,9 @@ class Launcher(Gtk.Window):
         for svc in SERVICES:
             r = subprocess.run(
                 ["systemctl", "--user", "is-active", svc],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             if r.returncode == 0:
                 running += 1
         locked = " | Desktop LOCKED" if os.path.exists(LOCK_FILE) else ""
@@ -191,26 +195,38 @@ class Launcher(Gtk.Window):
     # not race against it.
     def _on_fix(self, _widget):
         subprocess.Popen(
-            ["bash", "-c", f"bash {os.path.join(SCRIPT_DIR, 'fix-controller-driver.sh')} && bash {os.path.join(SCRIPT_DIR, 'start-all.sh')}"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            [
+                "bash",
+                "-c",
+                f"bash {os.path.join(SCRIPT_DIR, 'fix-controller-driver.sh')} && bash {os.path.join(SCRIPT_DIR, 'start-all.sh')}",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         self.status_label.set_text("Fixing controller + starting services...")
 
     def _on_start(self, _widget):
         subprocess.Popen(
             ["bash", os.path.join(SCRIPT_DIR, "start-all.sh")],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         self.status_label.set_text("Starting services...")
 
     def _on_restart_audio(self, _widget):
         subprocess.Popen(
             ["bash", os.path.join(SCRIPT_DIR, "reset-controller-audio.sh")],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         self.status_label.set_text("Restarting controller audio...")
 
     def _on_stop(self, _widget):
         subprocess.Popen(
             ["bash", os.path.join(SCRIPT_DIR, "stop-all.sh")],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         self.status_label.set_text("Stopping services...")
 
     def _on_lock(self, _widget):
@@ -244,8 +260,7 @@ Categories=Utility;Accessibility;
         if widget.get_active():
             os.makedirs(self.AUTOSTART_DIR, exist_ok=True)
             with open(self.AUTOSTART_FILE, "w") as f:
-                f.write(self.AUTOSTART_DESKTOP.format(
-                    install_dir=INSTALL_DIR))
+                f.write(self.AUTOSTART_DESKTOP.format(install_dir=INSTALL_DIR))
             self.status_label.set_text("Autostart on boot: ON")
         else:
             try:
@@ -259,8 +274,15 @@ Categories=Utility;Accessibility;
             self.status_label.set_text("Update script not found.")
             return
         self.status_label.set_text("Checking for updates...")
-        subprocess.Popen(["x-terminal-emulator", "-e", UPDATE_SCRIPT] if shutil.which("x-terminal-emulator") else ["bash", UPDATE_SCRIPT],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(
+            (
+                ["x-terminal-emulator", "-e", UPDATE_SCRIPT]
+                if shutil.which("x-terminal-emulator")
+                else ["bash", UPDATE_SCRIPT]
+            ),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 if __name__ == "__main__":

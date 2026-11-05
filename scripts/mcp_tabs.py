@@ -12,6 +12,7 @@ group, so people can SEE an agent opened it. That means Sensei's browser bridge
 Returns ok=False (never opens a bare tab) when the bridge or its browser
 extension is not connected; the caller decides what to tell the person.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -33,8 +34,18 @@ def _server():
 # Schemes that mean "already a URI" (round-4 review #6). localhost:8080 and
 # notes:2026.md urlparse as "scheme:..." — a colon alone must not hide a
 # filesystem path behind a URI return.
-_URI_SCHEMES = {"mailto", "tel", "data", "magnet", "about", "chrome", "file",
-                "http", "https", "ftp"}
+_URI_SCHEMES = {
+    "mailto",
+    "tel",
+    "data",
+    "magnet",
+    "about",
+    "chrome",
+    "file",
+    "http",
+    "https",
+    "ftp",
+}
 
 
 def to_url(target: str | Path) -> str:
@@ -97,5 +108,8 @@ def open_tab(target: str | Path) -> dict:
         return {"ok": False, "reason": f"{type(exc).__name__}: {exc}", "url": url}
     # OCR finding C: ok only on a created tab seen anywhere in the reply.
     created = _find_tab_created(out)
-    return {"ok": created is not None, "url": url,
-            "detail": created if created is not None else (out or {})}
+    return {
+        "ok": created is not None,
+        "url": url,
+        "detail": created if created is not None else (out or {}),
+    }

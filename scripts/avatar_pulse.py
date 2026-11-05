@@ -16,6 +16,7 @@ entry could kill an innocent process). Kill only after positive evidence:
 Every function here is self-contained (no project imports) so both importers
 stay side-effect free.
 """
+
 from __future__ import annotations
 
 import os

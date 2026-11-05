@@ -1,4 +1,5 @@
 """Tests for the voice bridge."""
+
 import json
 import os
 import sys
@@ -27,6 +28,7 @@ class _FakeResponse:
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             import httpx
+
             raise httpx.HTTPStatusError(
                 f"HTTP {self.status_code}",
                 request=None,
@@ -36,6 +38,7 @@ class _FakeResponse:
 
 def _set_mock_response(response: _FakeResponse) -> None:
     """Patch voice_bridge's httpx.AsyncClient so all posts return `response`."""
+
     class _FakeClient:
         def __init__(self, *args, **kwargs):
             pass

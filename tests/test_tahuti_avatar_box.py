@@ -5,6 +5,7 @@ window, the query presented inside it, Edit an in-box state — never a
 second window, never a dialog. The GTK scenarios run against a private
 Broadway display (broadwayd), never the operator's :0 desktop.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,6 +28,7 @@ DRIVER = REPO / "tests" / "tahuti_box_driver.py"
 
 # ── corner loop (pure) ────────────────────────────────────────────────
 
+
 def test_corner_loop_never_uses_notification_corner():
     corners = corners_for({})
     assert "top-right" not in corners  # default notification corner
@@ -40,8 +42,9 @@ def test_corner_loop_respects_custom_notification_corner():
 
 
 def test_corner_loop_ignores_notification_corner_when_not_respected():
-    corners = corners_for({"notification_corner": "bottom-left",
-                           "respect_notification_corner": False})
+    corners = corners_for(
+        {"notification_corner": "bottom-left", "respect_notification_corner": False}
+    )
     assert "bottom-left" in corners
 
 
@@ -56,6 +59,7 @@ def test_corner_position_math():
 
 # ── source guard: the one-box law is structural ───────────────────────
 
+
 def test_source_has_exactly_one_window_and_no_dialogs():
     source = AVATAR_SRC.read_text()
     assert source.count("Gtk.Window(") == 1
@@ -64,6 +68,7 @@ def test_source_has_exactly_one_window_and_no_dialogs():
 
 
 # ── Broadway integration: the six gate scenarios in the one box ───────
+
 
 def _free_broadway_display() -> int | None:
     for display in range(7, 12):
@@ -74,15 +79,16 @@ def _free_broadway_display() -> int | None:
     return None
 
 
-@pytest.mark.skipif(shutil.which("broadwayd") is None,
-                    reason="broadwayd not installed")
+@pytest.mark.skipif(shutil.which("broadwayd") is None, reason="broadwayd not installed")
 def test_gate_scenarios_in_one_box():
     display = _free_broadway_display()
     if display is None:
         pytest.skip("no free Broadway display")
     server = subprocess.Popen(
         ["broadwayd", f":{display}"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     try:
         port = 8080 + display
         deadline = time.monotonic() + 15
@@ -99,7 +105,8 @@ def test_gate_scenarios_in_one_box():
             # broadwayd keeps its socket in XDG_RUNTIME_DIR; the GTK
             # Broadway client cannot open the display without it.
             "XDG_RUNTIME_DIR": os.environ.get(
-                "XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
+                "XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"
+            ),
             "GDK_BACKEND": "broadway",
             "BROADWAY_DISPLAY": f":{display}",
             "DISPLAY": f":{display}",
@@ -107,8 +114,12 @@ def test_gate_scenarios_in_one_box():
         }
         run = subprocess.run(
             [sys.executable, str(DRIVER)],
-            cwd=str(REPO), env=env, capture_output=True, text=True,
-            timeout=180)
+            cwd=str(REPO),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
         if run.returncode != 0:
             pytest.fail(f"broadway driver failed:\n{run.stdout}\n{run.stderr}")
         results = json.loads(run.stdout.strip().splitlines()[-1])

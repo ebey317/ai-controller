@@ -1,0 +1,189 @@
+{
+  "findings": [
+    {
+      "id": "finding-1",
+      "severity": "error",
+      "file": "tests/test_round4_fixes.py",
+      "line": 53,
+      "description": "Tests extract and execute source code via AST (lines 53-89) rather than testing public behavior. This violates the test-quality rule: tests must execute public/executable interfaces and assert observable behavior, not parse and re-execute implementation source. The same pattern appears in tests/test_ocr_fixes.py (lines 54-71) and tests/test_round5_fixes.py (lines 159-195 via the r5_rig fixture). These tests will break on any refactoring even when behavior is preserved, and can pass while the actual behavior is broken because they test the wrong thing.",
+      "action": "auto-fix",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-2",
+      "severity": "warning",
+      "file": "scripts/voice_bridge.py",
+      "line": 81,
+      "description": "API keys loaded from multiple sources: env var, ~/.config/ai-controller/config.env, and ~/Desktop/Projects/keychain/master_ai_keys (line 81-91). Same pattern for ElevenLabs key (lines 97-115) and Meta key in tahuti_goal_runner.py (lines 598-622). This creates a privacy surface: if the Desktop keychain file is world-readable or synced to cloud storage, keys leak. The config.env is chmod 600 in install.sh (line 267) but the Desktop keychain has no such protection. Consider warning if the keychain file has loose permissions, or deprecate the Desktop keychain path in favor of the config.env only.",
+      "action": "ask-user",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-3",
+      "severity": "warning",
+      "file": "scripts/tahuti_goal_runner.py",
+      "line": 778,
+      "description": "_SECRET_PATHS blocks reading of sensitive directories (lines 778-828) but only covers known paths as a blocklist. Round-6 added more paths but still misses: ~/.password-store (pass), ~/.local/share/keyrings (GNOME keyrings), ~/.config/gh (GitHub CLI tokens), ~/.config/rclone, ~/.kube (k8s configs). The protection is a blocklist, not an allowlist. A determined attacker could exfiltrate credentials from unlisted locations. Consider switching to an allowlist model for file tools, or at minimum documenting the known gaps.",
+      "action": "ask-user",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-4",
+      "severity": "warning",
+      "file": "scripts/tahuti_goal_runner.py",
+      "line": 1922,
+      "description": "_gate_desktop_action (line 2728) constructs pattern_key as `tahuti:{verb}:background` where verb comes from the tool's pattern_key (open_url -> tahuti:open_url:background). But _verb_for_approval (line 2510) extracts verbs from the TRANSCRIPT, not the tool name. If the transcript says 'open chrome' but the model calls open_app with name='chrome', the pattern_key in _gate_desktop_action uses the tool's pattern_key while the goal-level approval uses the transcript's verb. This could create two different grant patterns for the same action.",
+      "action": "ask-user",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-5",
+      "severity": "warning",
+      "file": "scripts/mcp_tabs.py",
+      "line": 30,
+      "description": "mcp_tabs.py opens browser tabs via the Sensei MCP server bridge. The _server() function (line 27) does dynamic import of sensei_mcp_server (line 30). If the MCP server has side effects at import time (e.g., starts background threads, connects to browser), this could cause unexpected behavior. The module should document whether sensei_mcp_server is safe to import multiple times, or use a singleton pattern. Also, WAIT_S=20 (line 24) is a hard timeout that could block voice goals if the browser extension is slow.",
+      "action": "ask-user",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-6",
+      "severity": "warning",
+      "file": "scripts/tahuti_goal_runner.py",
+      "line": 1599,
+      "description": "ThreadPoolExecutor with max_workers=MAX_CONCURRENT_GOALS (default 3, line 3219) processes goals concurrently. The claim via os.replace() (line 3038) prevents double-processing of the same goal file. However, the avatar pulse (_show_work_avatar, line 2800) and approval presenter (_present_approval, line 2686) are NOT protected by the Sensei lock - multiple concurrent goals could spawn multiple avatar pulses or approval cards simultaneously. The sensei_lock in sensei_slash.py only protects tmux I/O. Consider a global 'UI lock' for avatar/approval presentations, or document that concurrent goals may show stacked UI.",
+      "action": "ask-user",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-7",
+      "severity": "warning",
+      "file": "scripts/sensei_slash.py",
+      "line": 48,
+      "description": "sensei_slash.py has grown to 775 lines with complex parsing logic: load_commands() executes the registry module's code at import time via importlib (line 48-54) - if command_registry.py has side effects, they run during parsing. The parsing has evolved through multiple review rounds with layered fixes. Consider separating parsing logic from tmux I/O and making registry loading lazy.",
+      "action": "ask-user",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-8",
+      "severity": "info",
+      "file": "scripts/voice_bridge.py",
+      "line": 477,
+      "description": "voice_bridge.py line 477: the mode parameter check `if mode != 'execute':` fails closed to transcribe_only for ANY unknown mode. This is correct (prevents ghost conversations from typos). However, the bridge returns `{\"text\": transcript, \"transcript\": transcript}` (line 475) which includes both keys redundantly. ptt_pynput.py line 1412 expects `data.get('text', data.get('transcript', ''))` - this works but is redundant. Consider standardizing on one key name across the pipeline to reduce confusion.",
+      "action": "no-op",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-9",
+      "severity": "info",
+      "file": "scripts/speech_text.py",
+      "line": 15,
+      "description": "speech_text.py (new file) provides a single source of truth for spoken_form() used by both voice_bridge.py and tahuti_goal_runner.py. The MAX_SPOKEN_CHARS=1200 limit prevents runaway TTS. The markdown stripping preserves identifiers, file names, and URLs while removing noise symbols. The spoken_form is idempotent (tested in test_slash_review_fixes.py line 69-71). This is a good consolidation that eliminates a class of bugs where voice and caption diverged.",
+      "action": "no-op",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-10",
+      "severity": "info",
+      "file": "scripts/bench_speed_report.py",
+      "line": 148,
+      "description": "bench_speed_report.py (new file) reads archived goals and computes stage latencies from the `stages` map written by _archive() in tahuti_goal_runner. The p95 calculation (lines 80-87) uses the correct definition (95th percentile, not max). NOT_MEASURED stages (A3, A6) are honestly labeled rather than invented. The --json output echoes the --dir actually passed (line 120), fixing a round-5 bug where it reported DEFAULT_DIR. This is a clean, well-scoped addition.",
+      "action": "no-op",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-11",
+      "severity": "info",
+      "file": "tests/bench/test_c1_c2_slash_accuracy.py",
+      "line": 27,
+      "description": "The C1/C2 bench tests are well-designed: they test the public parse() function with real registry data, have clear accuracy thresholds (99% for C1, <=1% false intercept for C2), and use an independent oracle (the registry itself). This is a good model for behavior-driven testing. However, line 27 asserts `len(ROWS) >= 100` which will fail if Sensei's command count drops - this is a product decision, not a correctness invariant. Consider making the threshold configurable or removing the hard assertion.",
+      "action": "no-op",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-12",
+      "severity": "info",
+      "file": "tests/test_install_consistency.py",
+      "line": 116,
+      "description": "test_install_consistency.py is an excellent static check: it validates that install.sh's SERVICES array matches systemd/ templates (both directions), that the nudge timer pair is deployed and enabled, that optional services are guarded, that required templates are validated before copy, that services stay launcher-managed (disabled at install), and that pip installs from requirements.txt not a hardcoded list. These tests would have caught the 2026-08-28 outage. This is a model for infrastructure consistency testing.",
+      "action": "no-op",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-13",
+      "severity": "warning",
+      "file": "scripts/avatar_pulse.py",
+      "line": 65,
+      "description": "avatar_pulse.py (new file, 65 lines) provides a shared verified kill for avatar pulses (kill_avatar_pulse function). It checks uid match + 'avatar_approval' in cmdline (round-4 review #3) to avoid killing unrelated processes. Used by ptt_pynput.py (line 1677) and tahuti_goal_runner.py (line 2719). This eliminates a class of bugs where blind os.kill() on a pidfile could kill the wrong process or leave zombies. Good consolidation.",
+      "action": "no-op",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-14",
+      "severity": "info",
+      "file": "scripts/tahuti_goal_runner.py",
+      "line": 920,
+      "description": "_resolve_public_ip implements comprehensive SSRF protection (lines 920-967) with proper handling of IPv4-mapped IPv6 (::ffff:a.b.c.d), 6to4 (2002::/16), Teredo, and NAT64 (64:ff9b::/96). The fix for round-5 review #3 (line 954) correctly requires the full 64:ff9b::/96 network for NAT64 unwrapping. However, the function returns the ORIGINAL address for connection (line 964) while doing safety checks on the UNWRAPPED address. This is correct for 6to4/Teredo/NAT64 where the wrapper is routable but the embedded v4 may be private. The logic is sound but complex; consider adding integration tests against real DNS responses for these address types.",
+      "action": "no-op",
+      "review_scope": "source"
+    },
+    {
+      "id": "finding-15",
+      "severity": "warning",
+      "file": "install.sh",
+      "line": 331,
+      "description": "install.sh enables tahuti-readme-nudge.timer at install time (lines 384-393) while all other services are installed disabled (line 375). This is documented as intentional (lines 379-382) because the nudge timer lives outside the launcher. However, the timer runs tahuti_nudge.py which shows an avatar card offering 'Turn off' - if the user never interacts with it, the timer keeps firing. The install should either: (a) make the timer opt-in with a prompt, or (b) document clearly how to disable it post-install. Current behavior may surprise users who didn't expect a recurring reminder.",
+      "action": "ask-user",
+      "review_scope": "source"
+    }
+  ],
+  "reviewed_paths": [
+    ".ruff.toml",
+    "GOAL_TRIGGER.md",
+    "INSTALL.md",
+    "README.md",
+    "RELEASES.md",
+    "docs/TAHUTI_BENCH.md",
+    "docs/TAHUTI_README.md",
+    "install.sh",
+    "scripts/avatar_pulse.py",
+    "scripts/bench_speed_report.py",
+    "scripts/doctor.sh",
+    "scripts/handoff_watch.py",
+    "scripts/make_tahuti_readme.py",
+    "scripts/mcp_tabs.py",
+    "scripts/ptt_pynput.py",
+    "scripts/send_to_chat.py",
+    "scripts/sensei_model.py",
+    "scripts/sensei_slash.py",
+    "scripts/speech_text.py",
+    "scripts/tahuti_choice_presenter.py",
+    "scripts/tahuti_goal_runner.py",
+    "scripts/tahuti_nudge.py",
+    "scripts/tahuti_operator.py",
+    "scripts/update.sh",
+    "scripts/voice_bridge.py",
+    "systemd/tahuti-readme-nudge.service",
+    "systemd/tahuti-readme-nudge.timer",
+    "test_headless_mode.py",
+    "tests/bench/test_b1_gate.py",
+    "tests/bench/test_b4_network.py",
+    "tests/bench/test_b6_stuck.py",
+    "tests/bench/test_c1_c2_slash_accuracy.py",
+    "tests/conftest.py",
+    "tests/fixtures/command_registry.py",
+    "tests/test_bench_speed_report.py",
+    "tests/test_install_consistency.py",
+    "tests/test_ocr_fixes.py",
+    "tests/test_operator_knowledge.py",
+    "tests/test_round3_fixes.py",
+    "tests/test_round4_fixes.py",
+    "tests/test_round5_fixes.py",
+    "tests/test_slash_review_fixes.py",
+    "tests/test_tahuti_goal_runner.py"
+  ],
+  "tested": [],
+  "testing_summary": "Reviewed test files for quality issues. Identified multiple tests using AST source extraction (test_round4_fixes.py, test_round5_fixes.py, test_ocr_fixes.py) which violates test-quality rule. Other test files (test_install_consistency.py, test_bench_speed_report.py, test_c1_c2_slash_accuracy.py, test_slash_review_fixes.py) properly test public behavior with independent oracles.",
+  "risk_level": "medium",
+  "risk_rationale": "The change is a large multi-round fix set with substantial new functionality (Tahuti goal runner, Sensei slash commands, voice bridge routing, bench reporting). While the core fixes address real bugs (race conditions, SSRF, auth), there are multiple architectural concerns: blocklist-based secret protection, privacy surface from multiple key sources, concurrent UI races, and test quality violations. The risk is medium because the fixes appear to work correctly for the intended use cases but have design-level gaps that could be exploited or cause issues in edge cases.",
+  "risk_scope": "source-or-external"
+}

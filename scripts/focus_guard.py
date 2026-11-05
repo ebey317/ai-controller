@@ -10,6 +10,7 @@ dialog with zero error.
 This module wraps xdotool with an explicit check-before/check-after so a
 drift is caught and reported instead of typed into the wrong place.
 """
+
 import logging
 import os
 import subprocess
@@ -28,8 +29,11 @@ def active_window():
     """Return the current X11 active window id, or None."""
     try:
         out = subprocess.check_output(
-            ["xdotool", "getactivewindow"], env=_ENV,
-            stderr=subprocess.DEVNULL, timeout=2)
+            ["xdotool", "getactivewindow"],
+            env=_ENV,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
         return out.decode().strip()
     except Exception:
         return None
@@ -71,15 +75,20 @@ def ensure_focus(target_win, retries=6, delay=0.04):
         cur = active_window()
         if _focus_acceptable(cur, target_win):
             return True
-        subprocess.run(["xdotool", "windowactivate", target_win],
-                        env=_ENV, stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL, timeout=2)
+        subprocess.run(
+            ["xdotool", "windowactivate", target_win],
+            env=_ENV,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
         time.sleep(delay)
     return _focus_acceptable(active_window(), target_win)
 
 
-def guarded_run(target_win, xdotool_args, retries=6, delay=0.04,
-                 start_new_session=False):
+def guarded_run(
+    target_win, xdotool_args, retries=6, delay=0.04, start_new_session=False
+):
     """Run an xdotool command against target_win, verified before and after.
 
     Raises FocusLostError instead of firing blind if focus can't be
@@ -89,18 +98,27 @@ def guarded_run(target_win, xdotool_args, retries=6, delay=0.04,
     """
     if not ensure_focus(target_win, retries=retries, delay=delay):
         raise FocusLostError(f"could not focus {target_win} before {xdotool_args}")
-    subprocess.run(["xdotool", *xdotool_args], env=_ENV,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    start_new_session=start_new_session)
+    subprocess.run(
+        ["xdotool", *xdotool_args],
+        env=_ENV,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=start_new_session,
+    )
     if not _focus_acceptable(active_window(), target_win):
         raise FocusLostError(f"focus left {target_win} during {xdotool_args}")
 
 
-def guarded_type(target_win, text, delay_ms=0, retries=6, delay=0.04,
-                  start_new_session=False):
-    guarded_run(target_win,
-                ["type", "--clearmodifiers", f"--delay={delay_ms}", "--", text],
-                retries=retries, delay=delay, start_new_session=start_new_session)
+def guarded_type(
+    target_win, text, delay_ms=0, retries=6, delay=0.04, start_new_session=False
+):
+    guarded_run(
+        target_win,
+        ["type", "--clearmodifiers", f"--delay={delay_ms}", "--", text],
+        retries=retries,
+        delay=delay,
+        start_new_session=start_new_session,
+    )
 
 
 def _window_tree_count():
@@ -117,8 +135,11 @@ def _window_tree_count():
     """
     try:
         out = subprocess.check_output(
-            ["xwininfo", "-root", "-tree"], env=_ENV,
-            stderr=subprocess.DEVNULL, timeout=2)
+            ["xwininfo", "-root", "-tree"],
+            env=_ENV,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
         return len(out.decode(errors="ignore").splitlines())
     except Exception:
         return None
@@ -146,11 +167,23 @@ def wait_for_surface_settle(timeout=0.3, interval=0.02, stable_checks=2):
             last = cur
 
 
-def guarded_key(target_win, key_spec, clearmodifiers=True, retries=6, delay=0.04,
-                 start_new_session=False, settle=True):
+def guarded_key(
+    target_win,
+    key_spec,
+    clearmodifiers=True,
+    retries=6,
+    delay=0.04,
+    start_new_session=False,
+    settle=True,
+):
     args = ["key"] + (["--clearmodifiers"] if clearmodifiers else []) + [key_spec]
-    guarded_run(target_win, args, retries=retries, delay=delay,
-                start_new_session=start_new_session)
+    guarded_run(
+        target_win,
+        args,
+        retries=retries,
+        delay=delay,
+        start_new_session=start_new_session,
+    )
     if settle:
         # Named keys (accelerators, Escape, Return...) are the ones that
         # plausibly summon a new surface. Plain character typing doesn't get

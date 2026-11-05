@@ -160,109 +160,174 @@ def telegram_audit(path=None):
     rows = []
     names = read_key_names(path)
     if "TELEGRAM_BOT_TOKEN" in names:
-        rows.append((OK, "bot token", "TELEGRAM_BOT_TOKEN present in "
-                                      "~/.master_ai_keys (value not shown)"))
+        rows.append(
+            (
+                OK,
+                "bot token",
+                "TELEGRAM_BOT_TOKEN present in " "~/.master_ai_keys (value not shown)",
+            )
+        )
     else:
-        rows.append((FAIL, "bot token", "TELEGRAM_BOT_TOKEN missing from "
-                                        "~/.master_ai_keys"))
+        rows.append(
+            (FAIL, "bot token", "TELEGRAM_BOT_TOKEN missing from " "~/.master_ai_keys")
+        )
         return rows
     if "TELEGRAM_CHAT_ID" in names:
         rows.append((OK, "chat id", "TELEGRAM_CHAT_ID present"))
     else:
-        rows.append((WARN, "chat id", "TELEGRAM_CHAT_ID missing -- outbound "
-                                      "sends have no default destination"))
+        rows.append(
+            (
+                WARN,
+                "chat id",
+                "TELEGRAM_CHAT_ID missing -- outbound "
+                "sends have no default destination",
+            )
+        )
 
     token = _read_key_value("TELEGRAM_BOT_TOKEN", path)
     try:
         me = _bot_api(token, "getMe")
         if me.get("ok"):
-            rows.append((OK, "bot identity",
-                         f"@{me['result'].get('username')} answers getMe"))
+            rows.append(
+                (OK, "bot identity", f"@{me['result'].get('username')} answers getMe")
+            )
         current = _bot_api(token, "getMyCommands")
         have = [c["command"] for c in current.get("result", [])]
         want = [n for n, _ in EXPECTED_BOT_COMMANDS]
         if have == want:
-            rows.append((OK, "command menu",
-                         f"all {len(want)} commands registered"))
+            rows.append((OK, "command menu", f"all {len(want)} commands registered"))
         else:
-            rows.append((WARN, "command menu",
-                         f"registered now: {have or 'none'} -- expected "
-                         f"{want}; run: controller_setup.py register-commands "
-                         f"(the gateway also re-registers its list at startup)"))
+            rows.append(
+                (
+                    WARN,
+                    "command menu",
+                    f"registered now: {have or 'none'} -- expected "
+                    f"{want}; run: controller_setup.py register-commands "
+                    f"(the gateway also re-registers its list at startup)",
+                )
+            )
     except Exception as e:
         rows.append((WARN, "bot API", f"could not reach Telegram API: {e}"))
 
-    rows.append((OK, "inline buttons",
-                 "suggestive-thinking cards' ✅/👍 callbacks are answered by "
-                 "telegram_gateway.py (pattern ^sg:) and the message is "
-                 "edited with the outcome"))
-    rows.append((OK, "message editing",
-                 "telegram_client.edit_message_text is wired and used after "
-                 "suggestion decisions"))
-    rows.append(("INFO", "voice notes in",
-                 "NOT wired: the gateway has no voice-message handler. "
-                 "Wiring = MessageHandler(filters.VOICE) -> download file -> "
-                 "existing STT (voice bridge / Whisper) -> free-text path. "
-                 "~1 handler + download helper."))
-    rows.append(("INFO", "voice replies out",
-                 "NOT wired: replies are text-only; telegram_client has no "
-                 "sendVoice. Wiring = synthesize with the shared voice "
-                 "profile (voice_profiles.py) -> sendVoice."))
-    rows.append(("INFO", "files in",
-                 "NOT wired: documents/photos sent to the bot are ignored. "
-                 "Wiring = filters.Document/Photo handler -> save under an "
-                 "inbox dir -> hand to Sensei as task context."))
-    rows.append(("INFO", "files out",
-                 "NOT wired: telegram_client has no sendDocument/sendPhoto. "
-                 "Wiring = two small client methods (multipart POST)."))
-    rows.append(("INFO", "reactions",
-                 "NOT wired: setMessageReaction is unused. Wiring = one API "
-                 "call (e.g. 👀 on receipt, 👍 on decision) in the gateway."))
-    rows.append(("INFO", "forum topics",
-                 "NOT applicable: the bot talks to a private chat; topics "
-                 "exist only in forum supergroups."))
+    rows.append(
+        (
+            OK,
+            "inline buttons",
+            "suggestive-thinking cards' ✅/👍 callbacks are answered by "
+            "telegram_gateway.py (pattern ^sg:) and the message is "
+            "edited with the outcome",
+        )
+    )
+    rows.append(
+        (
+            OK,
+            "message editing",
+            "telegram_client.edit_message_text is wired and used after "
+            "suggestion decisions",
+        )
+    )
+    rows.append(
+        (
+            "INFO",
+            "voice notes in",
+            "NOT wired: the gateway has no voice-message handler. "
+            "Wiring = MessageHandler(filters.VOICE) -> download file -> "
+            "existing STT (voice bridge / Whisper) -> free-text path. "
+            "~1 handler + download helper.",
+        )
+    )
+    rows.append(
+        (
+            "INFO",
+            "voice replies out",
+            "NOT wired: replies are text-only; telegram_client has no "
+            "sendVoice. Wiring = synthesize with the shared voice "
+            "profile (voice_profiles.py) -> sendVoice.",
+        )
+    )
+    rows.append(
+        (
+            "INFO",
+            "files in",
+            "NOT wired: documents/photos sent to the bot are ignored. "
+            "Wiring = filters.Document/Photo handler -> save under an "
+            "inbox dir -> hand to Sensei as task context.",
+        )
+    )
+    rows.append(
+        (
+            "INFO",
+            "files out",
+            "NOT wired: telegram_client has no sendDocument/sendPhoto. "
+            "Wiring = two small client methods (multipart POST).",
+        )
+    )
+    rows.append(
+        (
+            "INFO",
+            "reactions",
+            "NOT wired: setMessageReaction is unused. Wiring = one API "
+            "call (e.g. 👀 on receipt, 👍 on decision) in the gateway.",
+        )
+    )
+    rows.append(
+        (
+            "INFO",
+            "forum topics",
+            "NOT applicable: the bot talks to a private chat; topics "
+            "exist only in forum supergroups.",
+        )
+    )
     return rows
 
 
 # ── doctor ────────────────────────────────────────────────────────────
 
+
 def check_profile_file(path=None):
     path = path or vp.profiles_path()
     if not os.path.exists(path):
-        return (WARN, "voice profiles",
-                f"{path} does not exist yet -- locked defaults are in "
-                f"effect; run setup once to create it")
+        return (
+            WARN,
+            "voice profiles",
+            f"{path} does not exist yet -- locked defaults are in "
+            f"effect; run setup once to create it",
+        )
     try:
         data = vp.load_profiles(path)
     except Exception as e:
         return (FAIL, "voice profiles", f"{path} is invalid: {e}")
     tahuti = vp.get_avatar_profile(data, "tahuti")
     settings = vp.get_avatar_settings(data)
-    return (OK, "voice profiles",
-            f"{path} valid; Tahuti = {tahuti['engine']}/{tahuti['voice']} "
-            f"rate {tahuti['rate']} pitch {tahuti['pitch_semitones']}st; "
-            f"avatar default "
-            f"{'ON' if data['avatar']['enabled_by_default'] else 'OFF'} "
-            f"scale {data['avatar']['scale']}; shows "
-            f"{vp.SHOW_TRIGGER_LABELS[settings['show_trigger']]}")
+    return (
+        OK,
+        "voice profiles",
+        f"{path} valid; Tahuti = {tahuti['engine']}/{tahuti['voice']} "
+        f"rate {tahuti['rate']} pitch {tahuti['pitch_semitones']}st; "
+        f"avatar default "
+        f"{'ON' if data['avatar']['enabled_by_default'] else 'OFF'} "
+        f"scale {data['avatar']['scale']}; shows "
+        f"{vp.SHOW_TRIGGER_LABELS[settings['show_trigger']]}",
+    )
 
 
 def _avatar_summary(s):
     trigger = vp.SHOW_TRIGGER_LABELS[s["show_trigger"]]
-    move = ("corner loop TL>BL>BR" if s["movement"] == "corner_loop"
-            else "stays put")
-    return (f"active {s['active_avatar']}; shows {trigger}; "
-            f"{'armed' if s['enabled_by_default'] else 'NOT armed'}; "
-            f"size {s['size_px']}px; {move}; notification corner "
-            f"{s['notification_corner']} "
-            f"{'respected' if s['respect_notification_corner'] else 'IGNORED'}; "
-            f"approval box {'on' if s['approval_box'] else 'off'}; "
-            f"lifecycle: talk pop-up "
-            f"{'on' if s['show_on_talk'] else 'off'}, stays while "
-            f"working {'on' if s['stay_while_working'] else 'off'}, "
-            f"fades when done "
-            f"{'on' if s['fade_when_done'] else 'off'}, approval "
-            f"pop-up {'on' if s['popup_on_approval'] else 'off'}")
+    move = "corner loop TL>BL>BR" if s["movement"] == "corner_loop" else "stays put"
+    return (
+        f"active {s['active_avatar']}; shows {trigger}; "
+        f"{'armed' if s['enabled_by_default'] else 'NOT armed'}; "
+        f"size {s['size_px']}px; {move}; notification corner "
+        f"{s['notification_corner']} "
+        f"{'respected' if s['respect_notification_corner'] else 'IGNORED'}; "
+        f"approval box {'on' if s['approval_box'] else 'off'}; "
+        f"lifecycle: talk pop-up "
+        f"{'on' if s['show_on_talk'] else 'off'}, stays while "
+        f"working {'on' if s['stay_while_working'] else 'off'}, "
+        f"fades when done "
+        f"{'on' if s['fade_when_done'] else 'off'}, approval "
+        f"pop-up {'on' if s['popup_on_approval'] else 'off'}"
+    )
 
 
 def check_avatar(path=None, avatars_dir=None):
@@ -272,12 +337,18 @@ def check_avatar(path=None, avatars_dir=None):
         settings = vp.get_avatar_settings(vp.DEFAULT_PROFILES)
         names = vp.available_avatars(avatars_dir)
         if settings["active_avatar"] not in names:
-            return (FAIL, "avatar setup",
-                    f"active avatar {settings['active_avatar']!r} has no "
-                    f"portrait in {avatars_dir or vp.avatars_dir()}")
-        return (WARN, "avatar setup",
-                "no profile file yet -- locked defaults in effect: "
-                + _avatar_summary(settings))
+            return (
+                FAIL,
+                "avatar setup",
+                f"active avatar {settings['active_avatar']!r} has no "
+                f"portrait in {avatars_dir or vp.avatars_dir()}",
+            )
+        return (
+            WARN,
+            "avatar setup",
+            "no profile file yet -- locked defaults in effect: "
+            + _avatar_summary(settings),
+        )
     try:
         data = vp.load_profiles(path)
     except Exception as e:
@@ -291,11 +362,12 @@ def check_avatar(path=None, avatars_dir=None):
 
 def _knob_summary(profile):
     k = vp.knob_values(profile)
-    text = (f"gain {k['gain']:.2f} bass {k['bass_db']:+.0f}dB "
-            f"treble {k['treble_db']:+.0f}dB")
+    text = (
+        f"gain {k['gain']:.2f} bass {k['bass_db']:+.0f}dB "
+        f"treble {k['treble_db']:+.0f}dB"
+    )
     if profile.get("engine") == "piper" or "pack" in profile:
-        text += (f" expr {k['noise_scale']:.2f} "
-                 f"var {k['noise_w']:.2f}")
+        text += f" expr {k['noise_scale']:.2f} " f"var {k['noise_w']:.2f}"
     return text
 
 
@@ -317,26 +389,31 @@ def check_voice_board(path=None):
     parts = [f"keyboard ({_knob_summary(data['keyboard'])})"]
     for name in sorted(data.get("avatars", {})):
         parts.append(f"{name} ({_knob_summary(data['avatars'][name])})")
-    return (OK, "voice board",
-            prefix + "knobs in bounds: " + "; ".join(parts))
+    return (OK, "voice board", prefix + "knobs in bounds: " + "; ".join(parts))
 
 
 def check_config_env(path=None):
     env = load_env(path)
     if not env:
-        return (WARN, "config.env",
-                "no config.env found/parsed under ~/.config/ai-controller "
-                "(audio routing + API keys live there)")
-    return (OK, "config.env",
-            f"parses; {len(env)} keys present (values not shown)")
+        return (
+            WARN,
+            "config.env",
+            "no config.env found/parsed under ~/.config/ai-controller "
+            "(audio routing + API keys live there)",
+        )
+    return (OK, "config.env", f"parses; {len(env)} keys present (values not shown)")
 
 
 def check_piper():
     exe = shutil.which("piper") or os.path.expanduser("~/.local/bin/piper")
     if exe and os.path.exists(exe):
         return (OK, "piper", f"binary at {exe}")
-    return (WARN, "piper", "piper binary not found -- Piper packs cannot "
-                           "speak (edge-tts/Kokoro still can)")
+    return (
+        WARN,
+        "piper",
+        "piper binary not found -- Piper packs cannot "
+        "speak (edge-tts/Kokoro still can)",
+    )
 
 
 def tahuti_tts_home() -> str:
@@ -350,23 +427,34 @@ def check_kokoro(home=None):
     venv_py = os.path.join(home, "venv", "bin", "python")
     missing = [p for p in (model, voices_bin, venv_py) if not os.path.exists(p)]
     if missing:
-        return (FAIL, "kokoro",
-                "missing: " + ", ".join(missing) +
-                " -- Tahuti's locked engine cannot speak")
+        return (
+            FAIL,
+            "kokoro",
+            "missing: "
+            + ", ".join(missing)
+            + " -- Tahuti's locked engine cannot speak",
+        )
     try:
         r = subprocess.run(
             [venv_py, "-c", "import kokoro_onnx, soundfile"],
-            capture_output=True, timeout=60,
+            capture_output=True,
+            timeout=60,
             env=_env_for_subprocess(),
         )
         if r.returncode != 0:
-            return (FAIL, "kokoro",
-                    "venv python cannot import kokoro_onnx/soundfile: "
-                    + r.stderr.decode(errors="replace")[-200:])
+            return (
+                FAIL,
+                "kokoro",
+                "venv python cannot import kokoro_onnx/soundfile: "
+                + r.stderr.decode(errors="replace")[-200:],
+            )
     except Exception as e:
         return (FAIL, "kokoro", f"import probe failed: {e}")
-    return (OK, "kokoro", f"kokoro_onnx importable in {home}/venv; "
-                          f"model + voices bin present")
+    return (
+        OK,
+        "kokoro",
+        f"kokoro_onnx importable in {home}/venv; " f"model + voices bin present",
+    )
 
 
 def check_edge_demo(path=None, voice_names=None):
@@ -379,56 +467,72 @@ def check_edge_demo(path=None, voice_names=None):
     """
     path = path or vp.profiles_path()
     try:
-        data = vp.load_profiles(path) if os.path.exists(path) \
-            else vp.DEFAULT_PROFILES
+        data = vp.load_profiles(path) if os.path.exists(path) else vp.DEFAULT_PROFILES
     except Exception as e:
         return (WARN, "edge demo voice", f"profile file invalid: {e}")
     preset = data.get("avatars", {}).get(vp.DEMO_PROFILE_NAME)
-    if not isinstance(preset, dict) or \
-            vp.canonical_engine(preset.get("engine", "")) != "edge":
-        return (WARN, "edge demo voice",
-                f"{vp.DEMO_PROFILE_NAME} preset not configured -- "
-                "the voice loop demo bridge is off; Tahuti's locked "
-                "local voice is unaffected")
+    if (
+        not isinstance(preset, dict)
+        or vp.canonical_engine(preset.get("engine", "")) != "edge"
+    ):
+        return (
+            WARN,
+            "edge demo voice",
+            f"{vp.DEMO_PROFILE_NAME} preset not configured -- "
+            "the voice loop demo bridge is off; Tahuti's locked "
+            "local voice is unaffected",
+        )
     voice = preset.get("voice")
     try:
         import importlib.util
+
         installed = importlib.util.find_spec("edge_tts") is not None
     except Exception:
         installed = False
     if not installed:
         # speak paths use the ai-controller venv interpreter, which
         # may carry edge_tts when this interpreter does not.
-        venv_py = os.path.join(ai_controller_dir(), ".venv", "bin",
-                               "python3")
+        venv_py = os.path.join(ai_controller_dir(), ".venv", "bin", "python3")
         if os.path.exists(venv_py):
             try:
                 r = subprocess.run(
-                    [venv_py, "-c", "import edge_tts"],
-                    capture_output=True, timeout=15)
+                    [venv_py, "-c", "import edge_tts"], capture_output=True, timeout=15
+                )
                 installed = r.returncode == 0
             except Exception:
                 installed = False
     if not installed:
-        return (WARN, "edge demo voice",
-                "edge-tts is not installed -- demo bridge unavailable; "
-                "Tahuti's locked local voice is unaffected")
+        return (
+            WARN,
+            "edge demo voice",
+            "edge-tts is not installed -- demo bridge unavailable; "
+            "Tahuti's locked local voice is unaffected",
+        )
     if voice_names is None:
         try:
             voice_names = vl.edge_voice_names(timeout=20)
         except Exception as e:
-            return (WARN, "edge demo voice",
-                    f"edge-tts installed; voice catalog unreachable "
-                    f"({e}) -- preset voice {voice} unverified")
+            return (
+                WARN,
+                "edge demo voice",
+                f"edge-tts installed; voice catalog unreachable "
+                f"({e}) -- preset voice {voice} unverified",
+            )
     if voice not in voice_names:
-        return (WARN, "edge demo voice",
-                f"edge-tts installed; preset voice {voice} is not in "
-                "the installed catalog")
-    return (OK, "edge demo voice",
-            f"edge-tts installed; {vp.DEMO_PROFILE_NAME} = {voice} "
-            f"rate {preset.get('rate')} pitch "
-            f"{preset.get('pitch_semitones')}st (Tahuti's locked "
-            "local default unchanged)")
+        return (
+            WARN,
+            "edge demo voice",
+            f"edge-tts installed; preset voice {voice} is not in "
+            "the installed catalog",
+        )
+    return (
+        OK,
+        "edge demo voice",
+        f"edge-tts installed; {vp.DEMO_PROFILE_NAME} = {voice} "
+        f"rate {preset.get('rate')} pitch "
+        f"{preset.get('pitch_semitones')}st (Tahuti's locked "
+        "local default unchanged)",
+    )
 
 
 def check_services():
@@ -437,16 +541,26 @@ def check_services():
         try:
             r = subprocess.run(
                 ["systemctl", "--user", "is-active", svc],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             state = r.stdout.strip() or "unknown"
         except Exception as e:
             state = f"uncheckable ({e})"
         level = OK if state == "active" else WARN
-        rows.append((level, f"service {svc}",
-                     state + ("" if state == "active" else
-                              " -- start with: systemctl --user start "
-                              + svc)))
+        rows.append(
+            (
+                level,
+                f"service {svc}",
+                state
+                + (
+                    ""
+                    if state == "active"
+                    else " -- start with: systemctl --user start " + svc
+                ),
+            )
+        )
     return rows
 
 
@@ -466,8 +580,11 @@ def check_keyboard_voice():
                 packs.append(name)
     if not packs:
         return (WARN, "keyboard voice", f"no voice packs found in {voices_dir}")
-    return (OK, "keyboard voice",
-            f"packs: {', '.join(packs)}; toggle state: {active or '(unset)'}")
+    return (
+        OK,
+        "keyboard voice",
+        f"packs: {', '.join(packs)}; toggle state: {active or '(unset)'}",
+    )
 
 
 def _script_path(name) -> str:
@@ -478,55 +595,69 @@ def check_voice_bridge():
     """Doctor row for the voice bridge FastAPI backend (scripts/voice_bridge.py)."""
     script = _script_path("voice_bridge.py")
     if not os.path.exists(script):
-        return (FAIL, "voice bridge",
-                "voice_bridge.py missing from canonical tree -- supported live backend is absent")
+        return (
+            FAIL,
+            "voice bridge",
+            "voice_bridge.py missing from canonical tree -- supported live backend is absent",
+        )
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(2)
         sock.connect(("127.0.0.1", 8002))
         sock.close()
-        return (OK, "voice bridge",
-                "voice_bridge.py present; localhost:8002 is responding")
+        return (
+            OK,
+            "voice bridge",
+            "voice_bridge.py present; localhost:8002 is responding",
+        )
     except Exception:
-        return (WARN, "voice bridge",
-                "voice_bridge.py present but localhost:8002 is not responding -- "
-                "start: systemctl --user start voice-bridge.service")
+        return (
+            WARN,
+            "voice bridge",
+            "voice_bridge.py present but localhost:8002 is not responding -- "
+            "start: systemctl --user start voice-bridge.service",
+        )
 
 
 def check_ptt_pynput():
     """Doctor row for the ptt_pynput push-to-talk typing daemon."""
     script = _script_path("ptt_pynput.py")
     if not os.path.exists(script):
-        return (FAIL, "ptt pynput",
-                "ptt_pynput.py missing from canonical tree -- supported live backend is absent")
+        return (
+            FAIL,
+            "ptt pynput",
+            "ptt_pynput.py missing from canonical tree -- supported live backend is absent",
+        )
     lock = "/tmp/ptt_pynput.lock"
     if not os.path.exists(lock):
-        return (WARN, "ptt pynput",
-                "ptt_pynput.py present but /tmp/ptt_pynput.lock absent -- "
-                "daemon not running; start: systemctl --user start ptt-pynput.service")
+        return (
+            WARN,
+            "ptt pynput",
+            "ptt_pynput.py present but /tmp/ptt_pynput.lock absent -- "
+            "daemon not running; start: systemctl --user start ptt-pynput.service",
+        )
     try:
         import fcntl
     except Exception as exc:
-        return (WARN, "ptt pynput",
-                f"cannot import fcntl module: {exc}")
+        return (WARN, "ptt pynput", f"cannot import fcntl module: {exc}")
     try:
         fd = os.open(lock, os.O_RDONLY)
     except Exception as exc:
-        return (WARN, "ptt pynput",
-                f"cannot open singleton lock {lock}: {exc}")
+        return (WARN, "ptt pynput", f"cannot open singleton lock {lock}: {exc}")
     try:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             fcntl.flock(fd, fcntl.LOCK_UN)
-            return (WARN, "ptt pynput",
-                    "ptt_pynput.py present but singleton lock is free -- "
-                    "daemon not running; start: systemctl --user start ptt-pynput.service")
+            return (
+                WARN,
+                "ptt pynput",
+                "ptt_pynput.py present but singleton lock is free -- "
+                "daemon not running; start: systemctl --user start ptt-pynput.service",
+            )
         except BlockingIOError:
-            return (OK, "ptt pynput",
-                    "ptt_pynput.py present; singleton lock is held")
+            return (OK, "ptt pynput", "ptt_pynput.py present; singleton lock is held")
         except Exception as exc:
-            return (WARN, "ptt pynput",
-                    f"singleton lock probe failed: {exc}")
+            return (WARN, "ptt pynput", f"singleton lock probe failed: {exc}")
     finally:
         os.close(fd)
 
@@ -535,24 +666,36 @@ def check_tahuti_desktop():
     """Doctor row for the Tahuti desktop backend (scripts/tahuti_desktop.py)."""
     script = _script_path("tahuti_desktop.py")
     if not os.path.exists(script):
-        return (FAIL, "tahuti desktop",
-                "tahuti_desktop.py missing from canonical tree -- "
-                "supported live backend is absent")
-    return (WARN, "tahuti desktop",
-            "tahuti_desktop.py present in canonical tree; "
-            "static source presence is not live verification")
+        return (
+            FAIL,
+            "tahuti desktop",
+            "tahuti_desktop.py missing from canonical tree -- "
+            "supported live backend is absent",
+        )
+    return (
+        WARN,
+        "tahuti desktop",
+        "tahuti_desktop.py present in canonical tree; "
+        "static source presence is not live verification",
+    )
 
 
 def check_tahuti_mcp():
     """Doctor row for the Tahuti MCP backend (scripts/tahuti_mcp.py)."""
     script = _script_path("tahuti_mcp.py")
     if not os.path.exists(script):
-        return (FAIL, "tahuti mcp",
-                "tahuti_mcp.py missing from canonical tree -- "
-                "supported live backend is absent")
-    return (WARN, "tahuti mcp",
-            "tahuti_mcp.py present in canonical tree; "
-            "static source presence is not live verification")
+        return (
+            FAIL,
+            "tahuti mcp",
+            "tahuti_mcp.py missing from canonical tree -- "
+            "supported live backend is absent",
+        )
+    return (
+        WARN,
+        "tahuti mcp",
+        "tahuti_mcp.py present in canonical tree; "
+        "static source presence is not live verification",
+    )
 
 
 def check_sensei_bridge():
@@ -562,17 +705,26 @@ def check_sensei_bridge():
         with urllib.request.urlopen(url, timeout=2) as resp:
             data = json.loads(resp.read().decode())
     except Exception as e:
-        return (WARN, "sensei bridge",
-                f"{url} not reachable ({e}) -- external Sensei bridge "
-                "may not be running")
+        return (
+            WARN,
+            "sensei bridge",
+            f"{url} not reachable ({e}) -- external Sensei bridge "
+            "may not be running",
+        )
     if not isinstance(data, dict) or not data.get("ok"):
         ok_val = data.get("ok") if isinstance(data, dict) else None
-        return (WARN, "sensei bridge",
-                f"{url} responded but ok={ok_val} -- external Sensei bridge "
-                "returned unexpected health data")
-    return (OK, "sensei bridge",
-            f"{url} ok=True; model={data.get('model')} "
-            f"vision_model={data.get('vision_model')}")
+        return (
+            WARN,
+            "sensei bridge",
+            f"{url} responded but ok={ok_val} -- external Sensei bridge "
+            "returned unexpected health data",
+        )
+    return (
+        OK,
+        "sensei bridge",
+        f"{url} ok=True; model={data.get('model')} "
+        f"vision_model={data.get('vision_model')}",
+    )
 
 
 def check_diagnostics():
@@ -584,18 +736,27 @@ def check_diagnostics():
     """
     script = _script_path("voice_stt_health_check.py")
     if not os.path.exists(script):
-        return (FAIL, "diagnostics",
-                "voice_stt_health_check.py missing from canonical tree -- "
-                "supported diagnostic script is absent")
+        return (
+            FAIL,
+            "diagnostics",
+            "voice_stt_health_check.py missing from canonical tree -- "
+            "supported diagnostic script is absent",
+        )
     try:
         with open(script, "rb") as f:
             ast.parse(f.read())
     except SyntaxError as e:
-        return (FAIL, "diagnostics",
-                f"voice_stt_health_check.py has a syntax error: {e}")
-    return (WARN, "diagnostics",
-            "voice_stt_health_check.py present and syntactically valid; "
-            "static source presence is not live verification")
+        return (
+            FAIL,
+            "diagnostics",
+            f"voice_stt_health_check.py has a syntax error: {e}",
+        )
+    return (
+        WARN,
+        "diagnostics",
+        "voice_stt_health_check.py present and syntactically valid; "
+        "static source presence is not live verification",
+    )
 
 
 # ── framework registry: supported live backend vs external/missing/not configured
@@ -610,9 +771,7 @@ CATEGORIES = {
     "diagnostics": "Diagnostics",
 }
 
-Backend = collections.namedtuple(
-    "Backend", ["name", "category", "source", "check_fn"]
-)
+Backend = collections.namedtuple("Backend", ["name", "category", "source", "check_fn"])
 
 # Source taxonomy:
 #   live      - source file is part of the canonical /home/elijah/projects/ai-controller tree
@@ -712,11 +871,15 @@ sf.write(cfg["out"], samples, sr)
 
 def _play(path):
     if shutil.which("mpv"):
-        subprocess.run(["mpv", "--no-video", path],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["mpv", "--no-video", path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     elif shutil.which("aplay") and path.endswith(".wav"):
-        subprocess.run(["aplay", "-q", path],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["aplay", "-q", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
     else:
         print(f"(no player found -- sample written to {path})")
 
@@ -733,9 +896,10 @@ def _piper_model_for(voice_id):
                 model_name = json.load(f).get("model", voice_id)
         except Exception:
             pass
-    for candidate in (os.path.join(pack_dir, model_name),
-                      os.path.join(os.path.expanduser("~/.local/share/piper"),
-                                   model_name)):
+    for candidate in (
+        os.path.join(pack_dir, model_name),
+        os.path.join(os.path.expanduser("~/.local/share/piper"), model_name),
+    ):
         if os.path.exists(candidate):
             return candidate
     return None
@@ -745,11 +909,19 @@ def _piper_argv(piper, model, out, rate, knobs):
     """The piper command for one preview render. length-scale is the
     inverse of the speaking rate; noise-scale / noise-w-scale are the
     binary's own generator-noise flags (Expression / Variation)."""
-    return [piper, "--model", model,
-            "--length-scale", f"{1.0 / rate:.4f}",
-            "--noise-scale", f"{knobs['noise_scale']:.3f}",
-            "--noise-w-scale", f"{knobs['noise_w']:.3f}",
-            "--output_file", out]
+    return [
+        piper,
+        "--model",
+        model,
+        "--length-scale",
+        f"{1.0 / rate:.4f}",
+        "--noise-scale",
+        f"{knobs['noise_scale']:.3f}",
+        "--noise-w-scale",
+        f"{knobs['noise_w']:.3f}",
+        "--output_file",
+        out,
+    ]
 
 
 def _apply_fx(raw, out, profile):
@@ -761,21 +933,37 @@ def _apply_fx(raw, out, profile):
     """
     knobs = vp.knob_values(profile)
     pitch = float(profile.get("pitch_semitones", 0.0))
-    if (not pitch and not knobs["bass_db"] and not knobs["treble_db"]
-            and knobs["gain"] == 1.0):
+    if (
+        not pitch
+        and not knobs["bass_db"]
+        and not knobs["treble_db"]
+        and knobs["gain"] == 1.0
+    ):
         if os.path.abspath(raw) != os.path.abspath(out):
             shutil.copyfile(raw, out)
         return out
     fx = os.path.join(SCRIPT_DIR, "voice_fx.py")
     r = subprocess.run(
-        [sys.executable, fx, raw, out,
-         "--pitch", f"{pitch}", "--bass", f"{knobs['bass_db']}",
-         "--treble", f"{knobs['treble_db']}",
-         "--gain", f"{knobs['gain']}"],
-        capture_output=True, text=True, timeout=120)
+        [
+            sys.executable,
+            fx,
+            raw,
+            out,
+            "--pitch",
+            f"{pitch}",
+            "--bass",
+            f"{knobs['bass_db']}",
+            "--treble",
+            f"{knobs['treble_db']}",
+            "--gain",
+            f"{knobs['gain']}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     if r.returncode != 0:
-        print("voice FX failed (playing the raw render):",
-              r.stderr.strip()[-200:])
+        print("voice FX failed (playing the raw render):", r.stderr.strip()[-200:])
         if os.path.abspath(raw) != os.path.abspath(out):
             shutil.copyfile(raw, out)
     return out
@@ -800,16 +988,19 @@ def speak_preview(profile, name, text=None):
             cfg = {
                 "model": os.path.join(home, "models", "kokoro-v1.0.onnx"),
                 "voices_bin": os.path.join(home, "models", "voices-v1.0.bin"),
-                "text": text, "voice": profile["voice"], "rate": rate,
+                "text": text,
+                "voice": profile["voice"],
+                "rate": rate,
                 "out": raw,
             }
             helper = os.path.join(tempfile.gettempdir(), "_aic_kokoro.py")
             with open(helper, "w", encoding="utf-8") as f:
                 f.write(_KOKORO_HELPER)
             r = subprocess.run(
-                [os.path.join(home, "venv", "bin", "python"), helper,
-                 json.dumps(cfg)],
-                capture_output=True, text=True, timeout=120,
+                [os.path.join(home, "venv", "bin", "python"), helper, json.dumps(cfg)],
+                capture_output=True,
+                text=True,
+                timeout=120,
                 env=_env_for_subprocess(),
             )
             if r.returncode != 0:
@@ -818,18 +1009,21 @@ def speak_preview(profile, name, text=None):
             out = _apply_fx(raw, out, profile)
         elif engine == "piper":
             model = _piper_model_for(profile["voice"])
-            piper = shutil.which("piper") or os.path.expanduser(
-                "~/.local/bin/piper")
+            piper = shutil.which("piper") or os.path.expanduser("~/.local/bin/piper")
             if not model or not os.path.exists(piper):
                 print("Piper preview unavailable (model or binary missing).")
                 return False
             r = subprocess.run(
                 _piper_argv(piper, model, raw, rate, knobs),
-                input=text.encode(), capture_output=True, timeout=120,
+                input=text.encode(),
+                capture_output=True,
+                timeout=120,
             )
             if r.returncode != 0:
-                print("Piper preview failed:", r.stderr.decode(
-                    errors="replace").strip()[-300:])
+                print(
+                    "Piper preview failed:",
+                    r.stderr.decode(errors="replace").strip()[-300:],
+                )
                 return False
             out = _apply_fx(raw, out, profile)
         elif vp.canonical_engine(engine) == "edge":
@@ -853,6 +1047,7 @@ def speak_preview(profile, name, text=None):
 
 
 # ── interactive wizard ────────────────────────────────────────────────
+
 
 def _ask(prompt, default=None):
     suffix = f" [{default}]" if default not in (None, "") else ""
@@ -898,40 +1093,55 @@ def _ask_knobs(profile, engine):
     fields the graphical board turns, so terminal and knobs agree."""
     knobs = vp.knob_values(profile)
     knobs["gain"] = _ask_float(
-        "volume / gain (0.0 mute .. 2.0 double)", knobs["gain"],
-        vp.GAIN_MIN, vp.GAIN_MAX)
+        "volume / gain (0.0 mute .. 2.0 double)",
+        knobs["gain"],
+        vp.GAIN_MIN,
+        vp.GAIN_MAX,
+    )
     knobs["bass_db"] = _ask_float(
-        "bass tone, dB (-15..+15)", knobs["bass_db"],
-        vp.BASS_MIN, vp.BASS_MAX)
+        "bass tone, dB (-15..+15)", knobs["bass_db"], vp.BASS_MIN, vp.BASS_MAX
+    )
     knobs["treble_db"] = _ask_float(
-        "treble tone, dB (-15..+15)", knobs["treble_db"],
-        vp.TREBLE_MIN, vp.TREBLE_MAX)
+        "treble tone, dB (-15..+15)", knobs["treble_db"], vp.TREBLE_MIN, vp.TREBLE_MAX
+    )
     if engine == "piper":
         knobs["noise_scale"] = _ask_float(
             "expression -- piper noise-scale (0.0..1.0)",
-            knobs["noise_scale"], vp.NOISE_SCALE_MIN, vp.NOISE_SCALE_MAX)
+            knobs["noise_scale"],
+            vp.NOISE_SCALE_MIN,
+            vp.NOISE_SCALE_MAX,
+        )
         knobs["noise_w"] = _ask_float(
             "variation -- piper noise-w (0.0..1.0)",
-            knobs["noise_w"], vp.NOISE_W_MIN, vp.NOISE_W_MAX)
+            knobs["noise_w"],
+            vp.NOISE_W_MIN,
+            vp.NOISE_W_MAX,
+        )
     return knobs
 
 
 def _edit_profile(name, profile):
-    print(f"\n-- {name} -- current: engine={profile['engine']} "
-          f"voice={profile['voice']} rate={profile['rate']} "
-          f"pitch={profile['pitch_semitones']}st")
+    print(
+        f"\n-- {name} -- current: engine={profile['engine']} "
+        f"voice={profile['voice']} rate={profile['rate']} "
+        f"pitch={profile['pitch_semitones']}st"
+    )
     print("  engines: " + ", ".join(vp.ENGINES))
     engine = _ask("engine", profile["engine"]).lower()
     if engine not in vp.ENGINES:
         print(f"  unknown engine -- keeping {profile['engine']}")
         engine = profile["engine"]
     voice = _ask("voice id", profile["voice"])
-    rate = _ask_float("rate (0.5 slow .. 2.0 fast)", profile["rate"],
-                      vp.RATE_MIN, vp.RATE_MAX)
-    pitch = _ask_float("pitch shift, semitones (-12..+12)",
-                       profile["pitch_semitones"], vp.PITCH_MIN, vp.PITCH_MAX)
-    new = {"engine": engine, "voice": voice, "rate": rate,
-           "pitch_semitones": pitch}
+    rate = _ask_float(
+        "rate (0.5 slow .. 2.0 fast)", profile["rate"], vp.RATE_MIN, vp.RATE_MAX
+    )
+    pitch = _ask_float(
+        "pitch shift, semitones (-12..+12)",
+        profile["pitch_semitones"],
+        vp.PITCH_MIN,
+        vp.PITCH_MAX,
+    )
+    new = {"engine": engine, "voice": voice, "rate": rate, "pitch_semitones": pitch}
     new.update(_ask_knobs(profile, engine))
     if _ask_yes("Hear a preview line?", default=True):
         speak_preview(new, name)
@@ -948,12 +1158,16 @@ def launch_voice_board():
     bare terminal the honest answer is the direct command."""
     board = os.path.join(SCRIPT_DIR, "voice_board.py")
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        return (f"the voice board needs a display -- on the desktop run:"
-                f"\n    python3 {board}")
+        return (
+            f"the voice board needs a display -- on the desktop run:"
+            f"\n    python3 {board}"
+        )
     try:
-        subprocess.Popen([sys.executable, board],
-                         stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL)
+        subprocess.Popen(
+            [sys.executable, board],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     except Exception as e:
         return f"could not launch the voice board: {e}"
     return "voice board opened -- turn the knobs, hit SPEAK to hear, SAVE to keep."
@@ -970,8 +1184,10 @@ def _pick_avatar(data):
     s = vp.get_avatar_settings(data)
     names = vp.available_avatars()
     if not names:
-        print(f"  no portraits found in {vp.avatars_dir()} -- avatar "
-              "setup needs at least one portrait on disk")
+        print(
+            f"  no portraits found in {vp.avatars_dir()} -- avatar "
+            "setup needs at least one portrait on disk"
+        )
         return None
     print("\n-- avatar setup -- pick the avatar to set up --")
     for i, n in enumerate(names, 1):
@@ -1017,27 +1233,32 @@ def _avatar_settings_menu(data, name):
     while True:
         s = vp.get_avatar_settings(data)
         print(f"\n-- avatar setup: {name} --")
-        print(f"   shows         : "
-              f"{vp.SHOW_TRIGGER_LABELS[s['show_trigger']]}")
-        print(f"   feature       : "
-              f"{'armed' if s['enabled_by_default'] else 'off'}")
-        print(f"   size          : {s['size_px']} px on screen "
-              f"(small companion)")
+        print(f"   shows         : " f"{vp.SHOW_TRIGGER_LABELS[s['show_trigger']]}")
+        print(f"   feature       : " f"{'armed' if s['enabled_by_default'] else 'off'}")
+        print(f"   size          : {s['size_px']} px on screen " f"(small companion)")
         if s["movement"] == "corner_loop":
-            print("   movement      : corner loop "
-                  "top-left > bottom-left > bottom-right")
-            print(f"   never parks   : {s['notification_corner']} "
-                  f"(notification corner) -- "
-                  f"{'respected' if s['respect_notification_corner'] else 'OFF'}")
+            print(
+                "   movement      : corner loop "
+                "top-left > bottom-left > bottom-right"
+            )
+            print(
+                f"   never parks   : {s['notification_corner']} "
+                f"(notification corner) -- "
+                f"{'respected' if s['respect_notification_corner'] else 'OFF'}"
+            )
         else:
             print("   movement      : stays where it pops up")
-        print(f"   approval box  : "
-              f"{'spawns beside the avatar, one at a time' if s['approval_box'] else 'off'}")
-        print(f"   lifecycle     : talk pop-up "
-              f"{'on' if s['show_on_talk'] else 'off'}, stays working "
-              f"{'on' if s['stay_while_working'] else 'off'}, fades done "
-              f"{'on' if s['fade_when_done'] else 'off'}, approval pop-up "
-              f"{'on' if s['popup_on_approval'] else 'off'}")
+        print(
+            f"   approval box  : "
+            f"{'spawns beside the avatar, one at a time' if s['approval_box'] else 'off'}"
+        )
+        print(
+            f"   lifecycle     : talk pop-up "
+            f"{'on' if s['show_on_talk'] else 'off'}, stays working "
+            f"{'on' if s['stay_while_working'] else 'off'}, fades done "
+            f"{'on' if s['fade_when_done'] else 'off'}, approval pop-up "
+            f"{'on' if s['popup_on_approval'] else 'off'}"
+        )
         print("\n   1) Show-when trigger (L/R talk buttons vs always on)")
         print("   2) Arm / disarm the avatar feature")
         print("   3) Avatar size on screen (px)")
@@ -1051,22 +1272,25 @@ def _avatar_settings_menu(data, name):
         if pick == "0":
             return
         elif pick == "1":
-            print("     1) L/R talk buttons -- the avatar pops up and "
-                  "animates when you press L or R to talk (default)")
-            print("     2) Always on -- the avatar is present whenever "
-                  "the slide keyboard is up")
-            which = _ask("trigger",
-                         "1" if s["show_trigger"] == "talk_buttons"
-                         else "2")
-            av["show_trigger"] = ("talk_buttons" if which != "2"
-                                  else "always_on")
+            print(
+                "     1) L/R talk buttons -- the avatar pops up and "
+                "animates when you press L or R to talk (default)"
+            )
+            print(
+                "     2) Always on -- the avatar is present whenever "
+                "the slide keyboard is up"
+            )
+            which = _ask("trigger", "1" if s["show_trigger"] == "talk_buttons" else "2")
+            av["show_trigger"] = "talk_buttons" if which != "2" else "always_on"
             data["avatar"] = av
             vp.save_profiles(data)
             print(f"  shows: {vp.SHOW_TRIGGER_LABELS[av['show_trigger']]}")
         elif pick == "2":
             av["enabled_by_default"] = _ask_yes(
                 "Arm the avatar feature? (the trigger in step 1 decides "
-                "when it pops up)", default=s["enabled_by_default"])
+                "when it pops up)",
+                default=s["enabled_by_default"],
+            )
             data["avatar"] = av
             vp.save_profiles(data)
             print("  saved.")
@@ -1074,54 +1298,60 @@ def _avatar_settings_menu(data, name):
             av["size_px"] = _ask_int(
                 "avatar size on screen, px (small companion: "
                 "180-260 is the usual class)",
-                s["size_px"], vp.AVATAR_SIZE_MIN_PX,
-                vp.AVATAR_SIZE_MAX_PX)
+                s["size_px"],
+                vp.AVATAR_SIZE_MIN_PX,
+                vp.AVATAR_SIZE_MAX_PX,
+            )
             data["avatar"] = av
             vp.save_profiles(data)
             print(f"  size: {av['size_px']} px")
         elif pick == "4":
-            print("     1) Corner loop: top-left > bottom-left > "
-                  "bottom-right (default)")
+            print(
+                "     1) Corner loop: top-left > bottom-left > "
+                "bottom-right (default)"
+            )
             print("     2) Stay put: no corner movement")
-            which = _ask("movement",
-                         "1" if s["movement"] == "corner_loop" else "2")
-            av["movement"] = ("corner_loop" if which != "2"
-                              else "stay_put")
+            which = _ask("movement", "1" if s["movement"] == "corner_loop" else "2")
+            av["movement"] = "corner_loop" if which != "2" else "stay_put"
             if av["movement"] == "corner_loop":
-                print("  notification corners: "
-                      + ", ".join(vp.NOTIFICATION_CORNERS))
-                corner = _ask("corner the avatar must never park in",
-                              s["notification_corner"]).lower()
+                print("  notification corners: " + ", ".join(vp.NOTIFICATION_CORNERS))
+                corner = _ask(
+                    "corner the avatar must never park in", s["notification_corner"]
+                ).lower()
                 if corner in vp.NOTIFICATION_CORNERS:
                     av["notification_corner"] = corner
                 else:
-                    print(f"  unknown corner -- keeping "
-                          f"{s['notification_corner']}")
+                    print(f"  unknown corner -- keeping " f"{s['notification_corner']}")
                 av["respect_notification_corner"] = _ask_yes(
                     "Keep the avatar out of the notification corner?",
-                    default=s["respect_notification_corner"])
+                    default=s["respect_notification_corner"],
+                )
             data["avatar"] = av
             vp.save_profiles(data)
             print("  saved movement.")
         elif pick == "5":
             av["approval_box"] = _ask_yes(
                 "Avatar spawns its own small approval box beside itself "
-                "(one at a time)?", default=s["approval_box"])
+                "(one at a time)?",
+                default=s["approval_box"],
+            )
             data["avatar"] = av
             vp.save_profiles(data)
             print("  saved.")
         elif pick == "6":
             toggles = [
-                ("show_on_talk",
-                 "Pop up while you hold L or R and talk?"),
-                ("stay_while_working",
-                 "Stay visible with work animations after you release "
-                 "L/R, while the agent works?"),
-                ("fade_when_done",
-                 "Fade to black once the result lands?"),
-                ("popup_on_approval",
-                 "Pop up with the approval box whenever approval is "
-                 "needed, even after fading out?"),
+                ("show_on_talk", "Pop up while you hold L or R and talk?"),
+                (
+                    "stay_while_working",
+                    "Stay visible with work animations after you release "
+                    "L/R, while the agent works?",
+                ),
+                ("fade_when_done", "Fade to black once the result lands?"),
+                (
+                    "popup_on_approval",
+                    "Pop up with the approval box whenever approval is "
+                    "needed, even after fading out?",
+                ),
             ]
             for key, question in toggles:
                 av[key] = _ask_yes(question, default=s[key])
@@ -1138,6 +1368,7 @@ def _avatar_settings_menu(data, name):
         else:
             print("  pick 0-7")
 
+
 def wizard():
     print("=" * 62)
     print(" AI Controller -- setup")
@@ -1147,8 +1378,10 @@ def wizard():
     try:
         data = vp.load_profiles()
     except ValueError:
-        print("Existing profile file is invalid -- starting from defaults; "
-              "saving will repair it.")
+        print(
+            "Existing profile file is invalid -- starting from defaults; "
+            "saving will repair it."
+        )
         data = json.loads(json.dumps(vp.DEFAULT_PROFILES))
     if not os.path.exists(vp.profiles_path()):
         vp.save_profiles(data)
@@ -1164,15 +1397,19 @@ def wizard():
         print("  0) Done")
         choice = _ask("choose", "0")
         if choice == "0":
-            print("Setup closed. Everything you changed is already saved "
-                  f"to {vp.profiles_path()}")
+            print(
+                "Setup closed. Everything you changed is already saved "
+                f"to {vp.profiles_path()}"
+            )
             return
         elif choice == "1":
             names = sorted(data["avatars"].keys())
             for i, n in enumerate(names, 1):
                 p = data["avatars"][n]
-                print(f"   {i}) {n}: {p['engine']}/{p['voice']} "
-                      f"rate {p['rate']} pitch {p['pitch_semitones']}st")
+                print(
+                    f"   {i}) {n}: {p['engine']}/{p['voice']} "
+                    f"rate {p['rate']} pitch {p['pitch_semitones']}st"
+                )
             pick = _ask("avatar number, or type a new avatar name", "")
             if pick.isdigit() and 1 <= int(pick) <= len(names):
                 name = names[int(pick) - 1]
@@ -1188,18 +1425,23 @@ def wizard():
                 print(f"  saved {name}.")
         elif choice == "2":
             kb = data["keyboard"]
-            print(f"\n-- keyboard voice -- pack={kb['pack']} "
-                  f"rate={kb['rate']} pitch={kb['pitch_semitones']}st")
-            print("  (the keyboard's voice toggle on the slide keyboard "
-                  "still switches packs live; setup sets the pack + tuning)")
+            print(
+                f"\n-- keyboard voice -- pack={kb['pack']} "
+                f"rate={kb['rate']} pitch={kb['pitch_semitones']}st"
+            )
+            print(
+                "  (the keyboard's voice toggle on the slide keyboard "
+                "still switches packs live; setup sets the pack + tuning)"
+            )
             pack = _ask("pack (aria/joe/...)", kb["pack"])
-            rate = _ask_float("rate multiplier", kb["rate"],
-                              vp.RATE_MIN, vp.RATE_MAX)
-            pitch = _ask_float("pitch shift, semitones",
-                               kb["pitch_semitones"],
-                               vp.PITCH_MIN, vp.PITCH_MAX)
-            new_kb = {"pack": pack, "rate": rate,
-                      "pitch_semitones": pitch}
+            rate = _ask_float("rate multiplier", kb["rate"], vp.RATE_MIN, vp.RATE_MAX)
+            pitch = _ask_float(
+                "pitch shift, semitones",
+                kb["pitch_semitones"],
+                vp.PITCH_MIN,
+                vp.PITCH_MAX,
+            )
+            new_kb = {"pack": pack, "rate": rate, "pitch_semitones": pitch}
             # Keyboard packs are Piper models, so the Piper noise
             # knobs are real for the keyboard voice too.
             new_kb.update(_ask_knobs(kb, "piper"))
@@ -1217,8 +1459,9 @@ def wizard():
             _avatar_setup(data)
         elif choice == "4":
             print_rows(telegram_audit())
-            if _ask_yes("\nRegister the full command menu with Telegram "
-                        "now?", default=False):
+            if _ask_yes(
+                "\nRegister the full command menu with Telegram " "now?", default=False
+            ):
                 ok, msg = register_bot_commands()
                 print(("  OK   " if ok else "  FAIL ") + msg)
         elif choice == "5":
@@ -1236,7 +1479,9 @@ def main(argv=None):
         print("AI Controller doctor")
         print_rows(rows)
         fails = sum(1 for r in rows if r[0] == FAIL)
-        print(f"\n{'All hard checks passed.' if fails == 0 else str(fails) + ' check(s) FAILED -- see FAIL lines above.'}")
+        print(
+            f"\n{'All hard checks passed.' if fails == 0 else str(fails) + ' check(s) FAILED -- see FAIL lines above.'}"
+        )
         return 1 if fails else 0
     if argv and argv[0] == "telegram":
         print("Telegram audit -- Master AI bot")
@@ -1253,9 +1498,11 @@ def main(argv=None):
         print(__doc__)
         return 2
     if not sys.stdin.isatty():
-        print("The setup wizard needs a terminal. Run it from the slide "
-              "keyboard's SETUP button or: python3 scripts/"
-              "controller_setup.py  (doctor: ... doctor)")
+        print(
+            "The setup wizard needs a terminal. Run it from the slide "
+            "keyboard's SETUP button or: python3 scripts/"
+            "controller_setup.py  (doctor: ... doctor)"
+        )
         return 2
     wizard()
     return 0

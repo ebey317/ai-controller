@@ -1,4 +1,5 @@
 """Regression tests for the shared voice goal schema and intent classifier."""
+
 from __future__ import annotations
 
 import sys

@@ -132,7 +132,9 @@ def _ask_ninja_avatar(card: dict[str, str], timeout: int) -> str:
     if overlay is None:
         raise RuntimeError("ninja overlay unavailable")
     overlay.set_agent("tahuti")
-    overlay.set_card_text(render_card_text(card) if isinstance(card, dict) else str(card))
+    overlay.set_card_text(
+        render_card_text(card) if isinstance(card, dict) else str(card)
+    )
     overlay.machine.set_state(
         ThootieState.APPROVAL_INCOMING,
         overlay.machine.payload if overlay.machine.payload else None,
@@ -188,7 +190,9 @@ def _install_tahuti_callback(gate) -> None:
         )
 
         settings = avatar_module.get_avatar_settings(avatar_module.load_profiles())
-        if not settings.get("approval_box", True) or not settings.get("popup_on_approval", True):
+        if not settings.get("approval_box", True) or not settings.get(
+            "popup_on_approval", True
+        ):
             return
 
         def _native_prompt(pattern_key, description, **extra):
@@ -205,7 +209,11 @@ def _install_tahuti_callback(gate) -> None:
             # Verdict is a (str, Enum) so a plain "once"/"deny"/... already
             # compares equal to it -- constructing it explicitly broke against
             # a test fake that isn't shaped as an Enum (found live 2026-11-02).
-            return verdict if verdict in ("once", "session", "always", "deny", "timeout") else "deny"
+            return (
+                verdict
+                if verdict in ("once", "session", "always", "deny", "timeout")
+                else "deny"
+            )
 
         gate.set_explicit_callback(_native_prompt)
     except Exception:
@@ -305,7 +313,6 @@ def _screen_point(x: int, y: int) -> tuple[int, int]:
     if _CAPTURE_SCALE == 1.0:
         return int(x), int(y)
     return int(round(x * _CAPTURE_SCALE)), int(round(y * _CAPTURE_SCALE))
-
 
 
 class DesktopActionRefused(Exception):

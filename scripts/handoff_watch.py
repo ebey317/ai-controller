@@ -20,6 +20,7 @@ The board lives in ~/MD/HANDOFF.md between these markers, one task per table row
 status: TODO | DOING | DONE | BLOCKED.  owner: an aoe session title (or id), "ANY", or "Lijah".
 Deterministic on purpose: no model, no tokens, safe to run every hour overnight.
 """
+
 from __future__ import annotations
 
 import json
@@ -33,12 +34,12 @@ HANDOFF = Path.home() / "MD" / "HANDOFF.md"
 STATE = Path.home() / ".tahuti" / "handoff_watch_state.json"
 LOG = Path.home() / ".tahuti" / "handoff_watch.log"
 BEGIN, END = "<!-- TASKBOARD:BEGIN -->", "<!-- TASKBOARD:END -->"
-RESEND_AFTER_S = 55 * 60      # at most one direct assignment per task per hour
+RESEND_AFTER_S = 55 * 60  # at most one direct assignment per task per hour
 # Round-3 review #1: make the active window EXPLICIT. The watch lives
 # 19:00–23:59 and 00:00–03:59; outside that (04:00–18:59) it is a no-op that
 # just logs and exits 0.
-WINDOW_START_H = 19           # 19:00
-WINDOW_END_H = 4              # through 03:59
+WINDOW_START_H = 19  # 19:00
+WINDOW_END_H = 4  # through 03:59
 
 
 def in_watch_window(hour: int, minute: int = 0) -> bool:
@@ -52,18 +53,31 @@ def parse_board(text: str) -> list[dict]:
     rows = []
     for line in block.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) < 4 or cells[0].lower() in ("id", "") or set(cells[0]) <= set("-: "):
+        if (
+            len(cells) < 4
+            or cells[0].lower() in ("id", "")
+            or set(cells[0]) <= set("-: ")
+        ):
             continue
-        rows.append({"id": cells[0], "task": cells[1], "owner": cells[2],
-                     "status": cells[3].upper(), "evidence": cells[4] if len(cells) > 4 else ""})
+        rows.append(
+            {
+                "id": cells[0],
+                "task": cells[1],
+                "owner": cells[2],
+                "status": cells[3].upper(),
+                "evidence": cells[4] if len(cells) > 4 else "",
+            }
+        )
     return rows
 
 
 def sessions() -> dict[str, dict]:
     """aoe sessions that are alive: {id: {title, state}} from `aoe ps` + `aoe list`."""
     try:
-        ps = subprocess.run(["aoe", "ps"], capture_output=True, text=True).stdout.splitlines()
-    except (OSError, FileNotFoundError) as e:   # aoe not on PATH (timer env, etc.)
+        ps = subprocess.run(
+            ["aoe", "ps"], capture_output=True, text=True
+        ).stdout.splitlines()
+    except (OSError, FileNotFoundError) as e:  # aoe not on PATH (timer env, etc.)
         log(f"cannot run `aoe ps` ({e.__class__.__name__}) — treating as no sessions")
         return {}
     out: dict[str, dict] = {}
@@ -82,7 +96,12 @@ def find_session(owner: str, live: dict[str, dict]) -> tuple[str, dict] | None:
         # "no title yet" is not evidence for any owner.
         if len(t) < 4:
             continue
-        if sid in o.split() or o == sid or o == t or (len(o) > 6 and (o.startswith(t.rstrip("…. ")) or t.startswith(o[:12]))):
+        if (
+            sid in o.split()
+            or o == sid
+            or o == t
+            or (len(o) > 6 and (o.startswith(t.rstrip("…. ")) or t.startswith(o[:12])))
+        ):
             return sid, info
     return None
 
@@ -97,17 +116,22 @@ def send_message(sid: str, msg: str) -> tuple[bool, str]:
     ONLY recorded by the caller when ok is True."""
     try:
         from send_to_chat import send as chat_send  # same scripts/ dir
+
         detail = chat_send(sid, msg)
     except ImportError:
         # Module layout that doesn't expose it: fall back to bare send with
         # the same submission check semantics unavailable.
         try:
-            r = subprocess.run(["aoe", "send", sid, msg], capture_output=True, text=True)
+            r = subprocess.run(
+                ["aoe", "send", sid, msg], capture_output=True, text=True
+            )
         except (OSError, FileNotFoundError) as e:
             return False, f"send failed: {e.__class__.__name__}"
-        detail = ("sent (bare aoe send; submission not verified)"
-                  if r.returncode == 0
-                  else f"send failed rc={r.returncode}: {(r.stderr or r.stdout).strip()[:120]}")
+        detail = (
+            "sent (bare aoe send; submission not verified)"
+            if r.returncode == 0
+            else f"send failed rc={r.returncode}: {(r.stderr or r.stdout).strip()[:120]}"
+        )
     except (OSError, FileNotFoundError) as e:
         return False, f"send failed: {e.__class__.__name__}"
     return not detail.startswith("send failed"), detail
@@ -140,10 +164,12 @@ def is_busy(info: dict) -> bool:
 
 
 def assignment(task: dict) -> str:
-    return (f"HANDOFF TASK {task['id']} is assigned to you and still shows TODO: {task['task']}. "
-            f"Read the TASK BOARD in ~/MD/HANDOFF.md, set your row to DOING when you start and "
-            f"DONE with evidence when you finish, then look at the board for more. "
-            f"Do not push or merge without Lijah's approval.")
+    return (
+        f"HANDOFF TASK {task['id']} is assigned to you and still shows TODO: {task['task']}. "
+        f"Read the TASK BOARD in ~/MD/HANDOFF.md, set your row to DOING when you start and "
+        f"DONE with evidence when you finish, then look at the board for more. "
+        f"Do not push or merge without Lijah's approval."
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -159,8 +185,14 @@ def main(argv: list[str]) -> int:
         log("no TASKBOARD found in HANDOFF.md")
         return 1
     live, state, now = sessions(), load_state(), time.time()
-    counts = {s: sum(1 for t in board if t["status"] == s) for s in ("TODO", "DOING", "DONE", "BLOCKED")}
-    log(f"board: {counts}  sessions: " + ", ".join(f"{i['title'][:18]}={i['state']}" for i in live.values()))
+    counts = {
+        s: sum(1 for t in board if t["status"] == s)
+        for s in ("TODO", "DOING", "DONE", "BLOCKED")
+    }
+    log(
+        f"board: {counts}  sessions: "
+        + ", ".join(f"{i['title'][:18]}={i['state']}" for i in live.values())
+    )
     sent = 0
     for t in board:
         if t["status"] != "TODO" or t["owner"].lower() in ("any", "lijah", ""):
@@ -181,8 +213,10 @@ def main(argv: list[str]) -> int:
             log(f"{t['id']}: WOULD send to {info['title'][:20]} ({sid}): {msg[:90]}…")
             continue
         ok, detail = send_message(sid, msg)
-        log(f"{t['id']}: {'sent' if ok else 'NOT sent'} to {info['title'][:20]} "
-            f"({sid}): {detail}  (enter-needed: {'yes' in detail or 'Enter' in detail})")
+        log(
+            f"{t['id']}: {'sent' if ok else 'NOT sent'} to {info['title'][:20]} "
+            f"({sid}): {detail}  (enter-needed: {'yes' in detail or 'Enter' in detail})"
+        )
         if not ok:
             # Round-3 review #2a: only a SUCCESSFUL send may start the hourly
             # resend quiet-period; a failed send is retried next hour.
