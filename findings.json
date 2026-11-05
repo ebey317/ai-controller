@@ -1,4 +1,0 @@
-{
-	"findings": [],
-	"summary": "Updated README.md, INSTALL.md, AGENTS.md to reflect Tahuti voice agent components, new systemd services, and architecture; fixed lint (black, isort, ruff) across 82 files"
-}
