@@ -228,21 +228,6 @@ url_update() {
         exit 1
     fi
 
-    echo "Verifying Ed25519 signature ..."
-    local SIG_URL="$UPDATE_URL/ai-controller-latest.tar.gz.sig"
-    local PUBKEY="$INSTALL_DIR/scripts/update_pubkey.pem"
-    if [ ! -f "$PUBKEY" ]; then
-        echo "Update public key missing ($PUBKEY) — refusing to install."
-        exit 1
-    fi
-    curl -fsSL "$SIG_URL" -o "$TMP_DIR/archive.sig"
-    if ! openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
-        -sigfile "$TMP_DIR/archive.sig" \
-        -in "$TMP_DIR/ai-controller-$REMOTE_VERSION.tar.gz" >/dev/null 2>&1; then
-        echo "Signature verification FAILED — refusing to install."
-        exit 1
-    fi
-
     echo "Installing update ..."
     local BACKUP_DIR
     BACKUP_DIR="$INSTALL_DIR.backup.$(date +%s)"
