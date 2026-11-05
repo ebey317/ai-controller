@@ -32,3 +32,27 @@ def _use_frozen_registry_when_sensei_absent():
 
 
 _use_frozen_registry_when_sensei_absent()
+
+
+# ── Tests must never touch the operator's real Tahuti ─────────────────────────
+# 2026-11-05: a test ("show the inbox", answer "here is the inbox") POSTed to the
+# REAL voice bridge, so every suite run SPOKE aloud, and each run dropped ~16 files
+# into the real ~/.tahuti/thread_output. Isolate every real-world side channel the
+# goal runner has: speech bridge, thread output, caption file, history, grants.
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _tahuti_runner_is_sandboxed(tmp_path_factory, monkeypatch):
+    try:
+        import tahuti_goal_runner as runner
+    except Exception:  # modules that cannot import in this env (e.g. no GTK) are skipped
+        yield
+        return
+    monkeypatch.setattr(runner, "BRIDGE_URL", "http://127.0.0.1:9")  # closed port: never speaks
+    sandbox = tmp_path_factory.mktemp("tahuti-sandbox")  # not the test's own tmp_path
+    monkeypatch.setattr(runner, "_AGENT_THREAD_DIR", sandbox / "thread_output")
+    monkeypatch.setattr(runner, "CAPTION_FILE", sandbox / "tahuti_caption.json")
+    monkeypatch.setattr(runner, "CONVERSATION_HISTORY_FILE", sandbox / "conversation_history.json")
+    monkeypatch.setattr(runner, "GRANTS_FILE", sandbox / "grants.json")
+    yield
