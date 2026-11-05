@@ -13,16 +13,71 @@ Pure Python, no audio, no model, no network — safe to gate every commit.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
+
+import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import sensei_slash as sb  # noqa: E402
 
+# The parser reads Sensei's registry from a file in ANOTHER repo
+# (master-ai-cli). CI does not check that repo out, so on the runner the
+# registry resolves to zero commands and this module used to fail at
+# collection, taking the whole pytest run down with it.
+#
+# Use the LIVE registry when it is here (so this bench measures the real
+# command set on the dev machine), and fall back to the frozen snapshot
+# committed under fixtures/ when it is not (CI, any checkout without
+# master-ai-cli). test_registry_snapshot_is_not_stale below fails if the two
+# ever drift apart, so the snapshot cannot silently rot.
+LIVE_REGISTRY = Path.home() / "master-ai-cli" / "command_registry.py"
+SNAPSHOT_REGISTRY = Path(__file__).resolve().parent / "fixtures" / "command_registry_snapshot.py"
+
+REGISTRY_USED = LIVE_REGISTRY if LIVE_REGISTRY.is_file() else SNAPSHOT_REGISTRY
+if not REGISTRY_USED.is_file():  # pragma: no cover - both paths missing
+    raise RuntimeError(
+        f"no command registry: neither {LIVE_REGISTRY} nor {SNAPSHOT_REGISTRY} exists"
+    )
+
+# Point the parser at the registry we resolved and clear its mtime cache,
+# so load_commands() reads it rather than a stale empty row list.
+sb.REGISTRY_PATH = REGISTRY_USED
+sb._reg_cache.update(mtime=0.0, rows=[])
+
 ROWS = sb.load_commands()
 assert len(ROWS) >= 100, f"registry drifted: {len(ROWS)} commands (expected ~121)"
+
+
+def _load_registry_rows(path: Path) -> list[tuple]:
+    """COMMANDS from a registry file, loaded the same way sensei_slash does."""
+    spec = importlib.util.spec_from_file_location("_bench_registry_probe", path)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return list(mod.COMMANDS)
+
+
+def test_registry_snapshot_is_not_stale():
+    """The committed snapshot must match the live registry exactly.
+
+    Skipped when the live registry is not present (CI) — there is nothing
+    to compare against there. When it IS present, a mismatch means the
+    snapshot must be regenerated, or the bench is measuring a command set
+    that no longer exists.
+    """
+    if not LIVE_REGISTRY.is_file():
+        pytest.skip("live registry not present in this checkout")
+    live = _load_registry_rows(LIVE_REGISTRY)
+    snap = _load_registry_rows(SNAPSHOT_REGISTRY)
+    assert live == snap, (
+        "the committed registry snapshot is stale: "
+        f"{len(snap)} rows vs {len(live)} in the live registry. "
+        "Regenerate with: cp ~/master-ai-cli/command_registry.py "
+        "tests/bench/fixtures/command_registry_snapshot.py"
+    )
 
 
 def _phrasings(name: str) -> list[str]:
