@@ -117,7 +117,8 @@ def test_agent_take_own_sending_is_cleared_real_path(release_rig):
     ns["_goal_take"] = True
     ns["on_release"](ns["keyboard"].Key.f13)
     assert _caption(capfile)["state"] == "sending"
-    t, a = jobs.pop(0); t(*a)   # run the stop thread inline
+    t, a = jobs.pop(0)
+    t(*a)   # run the stop thread inline
     assert _caption(capfile)["state"] == "idle"
 
 
@@ -134,10 +135,12 @@ def test_newer_takes_sending_survives_the_late_finally(release_rig):
     ns["on_release"](key)                       # take #2 stamps ITS 'sending'
     take2 = jobs.pop(0)
     live = capfile.read_text()                  # take #2's live caption
-    t, a = take1; t(*a)                          # take #1 runs LATE, take #2 live
+    t, a = take1
+    t(*a)                                # take #1 runs LATE, take #2 live
     assert capfile.read_text() == live, \
         "take #1's late finally clobbered take #2's live 'sending' caption"
-    t, a = take2; t(*a)                          # take #2's own finally clears
+    t, a = take2
+    t(*a)                                # take #2's own finally clears
     assert _caption(capfile)["state"] == "idle"
 
 
@@ -146,7 +149,8 @@ def test_dictation_take_never_touches_the_avatar_caption(release_rig):
     ns["_goal_take"] = False
     ns["on_release"](ns["keyboard"].Key.f13)
     ns["_write_caption"]("", "sending")          # someone else's live stamp
-    t, a = jobs.pop(0); t(*a)
+    t, a = jobs.pop(0)
+    t(*a)
     assert _caption(capfile)["state"] == "sending"
 
 
@@ -181,13 +185,15 @@ def test_late_first_take_cannot_reset_a_newer_take(release_rig):
     order: list[bool] = []
     ns["_stop_and_send_impl"] = \
         lambda was, take: order.append(take == ns["take_seq"])
-    t, a = take1; t(*a)                          # take #1 LATE, take #2 live
+    t, a = take1
+    t(*a)                                # take #1 LATE, take #2 live
     assert order == [False], \
         "the late impl call must see take #1 as stale"
     live = capfile.read_text()                   # take #2's live 'sending'
     assert json.loads(live)["state"] == "sending", \
         "take #1's late finally wiped take #2's caption"
-    t, a = take2; t(*a)                          # take #2 still current
+    t, a = take2
+    t(*a)                                # take #2 still current
     assert order == [False, True], \
         "the impl must see take #1 as stale and take #2 as current"
     assert json.loads(capfile.read_text())["state"] == "idle", \

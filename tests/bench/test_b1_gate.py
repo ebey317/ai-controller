@@ -13,10 +13,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import sensei_slash as slash  # noqa: E402
-
 # The runner registers process-wide signal handlers during import.
 import signal  # noqa: E402
+
+import sensei_slash as slash  # noqa: E402
+
 _original_signal = signal.signal
 try:
     signal.signal = lambda *args, **kwargs: None

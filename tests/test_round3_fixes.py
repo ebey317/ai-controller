@@ -24,7 +24,6 @@ import handoff_watch as hw  # noqa: E402
 import sensei_slash  # noqa: E402
 import tahuti_goal_runner as runner  # noqa: E402
 
-
 # ── Finding 1: explicit watch window 19:00–23:59 + 00:00–03:59 ────────────────
 
 @pytest.mark.parametrize("hh,mm,want", [

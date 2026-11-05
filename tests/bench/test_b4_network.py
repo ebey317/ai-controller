@@ -5,11 +5,10 @@ All DNS and HTTP are stubbed; these tests never access the network or desktop.
 from __future__ import annotations
 
 import importlib
-import socket
 import signal
+import socket
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 

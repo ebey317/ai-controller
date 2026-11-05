@@ -222,7 +222,8 @@ def test_late_agent_take_clears_despite_intervening_dictation(r5_rig):
     ns["on_release"](ns["keyboard"].Key.f13)          # a later DICTATION take
     jobs.pop(0)                                        # never touches the counter
     assert r5_caption(capfile)["state"] == "sending"
-    t, a = agent; t(*a)                                # the agent finally runs late
+    t, a = agent
+    t(*a)                                      # the agent finally runs late
     assert r5_caption(capfile)["state"] == "idle", \
         "dictation took the agent take's counter slot — 'sending' stuck again"
 
@@ -374,7 +375,7 @@ def test_main_json_honors_dir_flag(tmp_path, monkeypatch, capsys):
         "source": "voice", "response": "r", "model": "x",
         "stages": {"goal_time": 100.0, "claimed": 101.0,
                    "routed": 101.1, "answer": 102.0, "spoken": 102.5}}))
-    rc = bsr.main(["--dir", str(arch), "--json"])
+    bsr.main(["--dir", str(arch), "--json"])
     data = json.loads(capsys.readouterr().out)
     assert data["archive"] == str(arch), "the --json output lied about the dir"
     assert data["goals"] == 1

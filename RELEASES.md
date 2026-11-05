@@ -48,15 +48,54 @@ sha256sum ai-controller-latest.tar.gz > ai-controller-latest.tar.gz.sha256
 
 Then upload `VERSION`, `ai-controller-latest.tar.gz`, and `ai-controller-latest.tar.gz.sha256` to your public release host. The `.sha256` file is required: `update.sh` will refuse to install a packaged update whose hash cannot be verified.
 
-## Release integrity (SHA256 only)
+### Signing releases (REQUIRED — the build ships the public key)
+
+`scripts/update_pubkey.pem` is committed to the repo and therefore ships
+inside every archive. `update.sh` sees that key present and **requires** a
+detached Ed25519 signature for the tarball; if the `.sig` is missing or does
+not verify, the update aborts and the install is left untouched. The SHA256
+manifest alone is NOT enough for a release built from this tree.
+
+One-time key setup (keep the private key offline, never on the release host):
+
+```bash
+openssl genpkey -algorithm ed25519 -out release_priv.pem
+openssl pkey -in release_priv.pem -pubout -out scripts/update_pubkey.pem
+git add scripts/update_pubkey.pem   # the PUBLIC half ships with the product
+```
+
+Every release, after building the tarball:
+
+```bash
+openssl pkeyutl -sign -inkey release_priv.pem -rawin \
+    -in ai-controller-latest.tar.gz -out ai-controller-latest.tar.gz.sig
+```
+
+Upload the `.sig` next to the tarball. `update.sh` fetches it from
+`<archive-url>.sig` and verifies it against the downloaded tarball with
+`scripts/update_pubkey.pem`. To rotate the signing key: sign the next release
+with the new key and ship its new `scripts/update_pubkey.pem` inside that
+release (verification always uses the pubkey of the *installed* build, so trust
+chains release-by-release).
+
+## Release integrity (SHA256 + Ed25519 signature)
 
 The update flow verifies the SHA256 hash of the downloaded tarball against the
 `.sha256` manifest file on the release host. If the manifest is missing or the
 hash does not match, the update aborts.
 
-**Ed25519 signature verification was removed in 2026-11.** The `scripts/update_pubkey.pem`
-key and `.sig` files are no longer used or generated. Only SHA256 verification
-remains.
+**Ed25519 signature verification is still enforced.** `scripts/update_pubkey.pem`
+is committed to the repo and ships inside every archive, so `update.sh` finds
+the key present and REQUIRES a detached `.sig` for the tarball — a missing or
+invalid signature aborts the update. A checksum fetched from the same host does
+not stop an attacker who controls that host; a signature does, because the
+private key never leaves the release manager.
+
+(An earlier revision of this document incorrectly stated that signature
+verification had been removed and that only SHA256 remained. That was wrong:
+the signature check in `update.sh` was and still is live. It was restored here
+because a release built by following the incorrect text would ship without a
+`.sig` and every buyer's updater would refuse the update.)
 
 Update URLs must be `https://` (or `file://` for local testing); plain HTTP
 is refused unless `AI_CONTROLLER_ALLOW_INSECURE_URL=1` is set on a trusted
@@ -77,9 +116,10 @@ The script:
 2. Fetches the remote `VERSION` file and compares it to the local `VERSION`.
 3. Downloads `ai-controller-latest.tar.gz` plus its `.sha256` manifest.
 4. Verifies the tarball's SHA256 hash before extracting. If the manifest is missing or the hash does not match, the update aborts.
-5. Refuses archives containing absolute or `..` path members (path traversal).
-6. Preserves buyer state (`ptt_mode`, vocabulary, voice unlocks).
-7. Restarts systemd services.
+5. Verifies the release's detached Ed25519 signature against `scripts/update_pubkey.pem` (present whenever the installed build ships that key). Missing or invalid signatures abort.
+6. Refuses archives containing absolute or `..` path members (path traversal).
+7. Preserves buyer state (`ptt_mode`, vocabulary, voice unlocks).
+8. Restarts systemd services.
 
 ## Versioning
 
