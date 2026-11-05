@@ -15,6 +15,7 @@ round5_ai-controller.md, each through the REAL code path:
 
 from __future__ import annotations
 
+import ipaddress
 import ast
 import json
 import socket
@@ -156,7 +157,11 @@ def test_resolve_public_ip_unwraps_for_safety_pins_the_original(
     monkeypatch.setattr(
         socket, "getaddrinfo", lambda host, port, type=0: _addrinfo(addr)
     )
-    assert runner._resolve_public_ip("evil.example.test", 443) == want
+    got = runner._resolve_public_ip("evil.example.test", 443)
+    # Compare as addresses: Python 3.9 prints ::ffff:808:808, 3.10+ ::ffff:8.8.8.8.
+    assert (got is None) == (want is None)
+    if want is not None:
+        assert ipaddress.ip_address(got) == ipaddress.ip_address(want)
 
 
 def test_resolve_public_ip_rejects_mapped_loopback_directly(monkeypatch):

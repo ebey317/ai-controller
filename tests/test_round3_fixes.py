@@ -9,6 +9,7 @@ No live aoe/tmux/network: every subprocess is stubbed or rendered inert.
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 import subprocess
 import sys
@@ -262,7 +263,11 @@ def test_ip_unwrapping_rule(monkeypatch, addr, want):
     monkeypatch.setattr(
         socket, "getaddrinfo", lambda host, port, type=0: [(2, 1, 6, "", (addr, port))]
     )
-    assert runner._resolve_public_ip("evil.example.test", 443) == want, addr
+    got = runner._resolve_public_ip("evil.example.test", 443)
+    # Compare as addresses: Python 3.9 prints ::ffff:808:808, 3.10+ ::ffff:8.8.8.8.
+    assert (got is None) == (want is None), addr
+    if want is not None:
+        assert ipaddress.ip_address(got) == ipaddress.ip_address(want), addr
 
 
 def test_resolve_public_ip_rejects_mapped_loopback_directly(monkeypatch):
