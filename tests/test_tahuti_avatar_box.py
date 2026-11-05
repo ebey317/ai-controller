@@ -81,6 +81,13 @@ def _free_broadway_display() -> int | None:
 
 @pytest.mark.skipif(shutil.which("broadwayd") is None, reason="broadwayd not installed")
 def test_gate_scenarios_in_one_box():
+    # Broadway is only the display server; the box is drawn with GTK, which
+    # needs PyGObject. A machine can have broadwayd and still lack gi, and
+    # the driver then dies with "No module named 'gi'" instead of skipping.
+    try:
+        import gi  # noqa: F401
+    except ImportError:
+        pytest.skip("PyGObject (gi) not installed")
     display = _free_broadway_display()
     if display is None:
         pytest.skip("no free Broadway display")
