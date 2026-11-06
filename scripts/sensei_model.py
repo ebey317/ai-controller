@@ -202,7 +202,7 @@ def run(
                 f"no API key for {provider} (looked for {', '.join(key_names)})"
             )
         headers["Authorization"] = f"Bearer {key}"
-    if "opencode.ai/zen/v1" in url:
+    if "opencode.ai/zen/" in url:  # Zen AND Go both need the session header
         headers["x-opencode-session"] = _zen_session()
 
     chat_tools = to_chat_tools(tools)
