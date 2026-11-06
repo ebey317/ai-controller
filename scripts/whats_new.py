@@ -148,6 +148,36 @@ def tool_section(
     return out, latest
 
 
+def ideas_section(seen: dict) -> list[str]:
+    """Upstream ideas Sensei wrote up (proposal only, nothing is applied)."""
+    import time
+
+    plans = REPO / "memory" / "upstream-plans"
+    since = float(seen.get("ideas_at", 0)) or time.time() - 14 * 86400
+    out = []
+    try:
+        files = sorted(
+            plans.glob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True
+        )
+    except OSError:
+        return ["  (no proposals folder)"]
+    for f in files:
+        try:
+            if f.stat().st_mtime <= since:
+                break
+            first = f.read_text(encoding="utf-8").splitlines()[0]
+        except (OSError, IndexError):
+            continue
+        if (
+            first.startswith("SUMMARY:")
+            and "APPLICABLE: YES" in f.read_text(encoding="utf-8")[:400]
+        ):
+            out.append(f"  - {first[8:].strip()[:170]}  [{f.name}]")
+        if len(out) >= 8:
+            break
+    return out or ["  No new ideas waiting for review."]
+
+
 def main(argv: list[str]) -> int:
     peek = "--peek" in argv
     seen = load_seen()
@@ -158,6 +188,11 @@ def main(argv: list[str]) -> int:
     new_seen = dict(seen)
     if head:
         new_seen["master_ai"] = head
+    print("\nIdeas ready to review (from Hermes, Kimi, OpenCode, Claude Code)")
+    print("\n".join(ideas_section(seen)))
+    import time as _t
+
+    new_seen["ideas_at"] = _t.time()
     for name, repo, vcmd, pat in TOOLS:
         print(f"\n{name}")
         lines, latest = tool_section(name, repo, vcmd, pat, seen)
