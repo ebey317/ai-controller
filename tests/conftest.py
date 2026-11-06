@@ -46,13 +46,25 @@ import pytest  # noqa: E402
 def _tahuti_runner_is_sandboxed(tmp_path_factory, monkeypatch):
     try:
         import tahuti_goal_runner as runner
-    except Exception:  # modules that cannot import in this env (e.g. no GTK) are skipped
+    except (
+        Exception
+    ):  # modules that cannot import in this env (e.g. no GTK) are skipped
         yield
         return
-    monkeypatch.setattr(runner, "BRIDGE_URL", "http://127.0.0.1:9")  # closed port: never speaks
+    monkeypatch.setattr(
+        runner, "BRIDGE_URL", "http://127.0.0.1:9"
+    )  # closed port: never speaks
     sandbox = tmp_path_factory.mktemp("tahuti-sandbox")  # not the test's own tmp_path
     monkeypatch.setattr(runner, "_AGENT_THREAD_DIR", sandbox / "thread_output")
     monkeypatch.setattr(runner, "CAPTION_FILE", sandbox / "tahuti_caption.json")
-    monkeypatch.setattr(runner, "CONVERSATION_HISTORY_FILE", sandbox / "conversation_history.json")
+    monkeypatch.setattr(
+        runner, "CONVERSATION_HISTORY_FILE", sandbox / "conversation_history.json"
+    )
     monkeypatch.setattr(runner, "GRANTS_FILE", sandbox / "grants.json")
+    # The operator's REAL Sensei model pin must never steer a test (a valid pin
+    # sends the runner down the pinned-provider path and hits the network).
+    # active_pin's default path is bound at def time, so patch the default.
+    monkeypatch.setattr(
+        runner.sensei_model.active_pin, "__defaults__", (sandbox / "no_pin",)
+    )
     yield

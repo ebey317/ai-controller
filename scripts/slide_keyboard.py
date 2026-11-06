@@ -73,7 +73,11 @@ DEFAULT_PINS = [
     {"label": "sensei", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
     {"label": "qwen", "text": "gnome-terminal -- qwen", "exec": True},
     {"label": "dashboard", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
-    {"label": "update", "text": "~/scripts/update_master_ai.sh", "exec": True},
+    {
+        "label": "update",
+        "text": "gnome-terminal -- bash -c \"python3 ~/ai-controller/scripts/whats_new.py; read -rp 'Press Enter to close '\"",
+        "exec": True,
+    },
 ]
 
 # 2026-09-24: automatic per-pin variant discovery (Elijah: "we don't want to
@@ -1281,7 +1285,7 @@ class SlideKeyboard(Gtk.Window):
         }
         self.typing_indicator.set_markup(
             f'<span font="16" weight="bold" color="{HUD_ORANGE}">'
-            f'{labels.get(mode, "Typing...")}</span>'
+            f"{labels.get(mode, 'Typing...')}</span>"
         )
         self.mode_bar.hide()
         self.grid.hide()
