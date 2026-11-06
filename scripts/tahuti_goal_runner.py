@@ -986,6 +986,57 @@ _OPEN_TRIGGER_RE = re.compile(
     r"\b(" + "|".join(OPEN_TRIGGER_WORDS) + r")\b", re.IGNORECASE
 )
 
+# Direct-open lane (T25): only the bare verbs the operator actually says.
+# "navigate to"/"visit"/"bring up" stay in the model's OPEN_TRIGGER_WORDS
+# but are too vague to route deterministically; the five below are the
+# ones bench data showed costing two model round trips.
+_DIRECT_OPEN_VERBS = {
+    "open",
+    "launch",
+    "pull up",
+    "go to",
+    "take me to",
+}
+_DIRECT_OPEN_RE = re.compile(
+    r"^\s*(?:please\s+)?("
+    + "|".join(re.escape(v) for v in _DIRECT_OPEN_VERBS)
+    + r")(?:\s+(?:my|the))?\s+(.+?)\s*$",
+    re.IGNORECASE,
+)
+
+# Folder aliases Tahuti already knows; anything else falls through to
+# URL/app resolution so we never open an arbitrary folder by voice.
+_DIRECT_FOLDER_ALIASES = frozenset(
+    {
+        "projects",
+        "my projects",
+        "desktop",
+        "documents",
+        "downloads",
+        "home",
+        "notes",
+        "md",
+    }
+)
+
+# Known sites → bare domain the existing _open_url_tool already handles.
+_DIRECT_SITES = {
+    "youtube": "youtube.com",
+    "github": "github.com",
+    "gmail": "mail.google.com",
+    "google": "google.com",
+    "facebook": "facebook.com",
+    "reddit": "reddit.com",
+    "netflix": "netflix.com",
+    "linkedin": "linkedin.com",
+    "amazon": "amazon.com",
+    "wikipedia": "wikipedia.org",
+    "chatgpt": "chatgpt.com",
+    "claude": "claude.ai",
+    "twitter": "x.com",
+    "x": "x.com",
+}
+
 
 def _tools_with_live_open_app(tools: list[dict]) -> list[dict]:
     """Rewrite open_app's description with the operator's actual current
@@ -2725,8 +2776,7 @@ def _call_model_muse(
                     tools = _all_tools(transcript)
                     round_num = 0
                     logger.info(
-                        "approval escalation: full safe toolset re-armed "
-                        "for goal %s",
+                        "approval escalation: full safe toolset re-armed for goal %s",
                         goal_id,
                     )
                     outputs.append(
@@ -2850,7 +2900,11 @@ def _call_free_fallback(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        # T25: fast routes already timed out at the primary worker; the
+        # fallback should give up quickly (20 s) rather than wait two
+        # minutes. Non-fast routes keep the original 120 s budget.
+        timeout = 20 if route.startswith("fast-") else 120
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
         if data.get("error"):
             raise RuntimeError(
@@ -3400,6 +3454,78 @@ def _process_time() -> str:
     )
 
 
+def _parse_direct_open(text: str) -> Optional[tuple[str, str]]:
+    """Short bare 'open …' requests that can skip the model entirely.
+
+    Returns (kind, target) where kind is 'folder', 'url', or 'app', or
+    None when the phrase is not a simple open or the target is unknown.
+    Resolution order: folder (explicit word or known alias), URL (known
+    site or bare domain), app (allowlisted app, alias, or pin). Unknown
+    targets return None so the model can handle them.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+    m = _DIRECT_OPEN_RE.match(text)
+    if not m:
+        return None
+    target = m.group(2).strip()
+    if not target:
+        return None
+    lowered = target.lower()
+    words = lowered.split()
+    # T25: "folder ... on my desktop" is explicitly allowed even though it
+    # is more than four words; tahuti_operator.resolve_folder handles it.
+    folder_on_desktop = ("folder" in lowered or "directory" in lowered) and re.search(
+        r"\s+(?:that'?s |which is |that is )?(?:on|in|from) (?:my |the )?desktop$",
+        target,
+        re.I,
+    )
+    if len(words) > 4 and not folder_on_desktop:
+        return None
+    reject = {
+        "and",
+        "then",
+        "so",
+        "for",
+        "about",
+        "search",
+        "find",
+        "read",
+        "write",
+        "with",
+    }
+    if any(w in reject for w in words):
+        return None
+    # Normalize for lookup without changing what the operator said.
+    norm = re.sub(r"^(?:my|the)\s+", "", target, flags=re.I).strip()
+    norm = re.sub(r"\s+(?:folder|directory)$", "", norm, flags=re.I).strip()
+
+    # Folder: explicit folder/directory word, or a known folder alias.
+    if (
+        "folder" in lowered
+        or "directory" in lowered
+        or norm.lower() in _DIRECT_FOLDER_ALIASES
+    ):
+        folder, _note = tahuti_operator.resolve_folder(target)
+        if folder is not None:
+            return ("folder", target)
+        return None
+
+    # URL: known site table or bare domain.
+    key = norm.lower()
+    if key in _DIRECT_SITES:
+        return ("url", _DIRECT_SITES[key])
+    if re.match(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$", norm, re.I):
+        return ("url", norm.lower())
+
+    # App: allowlisted command, alias, or exec pin.
+    if key in APP_COMMANDS or key in APP_ALIASES or key in _pin_commands():
+        return ("app", target)
+
+    return None
+
+
 _CHOICE_PRESENTER = Path(__file__).resolve().parent / "tahuti_choice_presenter.py"
 
 
@@ -3749,6 +3875,44 @@ def _process_goal(path: Path) -> None:
             "done",
             response=response,
             model="deterministic-slash",
+            stages=stages,
+        )
+        return
+
+    # Direct open lane (T25): "open youtube", "open my projects folder".
+    # These used to cost TWO model round trips (choose tool, write reply).
+    # Deterministic routing skips the model, keeps every tool gate, and
+    # archives model="deterministic-open" so speed can be measured.
+    _direct = _parse_direct_open(transcript)
+    if _direct is not None:
+        _routed()
+        kind, target = _direct
+        if kind == "folder":
+            result = _open_folder_tool(target)
+        elif kind == "url":
+            result = _open_url_tool(goal_id, target)
+        elif kind == "app":
+            result = _open_app_tool(goal_id, target)
+        else:
+            result = {"ok": False, "error": f"unknown direct-open kind: {kind}"}
+        if result.get("ok"):
+            display = target.strip()
+            if display:
+                display = display[0].upper() + display[1:]
+            if kind == "folder":
+                response = f"Opened your {display}."
+            else:
+                response = f"Opened {display}."
+        else:
+            response = result.get("error") or f"Couldn't open {target}."
+        _speak(response)
+        _notify("Goal done", response, urgency="normal", sound=True)
+        _archive(
+            claim_path,
+            goal_id,
+            "done",
+            response=response,
+            model="deterministic-open",
             stages=stages,
         )
         return
