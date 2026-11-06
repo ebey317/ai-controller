@@ -11,6 +11,20 @@ import json
 import pytest
 import tahuti_goal_runner as runner
 
+
+@pytest.fixture(autouse=True)
+def _fake_home(tmp_path_factory, monkeypatch):
+    """Folder phrases resolve against REAL folders, so give every test a fake
+    home that has them (CI has no ~/Desktop/Projects; a laptop must not
+    depend on its own)."""
+    home = tmp_path_factory.mktemp("fakehome")
+    for d in ("Desktop/Projects", "projects", "Downloads", "Documents", "MD"):
+        (home / d).mkdir(parents=True)
+    op = runner.tahuti_operator
+    monkeypatch.setattr(op, "HOME", home)
+    monkeypatch.setattr(op, "PROFILE", home / ".tahuti" / "operator_profile.md")
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Parser: simple cases and explicit rejections
 # ──────────────────────────────────────────────────────────────────────
