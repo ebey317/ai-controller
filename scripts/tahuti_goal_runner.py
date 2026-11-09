@@ -1447,6 +1447,15 @@ def _write_file_tool(goal_id: str, path: str, content: str, reason: str = "") ->
         return {"ok": False, "error": "path must be absolute"}
     if not _is_under_home(p):
         return {"ok": False, "error": "path outside home directory refused"}
+    # Same secret fence as the read/list tools. _is_secret_path resolves
+    # symlinks, so a link that points into ~/.ssh is refused too; without it
+    # a granted or approved write could replace authorized_keys or a token
+    # file (gate review finding, 2026-11-09).
+    if _is_secret_path(p):
+        return {
+            "ok": False,
+            "error": "refused: that location holds credentials and is off limits",
+        }
     try:
         resolved = p.resolve()
         # Granted writes execute for real (Master AI ALWAYS semantics).

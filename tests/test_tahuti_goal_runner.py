@@ -1001,3 +1001,20 @@ def test_process_goal_gate_unavailable_honest_then_next_goal_runs(
     rec2 = json.loads((done / "time-goal-1.json").read_text(encoding="utf-8"))
     assert rec2["model"] == "deterministic-time"
     assert "Indianapolis" in rec2["response"]
+
+
+def test_write_file_refuses_secret_locations_even_through_a_symlink(
+    tmp_path, monkeypatch
+):
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / "notes").mkdir()
+    link = home / "notes" / "innocent.txt"
+    link.symlink_to(home / ".ssh" / "authorized_keys")
+    monkeypatch.setattr(runner.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(runner, "_SECRET_PATHS", [(home / ".ssh").resolve()])
+    monkeypatch.setattr(runner, "_is_granted", lambda *_: True)  # even when granted
+    for target in (home / ".ssh" / "authorized_keys", link):
+        result = runner._write_file_tool("g1", str(target), "ssh-rsa EVIL")
+        assert result["ok"] is False and "credentials" in result["error"]
+    assert not (home / ".ssh" / "authorized_keys").exists()
