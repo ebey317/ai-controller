@@ -101,8 +101,14 @@ def _busy_reason() -> str:
         pass
     if Path("/tmp/tahuti-pulse.pid").exists():
         try:
-            os.kill(int(Path("/tmp/tahuti-pulse.pid").read_text().strip()), 0)
-            return "the avatar is already showing"
+            import avatar_pulse
+
+            pid = int(Path("/tmp/tahuti-pulse.pid").read_text().strip())
+            info = avatar_pulse.pulse_cmdline_uid(pid)
+            # A recycled pid from an old session is not the avatar: check
+            # uid + cmdline the same way kill_avatar_pulse does.
+            if info and avatar_pulse.avatar_pid_is_safe(pid, info[0], info[1]):
+                return "the avatar is already showing"
         except Exception:
             pass
     out = subprocess.run(
