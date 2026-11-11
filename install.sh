@@ -40,7 +40,8 @@ OPTIONAL_SERVICES=(
 )
 for svc in "${OPTIONAL_SERVICES[@]}"; do
     if [[ -f "${REPO_DIR}/systemd/${svc}" ]]; then
-        SERVICES+=("${svc}")
+        # already in SERVICES above; only add if somehow missing
+        [[ " ${SERVICES[*]} " == *" ${svc} "* ]] || SERVICES+=("${svc}")
     else
         case "${svc}" in
             ai-controller-goal-runner.service)
