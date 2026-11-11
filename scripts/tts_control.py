@@ -53,9 +53,9 @@ _WEDGE_KERNEL_MSG = "gip_send_audio_samples: get buffer failed"
 # (exact substring, not a regex) so an unrelated process that merely mentions
 # one of these words cannot be mistaken for a player.
 _TTS_OWNER_MARKERS = (
-    "hermes",            # Hermes agent (sounddevice in-process TTS)
-    "voice_bridge.py",   # controller voice bridge
-    "hermes_tts_play",   # the mpv wrapper
+    "hermes",  # Hermes agent (sounddevice in-process TTS)
+    "voice_bridge.py",  # controller voice bridge
+    "hermes_tts_play",  # the mpv wrapper
 )
 
 # Playback binaries we can still catch as processes: some paths (spd-say, or a
@@ -70,9 +70,7 @@ _BARGE_TAG = b"AI_TTS_BARGE"
 
 def _run(cmd: list[str], timeout: float = 5.0) -> str:
     try:
-        out = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout
-        )
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return out.stdout or ""
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -82,12 +80,15 @@ def _run(cmd: list[str], timeout: float = 5.0) -> str:
 # Wedge detection -- the only thing that may cycle a card profile
 # ---------------------------------------------------------------------------
 
+
 def _wedge_failures(window_s: int = 10) -> int:
     """Count xone-gip buffer failures in the kernel log for the last window."""
     try:
         proc = subprocess.run(
             ["journalctl", "-k", f"--since={window_s} seconds ago"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         return (proc.stdout or "").count(_WEDGE_KERNEL_MSG)
     except (OSError, subprocess.SubprocessError):
@@ -109,6 +110,7 @@ def controller_audio_wedged(window_s: int = 10) -> bool:
 # ---------------------------------------------------------------------------
 # Sink-input interrupt -- the new barge-in
 # ---------------------------------------------------------------------------
+
 
 class SinkInput(NamedTuple):
     index: int
@@ -295,7 +297,9 @@ def silence_stream(index: int) -> str:
 def _mute_sink_input(index: int) -> bool:
     proc = subprocess.run(
         ["pactl", "set-sink-input-mute", str(index), "1"],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True,
+        text=True,
+        timeout=5,
     )
     return proc.returncode == 0
 
@@ -303,7 +307,9 @@ def _mute_sink_input(index: int) -> bool:
 def _unmute_sink_input(index: int) -> bool:
     proc = subprocess.run(
         ["pactl", "set-sink-input-mute", str(index), "0"],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True,
+        text=True,
+        timeout=5,
     )
     return proc.returncode == 0
 
@@ -594,7 +600,7 @@ def _block_for(raw: str, header: str, end_re: str) -> list[str]:
     if start is None:
         return []
     block: list[str] = []
-    for line in lines[start + 1:]:
+    for line in lines[start + 1 :]:
         if re.match(end_re, line):
             break
         block.append(line)
@@ -648,12 +654,16 @@ def ensure_controller_output(enable: bool) -> bool:
     target = with_output if enable else "input:mono-fallback"
     subprocess.run(
         ["pactl", "set-card-profile", card, target],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True,
+        text=True,
+        timeout=5,
     )
     # Exact check against THIS card's Active Profile. `target in pactl output`
     # also matches the profile in the inactive `Profiles:` list, so it reported
     # success while a different profile was live.
-    return _active_profile(_card_block(_run(["pactl", "list", "cards"]), card)) == target
+    return (
+        _active_profile(_card_block(_run(["pactl", "list", "cards"]), card)) == target
+    )
 
 
 def apply_driver(name: Optional[str] = None) -> str:
@@ -680,7 +690,10 @@ def apply_driver(name: Optional[str] = None) -> str:
 _CARD_PROFILE_FOR_DRIVER = {
     "analog": ("pci-", "output:analog-stereo"),
     "hdmi": ("pci-", "output:hdmi-stereo"),
-    "headphones": ("usb-Microsoft_Controller", "output:stereo-fallback+input:mono-fallback"),
+    "headphones": (
+        "usb-Microsoft_Controller",
+        "output:stereo-fallback+input:mono-fallback",
+    ),
 }
 
 
@@ -707,7 +720,9 @@ def ensure_device_profile(driver: str) -> None:
         return
     subprocess.run(
         ["pactl", "set-card-profile", card, profile],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True,
+        text=True,
+        timeout=5,
     )
 
 
@@ -737,11 +752,15 @@ def set_driver_with_profile(name: str) -> str:
     if sink:
         subprocess.run(
             ["pactl", "set-default-sink", sink],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         subprocess.run(
             ["pactl", "set-sink-mute", sink, "0"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
     return sink
 
@@ -821,10 +840,7 @@ def handle_driver_command(text: str) -> Optional[str]:
             # the routine play path (see apply_driver's docstring).
             sink = set_driver_with_profile(driver)
             rate, channels = sink_spec(sink)
-            return (
-                f"Voice now uses {driver}. "
-                f"{rate} hertz, {channels} channels."
-            )
+            return f"Voice now uses {driver}. " f"{rate} hertz, {channels} channels."
 
     # Which one am I on?
     if re.search(
@@ -858,9 +874,21 @@ def handle_driver_command(text: str) -> Optional[str]:
 # synonym table the resolver uses, so "headset", "xbox" and "ears" all reach
 # the headset just as "headphones" does.
 _SPOKEN_DRIVER_NAMES = {
-    "headphones", "headphone", "headset", "xbox", "controller", "ears",
-    "hdmi", "display", "monitor", "tv",
-    "analog", "jack", "wired", "speakers", "aux",
+    "headphones",
+    "headphone",
+    "headset",
+    "xbox",
+    "controller",
+    "ears",
+    "hdmi",
+    "display",
+    "monitor",
+    "tv",
+    "analog",
+    "jack",
+    "wired",
+    "speakers",
+    "aux",
 }
 
 # A switch must READ as a command: start with one of these verbs, end with the
@@ -868,14 +896,22 @@ _SPOKEN_DRIVER_NAMES = {
 # speech -- "remember to buy headphones" ends with the driver but is a note to
 # an agent, not a device change.
 _SWITCH_VERBS = {
-    "use", "switch", "change", "move", "put", "route", "play", "turn",
-    "set", "go", "switching", "using",
+    "use",
+    "switch",
+    "change",
+    "move",
+    "put",
+    "route",
+    "play",
+    "turn",
+    "set",
+    "go",
+    "switching",
+    "using",
 }
 
 # Words that may precede the verb without being one.
 _COMMAND_FILLER = {"ok", "okay", "hey", "please", "and", "um", "uh", "now", "just"}
-
-
 
 
 # ---------------------------------------------------------------------------

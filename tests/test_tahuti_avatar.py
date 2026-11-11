@@ -21,7 +21,6 @@ def test_card_details_does_not_invent_missing_action():
     assert card["pattern_key"] == "tahuti:custom:background"
 
 
-
 def test_card_details_include_why_and_honour_extra_why():
     card = card_details(
         "cua:screenshot:foreground",

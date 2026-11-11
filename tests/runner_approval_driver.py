@@ -12,6 +12,7 @@ test_runner_approval_broadway.py and by the runner unit tests). The
 box, the runner's per-goal escalation cache, and the write execution
 are all the real code.
 """
+
 from __future__ import annotations
 
 import json
@@ -61,8 +62,8 @@ def main() -> int:
     runner.APPROVALS_DIR = sandbox / "approvals"
     runner.GRANTS_FILE = sandbox / "grants.json"
     runner._is_under_home = lambda p: True
-    runner._run_presenter = (
-        lambda pattern, description, extra: av.prompt(pattern, description, **extra)
+    runner._run_presenter = lambda pattern, description, extra: av.prompt(
+        pattern, description, **extra
     )
 
     # Approved in the box -> the write executes for real.
@@ -70,7 +71,8 @@ def main() -> int:
     _after(600, lambda: _buttons()["Yes"].clicked())
     t0 = time.monotonic()
     res = runner._write_file_tool(
-        "proof-goal-yes", str(target), "hello from the proof", "broadway driver proof")
+        "proof-goal-yes", str(target), "hello from the proof", "broadway driver proof"
+    )
     results["approved"] = {
         "result": res,
         "exists": target.exists(),
@@ -82,7 +84,8 @@ def main() -> int:
     target2 = sandbox / "note2.txt"
     _after(600, lambda: _buttons()["Deny"].clicked())
     res2 = runner._write_file_tool(
-        "proof-goal-deny", str(target2), "must not land", "broadway driver proof")
+        "proof-goal-deny", str(target2), "must not land", "broadway driver proof"
+    )
     results["denied"] = {"result": res2, "exists": target2.exists()}
 
     av._reset_box()

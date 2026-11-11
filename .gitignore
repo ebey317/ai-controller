@@ -23,3 +23,7 @@ coverage.xml
 config.env
 *.env
 !*.env.template
+
+# no-mistakes gate scratch output (never commit)
+findings.json
+review_findings.json

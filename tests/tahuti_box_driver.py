@@ -7,6 +7,7 @@ the observed results. Started by tests/test_tahuti_avatar_box.py with
 GDK_BACKEND=broadway and DISPLAY pointing at a private broadwayd —
 never the operator's :0 desktop.
 """
+
 from __future__ import annotations
 
 import json
@@ -55,8 +56,12 @@ def scenario(label, plan, timeout=30):
     av.TIMEOUT_SECONDS = timeout
     for delay, fn in plan:
         _after(delay, fn)
-    return av.prompt("cua:run_command:foreground", f"Scenario {label}",
-                     action="run_command", mode="foreground")
+    return av.prompt(
+        "cua:run_command:foreground",
+        f"Scenario {label}",
+        action="run_command",
+        mode="foreground",
+    )
 
 
 def main() -> int:
@@ -65,21 +70,27 @@ def main() -> int:
 
     # Deny — and exactly one top-level window exists while deciding.
     seen = {}
-    verdict = scenario("deny", [
-        (400, lambda: seen.update(count=_toplevels())),
-        (600, lambda: _buttons()["Deny"].clicked()),
-    ])
+    verdict = scenario(
+        "deny",
+        [
+            (400, lambda: seen.update(count=_toplevels())),
+            (600, lambda: _buttons()["Deny"].clicked()),
+        ],
+    )
     results["deny"] = {"verdict": verdict, "toplevels": seen.get("count")}
 
     # Yes -> once. Window object must be the same box as before.
     win_before = av._get_box().window
     verdict = scenario("yes", [(400, lambda: _buttons()["Yes"].clicked())])
-    results["yes"] = {"verdict": verdict,
-                      "same_window": av._get_box().window is win_before}
+    results["yes"] = {
+        "verdict": verdict,
+        "same_window": av._get_box().window is win_before,
+    }
 
     # Always for this session -> session.
-    verdict = scenario("always", [
-        (400, lambda: _buttons()["Always for this session"].clicked())])
+    verdict = scenario(
+        "always", [(400, lambda: _buttons()["Always for this session"].clicked())]
+    )
     results["always"] = {"verdict": verdict}
 
     # Edit stays in the box: same window, stack flips to "edit", no new
@@ -91,32 +102,39 @@ def main() -> int:
         edit_seen["toplevels"] = _toplevels()
 
     def _back_probe():
-        edit_seen["stack_after_back"] = \
-            av._get_box()._stack.get_visible_child_name()
+        edit_seen["stack_after_back"] = av._get_box()._stack.get_visible_child_name()
 
-    verdict = scenario("edit", [
-        (400, lambda: _buttons()["Edit"].clicked()),
-        (800, _edit_probe),
-        (1000, lambda: _buttons()["Back to request"].clicked()),
-        (1400, _back_probe),
-        (1600, lambda: _buttons()["Deny"].clicked()),
-    ])
+    verdict = scenario(
+        "edit",
+        [
+            (400, lambda: _buttons()["Edit"].clicked()),
+            (800, _edit_probe),
+            (1000, lambda: _buttons()["Back to request"].clicked()),
+            (1400, _back_probe),
+            (1600, lambda: _buttons()["Deny"].clicked()),
+        ],
+    )
     results["edit"] = {"verdict": verdict, **edit_seen}
 
     # Close (delete-event) denies and the box survives to serve again.
     def _close():
         from gi.repository import Gdk
+
         av._get_box().window.emit("delete-event", Gdk.Event.new(Gdk.EventType.DELETE))
 
     verdict = scenario("close", [(400, _close)])
-    results["close"] = {"verdict": verdict,
-                        "window_alive": av._get_box().window is win_before}
+    results["close"] = {
+        "verdict": verdict,
+        "window_alive": av._get_box().window is win_before,
+    }
 
     # Timeout denies on its own.
     start = time.monotonic()
     verdict = scenario("timeout", [], timeout=2)
-    results["timeout"] = {"verdict": verdict,
-                          "elapsed": round(time.monotonic() - start, 2)}
+    results["timeout"] = {
+        "verdict": verdict,
+        "elapsed": round(time.monotonic() - start, 2),
+    }
 
     av._reset_box()
     print(json.dumps(results))

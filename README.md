@@ -29,6 +29,23 @@ It is a real, daily-used accessibility product — not a prototype. Plug in the 
 | **Auto profile switching** | AntiMicroX layouts swap between desktop, browser, and YouTube TV based on the active window. |
 | **Voice responses (TTS)** | The voice bridge can speak answers back via edge-tts. |
 | **Systemd-managed services** | Start, stop, and opt-in autostart from the launcher app. |
+| **Talk to an AI agent (Tahuti)** | Hold **L + R** (or **F13**), ask anything, hear the answer spoken back in seconds. |
+| **Slash commands by voice** | Say **"slash"** + a command name — `slash mode`, `slash models`, `slash help` — commands run instantly, nothing is sent to an AI model. |
+| **Approval cards** | Anything that changes your desktop (open a website, launch an app) shows a yes/no card first. Unattended, it fails closed. |
+
+---
+
+## Talk to it (Tahuti + Sensei)
+
+The controller isn't just input — it's an AI agent with a face. The on-screen **avatar** shows what it's doing, gives you cards to read and click, and answers out loud.
+
+**Zero-knowledge start:** hold the trigger, say **"slash help"**, and a card walks you through every voice command — no manual needed. What you can do right now:
+
+- Ask questions: "Give me a one-sentence fact about the moon." (~seconds, spoken back)
+- Run desktop actions: "Open YouTube" — lands first as an approval card, you decide.
+- Control the agent itself by voice: `slash mode`, `slash models`, `slash compact`.
+
+Full walkthrough (plain English, no jargon): **[docs/TAHUTI_README.md](docs/TAHUTI_README.md)**
 
 ---
 
@@ -188,6 +205,8 @@ Most controller apps map a gamepad to keyboard keys and call it done. AI Control
 | HUD legend | Python + GTK3 | Floating controller button-map overlay |
 | Profile switching | Bash + xdotool | Window-focus watcher, AntiMicroX profile swap |
 | TTS | [edge-tts](https://github.com/rhasspy/rhasspy-edge-tts) | Cloud text-to-speech |
+| Voice agent (Tahuti) | Python + Meta Muse / Groq | Headless goal runner, avatar, approval cards |
+| Slash commands | Sensei registry | Voice-driven terminal commands |
 | Service management | systemd user units | Start/stop/crash recovery/autostart |
 | Device rules | udev | USB autosuspend, controller ACLs, xone/xpad guard |
 
@@ -233,6 +252,23 @@ Most controller apps map a gamepad to keyboard keys and call it done. AI Control
 │                    systemd user services                          │
 │  ptt-pynput │ voice-bridge │ ai-slide-keyboard │ controller-legend │
 │  antimicrox-autoload │ f13-xmodmap-heal │ xone-driver-guard       │
+│  gip-audio-watchdog │ a-button-double-tap-enter                 │
+│  tahuti-readme-nudge │ ai-controller-goal-runner (opt-in)       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+┌─────────────────────────────────────────────────────────────────┐
+│                         Tahuti Voice Agent                        │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │ Ctrl+F13 (L+R) → ptt_pynput.py → writes goal to           │  │
+│  │ ~/.tahuti/goals/ → tahuti_goal_runner.py claims & works   │  │
+│  │   ├─▶ sensei_slash.py → drives live Sensei TUI (tmux)     │  │
+│  │   ├─▶ sensei_model.py → routes to pinned model (Meta, etc)│  │
+│  │   ├─▶ tahuti_operator.py → local knowledge (weather, etc) │  │
+│  │   └─▶ POST /speak → voice_bridge.py → TTS → avatar        │  │
+│  │        avatar_pulse.py → verified kill for approval cards │  │
+│  │        tahuti_choice_presenter.py → approval cards (GTK3) │  │
+│  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -269,6 +305,12 @@ curl -X POST http://localhost:8002/voice?mode=transcribe_only \
 | `antimicrox-autoload.service` | Auto-load default profile |
 | `f13-xmodmap-heal.service` | Restore F13 keymap after X reload |
 | `xone-driver-guard.service` | Block in-kernel xpad + prevent USB autosuspend |
+| `gip-audio-watchdog.service` | Monitor xone-gip audio health, trigger reset |
+| `a-button-double-tap-enter.service` | Double-tap A button → Enter key |
+| `ptt-pynput-headless.service` | Headless PTT (no X11) — opt-in |
+| `voice-bridge-headless.service` | Headless voice bridge — opt-in |
+| `ai-controller-goal-runner.service` | Tahuti headless goal runner — opt-in |
+| `tahuti-readme-nudge.service` | Avatar "want to learn more?" reminder (timer-driven) |
 
 ```bash
 systemctl --user start/stop/restart <service>.service

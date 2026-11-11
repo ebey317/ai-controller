@@ -10,14 +10,12 @@ Tests:
 5. Evdev listener thread starts correctly in headless mode
 """
 
+import fcntl
+import json
 import os
 import sys
-import tempfile
-import json
 import threading
-import time
-import fcntl
-from unittest.mock import patch, MagicMock, call, PropertyMock
+from unittest.mock import MagicMock, patch
 
 # Set up headless environment BEFORE importing ptt_pynput
 os.environ["AI_CONTROLLER_HEADLESS"] = "1"
@@ -68,6 +66,7 @@ os.open = mock_os_open
 
 # Import the threading module as _thr (as ptt_pynput does) and mock it too
 import threading as _thr
+
 original_thr_thread_start = _thr.Thread.start
 _thr.Thread.start = mock_thread_start
 
@@ -94,11 +93,12 @@ print(f"TAHUTI_GOALS = {ptt.TAHUTI_GOALS}")
 print(f"Started threads (mocked): {[t.name for t in started_threads]}")
 
 # Test 1: Verify HEADLESS flag is set
-assert ptt.HEADLESS == True, "HEADLESS should be True"
+assert ptt.HEADLESS is True, "HEADLESS should be True"
 print("✓ HEADLESS flag is correctly set")
 
 # Test 2: Verify _speak_headless exists and uses curl to /speak
 import inspect
+
 speak_source = inspect.getsource(ptt._speak_headless)
 assert "/speak" in speak_source, "_speak_headless should POST to /speak endpoint"
 assert "curl" in speak_source, "_speak_headless should use curl"
@@ -171,11 +171,11 @@ with patch("ptt_pynput._write_goal") as mock_write_goal, \
     # Simulate a goal take
     ptt._goal_take = True
     ptt._ctrl_held = True
-    
+
     # We can't easily test the full stop_and_send without audio, but we can verify
     # the goal path logic by checking the source
     stop_source = inspect.getsource(ptt.stop_and_send)
-    
+
     # Verify goal take writes goal and doesn't speak
     assert "if agent_take and goal_text:" in stop_source
     assert "_write_goal(goal_text)" in stop_source
@@ -256,24 +256,24 @@ with patch("ptt_pynput._build_wav") as mock_build_wav, \
     ptt._goal_take = False
     ptt._ctrl_held = False
     ptt._last_f13_time = 0  # Reset debounce
-    
+
     mock_exists.return_value = True
     mock_getsize.return_value = 20000  # > 16000 byte threshold
     mock_wav_stats.return_value = (1.5, 1000)  # duration, rms
     mock_is_silence.return_value = False
     mock_load_mode.return_value = "pro"
     mock_load_dictation_target.return_value = "type"
-    
+
     # Mock the STT response
     mock_subprocess_run.return_value = MagicMock(
         stdout=json.dumps({"text": "hello world", "transcript": "hello world"}),
         stderr="",
         returncode=0
     )
-    
+
     # Call stop_and_send
     ptt.stop_and_send()
-    
+
     # Verify _speak_headless was called (not _type_text_fast)
     mock_speak_headless.assert_called_once_with("hello world")
     mock_append_log.assert_called_once()
@@ -305,14 +305,14 @@ with patch("ptt_pynput._build_wav") as mock_build_wav, \
     ptt._goal_take = True
     ptt._ctrl_held = True
     ptt._last_f13_time = 0  # Reset debounce
-    
+
     mock_exists.return_value = True
     mock_getsize.return_value = 20000
     mock_wav_stats.return_value = (1.5, 1000)
     mock_is_silence.return_value = False
     mock_load_mode.return_value = "pro"
     mock_load_dictation_target.return_value = "type"
-    
+
     # Mock the STT response (execute mode returns transcript + response + routed=task)
     # For task verbs, the bridge writes the goal and returns routed="task"
     # In this case, ptt_pynput should NOT call _write_goal (duplicate prevention)
@@ -321,10 +321,10 @@ with patch("ptt_pynput._build_wav") as mock_build_wav, \
         stderr="",
         returncode=0
     )
-    
+
     # Call stop_and_send
     ptt.stop_and_send()
-    
+
     # Debug
     print(f"  mock_write_goal called: {mock_write_goal.called}")
     print(f"  mock_speak_headless called: {mock_speak_headless.called}")
@@ -332,7 +332,7 @@ with patch("ptt_pynput._build_wav") as mock_build_wav, \
     print(f"  mock_append_log call_count: {mock_append_log.call_count}")
     if mock_append_log.call_count > 0:
         print(f"  mock_append_log call_args: {mock_append_log.call_args}")
-    
+
     # Verify _write_goal was NOT called (bridge already wrote it for task verbs)
     mock_write_goal.assert_not_called()
     # Verify _speak_headless was NOT called for goal take

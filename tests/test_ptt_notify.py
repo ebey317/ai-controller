@@ -67,7 +67,9 @@ def test_notify_hermex_calls_shared_client_with_correct_args(monkeypatch):
 def test_notify_hermex_swallows_exceptions():
     """A notify failure must never propagate to the (recording/sending) caller."""
 
-    ptt_notify.notify_hermex("", "")  # empty title+body -> ValueError inside the real client
+    ptt_notify.notify_hermex(
+        "", ""
+    )  # empty title+body -> ValueError inside the real client
     time.sleep(0.2)  # if this raised, pytest would already have failed above
 
 

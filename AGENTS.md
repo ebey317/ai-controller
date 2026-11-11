@@ -9,12 +9,18 @@ AI Controller is a Linux desktop accessibility system. It turns a wired Xbox Ser
 ## Components
 
 - **AntiMicroX** — third-party app that maps controller buttons/sticks to keyboard keys and mouse events. Profiles live outside this repo in AntiMicroX's own config; `controller-profile-switcher.sh` swaps which profile is loaded.
-- **`scripts/ptt_pynput.py`** — push-to-talk listener. Right Trigger is mapped by AntiMicroX to the F13 key; this script watches for F13 down/up, records audio via `parec`, and posts it to the voice bridge for transcription.
-- **`scripts/voice_bridge.py`** — FastAPI app on `:8002`. Does speech-to-text via the Groq Whisper API and text-to-speech via `edge-tts`. `ptt_pynput.py` and other callers hit it over HTTP.
+- **`scripts/ptt_pynput.py`** — push-to-talk listener. Right Trigger is mapped by AntiMicroX to the F13 key; this script watches for F13 down/up, records audio via `parec`, and posts it to the voice bridge for transcription. **Ctrl+F13** triggers a "Tahuti goal take" (writes transcript to `~/.tahuti/goals/`).
+- **`scripts/voice_bridge.py`** — FastAPI app on `:8002`. Does speech-to-text via the Groq Whisper API and text-to-speech via `edge-tts` (or ElevenLabs). `ptt_pynput.py` and other callers hit it over HTTP.
 - **`scripts/slide_keyboard.py`** — GTK3 floating on-screen keyboard. Sends keystrokes to the focused window via `xdotool` without stealing focus.
 - **`scripts/controller-legend.py`** — GTK3 HUD overlay showing current button mappings, toggled with Guide.
 - **`scripts/controller-profile-switcher.sh`** — watches the focused window and swaps the active AntiMicroX profile (desktop / browser / YouTube TV) accordingly. Also handles antimicrox process dedup and the F13 xmodmap overlay reapply.
-- **`systemd/`** — user services for all of the above (`ptt-pynput.service`, `voice-bridge.service`, `ai-slide-keyboard.service`, `controller-legend.service`, `antimicrox-autoload.service`, `f13-xmodmap-heal.service`, `xone-driver-guard.service`). Services do not autostart on boot unless the user opts in via the launcher.
+- **`scripts/tahuti_goal_runner.py`** — headless goal runner. Drains `~/.tahuti/goals/`, works goals with Sensei model routing (Meta Muse, local, etc.), delivers answers via `/speak`, avatar cards, and Hermex push.
+- **`scripts/sensei_slash.py`** — drives the live Sensei TUI from Tahuti: parses spoken slash commands, types them into the real Sensei tmux session, waits for output.
+- **`scripts/sensei_model.py`** — model routing for Tahuti: active pin, provider lanes, reasoning depth, privacy gating via `~/.tahuti/trusted_providers`.
+- **`scripts/tahuti_choice_presenter.py`** — GTK3 approval cards for desktop actions (open_url, open_app) and file writes; fails closed unattended.
+- **`scripts/avatar_pulse.py`** — shared verified kill for avatar pulse pid file (uid + cmdline check).
+- **`scripts/speech_text.py`** — single source of truth for `spoken_form()` (TTS text normalization, markdown stripping, length cap).
+- **`systemd/`** — user services for all of the above (`ptt-pynput.service`, `voice-bridge.service`, `ai-slide-keyboard.service`, `controller-legend.service`, `antimicrox-autoload.service`, `f13-xmodmap-heal.service`, `xone-driver-guard.service`, `gip-audio-watchdog.service`, `a-button-double-tap-enter.service`, `ptt-pynput-headless.service`, `voice-bridge-headless.service`, `ai-controller-goal-runner.service`, `tahuti-readme-nudge.service` + `.timer`). Services do not autostart on boot unless the user opts in via the launcher. **Exception:** `tahuti-readme-nudge.timer` is enabled at install time (it lives outside the launcher and offers its own "Turn off" card).
 
 ## Hard rules for agents
 
@@ -40,4 +46,4 @@ AI Controller is a Linux desktop accessibility system. It turns a wired Xbox Ser
 
 ## Project status
 
-Core product is shipped and in daily use: push-to-talk dictation, on-screen keyboard, HUD legend, auto profile switching, TTS responses, xone controller support, ghost-recording prevention, and the public-repo portability pass are all done. See `TASKS.md` for the current maintenance backlog — mostly monitoring, test coverage for `ptt_pynput.py`/`slide_keyboard.py`, and log rotation, not open feature work.
+Core product is shipped and in daily use: push-to-talk dictation, on-screen keyboard, HUD legend, auto profile switching, TTS responses, xone controller support, ghost-recording prevention, and the public-repo portability pass are all done. **Tahuti voice agent is shipped: goal runner, Sensei slash commands, model routing, approval cards, avatar pulse, conversation history, and the README nudge timer are all live.** See `TASKS.md` for the current maintenance backlog — mostly monitoring, test coverage for `ptt_pynput.py`/`slide_keyboard.py`, and log rotation, not open feature work.

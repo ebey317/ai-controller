@@ -15,6 +15,9 @@ ignore = ["E501"]
 "__init__.py" = ["F401"]
 "tests/*" = ["S101"]
 "scripts/*" = ["S101", "E402"]  # scripts bootstrap sys.path before their imports, by design
+# Root-level headless smoke test. It sets env vars and installs mocks BEFORE
+# importing ptt_pynput, so the late imports are load-bearing, not sloppiness.
+"test_headless_mode.py" = ["S101", "E402"]
 # FastAPI's File()/Form() in parameter defaults is the framework idiom
 "scripts/voice_bridge.py" = ["B008"]
 # Retired worker (2026-10-31, see tahuti_goal_runner.py's RETIRED comment):

@@ -12,6 +12,7 @@ returns. (Wiring a playback-only script into this slot is exactly what
 caused the month-long "TTS provider exited with code 1" outage; see
 docs/hermes_tts_pipeline.md, Incident 001. Don't repeat that here.)
 """
+
 import argparse
 import os
 import subprocess
@@ -22,9 +23,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 from voice_toggle import get_voice, load_voice  # reuse the tested voice resolution
 
-PIPER_CANDIDATES = (
-    os.path.expanduser("~/.local/bin/piper"),
-)
+PIPER_CANDIDATES = (os.path.expanduser("~/.local/bin/piper"),)
 FFMPEG_BIN = "/usr/bin/ffmpeg"
 EDGE_TTS_CANDIDATES = (
     os.path.expanduser("~/.hermes/hermes-agent/venv/bin/edge-tts"),
@@ -37,6 +36,7 @@ def _resolve_edge_tts_bin():
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
             return cand
     import shutil
+
     found = shutil.which("edge-tts")
     if found:
         return found
@@ -48,6 +48,7 @@ def _resolve_piper_bin():
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
             return cand
     import shutil
+
     found = shutil.which("piper")
     if found:
         return found
@@ -60,24 +61,45 @@ def _piper_generate(text, model_path, output_path):
     proc = subprocess.run(
         [_resolve_piper_bin(), "--model", model_path, "--output_file", output_path],
         input=text.encode("utf-8"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=30,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"piper exited {proc.returncode}: {proc.stderr.decode(errors='replace')[:300]}")
+        raise RuntimeError(
+            f"piper exited {proc.returncode}: {proc.stderr.decode(errors='replace')[:300]}"
+        )
 
 
 def _edge_generate(text, voice, pitch, rate, output_path):
     edge_tts = _resolve_edge_tts_bin()
     tmp_mp3 = output_path + ".src.mp3"
     proc = subprocess.run(
-        [edge_tts, "--voice", voice, f"--pitch={pitch}", f"--rate={rate}",
-         "--text", text, "--write-media", tmp_mp3],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=25,
+        [
+            edge_tts,
+            "--voice",
+            voice,
+            f"--pitch={pitch}",
+            f"--rate={rate}",
+            "--text",
+            text,
+            "--write-media",
+            tmp_mp3,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=25,
     )
-    if proc.returncode != 0 or not os.path.exists(tmp_mp3) or os.path.getsize(tmp_mp3) == 0:
+    if (
+        proc.returncode != 0
+        or not os.path.exists(tmp_mp3)
+        or os.path.getsize(tmp_mp3) == 0
+    ):
         if os.path.exists(tmp_mp3):
             os.remove(tmp_mp3)
-        raise RuntimeError(f"edge-tts exited {proc.returncode}: {proc.stderr.decode(errors='replace')[:300]}")
+        raise RuntimeError(
+            f"edge-tts exited {proc.returncode}: {proc.stderr.decode(errors='replace')[:300]}"
+        )
     try:
         # Hermes's declared output_format decides the extension it expects at
         # output_path; convert only when that extension isn't already mp3.
@@ -86,10 +108,14 @@ def _edge_generate(text, voice, pitch, rate, output_path):
         else:
             conv = subprocess.run(
                 [FFMPEG_BIN, "-y", "-loglevel", "error", "-i", tmp_mp3, output_path],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=20,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=20,
             )
             if conv.returncode != 0:
-                raise RuntimeError(f"ffmpeg exited {conv.returncode}: {conv.stderr.decode(errors='replace')[:300]}")
+                raise RuntimeError(
+                    f"ffmpeg exited {conv.returncode}: {conv.stderr.decode(errors='replace')[:300]}"
+                )
     finally:
         if os.path.exists(tmp_mp3):
             os.remove(tmp_mp3)
@@ -110,7 +136,9 @@ def main():
     voice_id = load_voice()
     voice = get_voice(voice_id)
     if voice is None:
-        print(f"Error: could not resolve active voice (id={voice_id!r})", file=sys.stderr)
+        print(
+            f"Error: could not resolve active voice (id={voice_id!r})", file=sys.stderr
+        )
         sys.exit(1)
 
     out_dir = os.path.dirname(os.path.abspath(args.output))
@@ -133,7 +161,10 @@ def main():
         sys.exit(1)
 
     if not os.path.exists(args.output) or os.path.getsize(args.output) == 0:
-        print(f"Error: no audio produced for voice {voice_id!r} (engine={voice.get('engine')!r})", file=sys.stderr)
+        print(
+            f"Error: no audio produced for voice {voice_id!r} (engine={voice.get('engine')!r})",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     sys.exit(0)

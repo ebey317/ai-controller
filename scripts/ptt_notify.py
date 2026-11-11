@@ -48,7 +48,9 @@ def sanitize_for_notify(text: str, max_len: int = 120) -> str:
     return text.replace(os.path.expanduser("~"), "~")[:max_len]
 
 
-def notify_hermex(title: str, body: str, urgency: str = "normal", sound: bool = False) -> None:
+def notify_hermex(
+    title: str, body: str, urgency: str = "normal", sound: bool = False
+) -> None:
     """Fire-and-forget push notification to the Hermex iOS app.
 
     Runs on a daemon thread so a slow or unreachable hermes-webui can never
@@ -57,6 +59,7 @@ def notify_hermex(title: str, body: str, urgency: str = "normal", sound: bool = 
     the caller at all, which is the actual guarantee the PTT hot path
     needs. Do not make this call synchronous again -- see module docstring.
     """
+
     def _fire():
         try:
             _notify_hermex_impl(title, body, urgency=urgency, sound=sound)

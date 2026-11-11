@@ -28,7 +28,7 @@ The installer will:
 5. Copy AntiMicroX profile with install-path placeholders replaced
 6. Ask consent before modifying system driver config (xpad blacklist + initramfs)
 7. Install udev rules for antimicrox device access
-8. Install 7 systemd user services (does NOT enable autostart by default)
+8. Install systemd user services (core 7 + opt-in Tahuti/headless services; does NOT enable autostart by default; `tahuti-readme-nudge.timer` is the only timer enabled at install)
 9. Create a desktop shortcut
 
 ## Post-Install
@@ -72,3 +72,51 @@ Then manually remove system-level changes (xpad blacklist, udev rule) as printed
 ---
 
 **Full documentation:** [README.md](README.md)
+
+---
+
+## Voice-agent privacy: `~/.tahuti/trusted_providers`
+
+Tahuti answers with whatever Sensei model is pinned. Some tools return **your private content** —
+`read_file`, `list_dir`, `check_email`, `check_commits` — and that content is only shared with a
+model you have explicitly trusted.
+
+- **Trusted by default:** models running **on this computer** (`local`, `ollama`).
+- **To trust a cloud provider** (e.g. a Meta or OpenRouter pin), add its name on its own line
+  in `~/.tahuti/trusted_providers`:
+
+  ```bash
+  echo "meta models" >> ~/.tahuti/trusted_providers   # one name per line, # comments allowed
+  ```
+
+- Anything not in that file gets a clear refusal instead of your data — the agent tells you
+  exactly which name to add if you want to allow it.
+- **Rule of thumb:** private files/mail go only to local models, or providers you have decided
+  to trust for this machine.
+
+## README nudge (the avatar's "Want to learn more?" card)
+
+`install.sh` wires a user timer (`tahuti-readme-nudge.timer`) that asks about every ~2 hours
+whether you want to open the Tahuti README. Say **Turn off** on the card and it stays quiet;
+the card itself is the opt-out. To switch it off from the terminal instead:
+
+```bash
+systemctl --user disable --now tahuti-readme-nudge.timer
+```
+
+## Troubleshooting
+
+Run the built-in doctor any time something seems off — it checks the install, the venv,
+every systemd unit, and the AntiMicroX profile in one pass:
+
+```bash
+bash scripts/doctor.sh
+```
+
+It exits 0 with `All checks passed` when everything is healthy, and names exactly what is
+broken (and where) when it is not. Opt-in headless services are allowed to be disabled on a
+desktop install — doctor will not fail you for that.
+
+To uninstall, run `bash uninstall.sh`, then remove system-level changes (xpad blacklist,
+udev rule) as printed by the uninstaller. Per-service stop/autostart toggles live in the
+AI Controller launcher; installed units live in `~/.config/systemd/user/`.

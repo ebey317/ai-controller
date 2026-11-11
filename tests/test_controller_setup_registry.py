@@ -17,6 +17,7 @@ import controller_setup as cs  # noqa: E402
 
 # ── registry category coverage ────────────────────────────────────────
 
+
 def test_backends_cover_all_required_categories():
     required = {
         "controller",
@@ -49,6 +50,7 @@ def test_backend_status_unknown_returns_none():
 
 
 # ── services must be a registry backend ───────────────────────────────
+
 
 def test_services_is_registry_backend():
     names = [b.name for b in cs.BACKENDS]
@@ -94,6 +96,7 @@ def test_check_services_reports_inactive(monkeypatch):
 
 # ── Tahuti: honest static-source-presence reporting ─────────────────
 
+
 def _fake_script_path(tmp_path, present_names):
     for n in present_names:
         (tmp_path / n).write_text("# present\n")
@@ -106,7 +109,8 @@ def _fake_script_path(tmp_path, present_names):
 
 def test_tahuti_desktop_warns_on_source_presence(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        cs, "_script_path",
+        cs,
+        "_script_path",
         _fake_script_path(tmp_path, ["tahuti_desktop.py"]),
     )
     level, label, detail = cs.check_tahuti_desktop()
@@ -124,7 +128,8 @@ def test_tahuti_desktop_fails_when_missing(tmp_path, monkeypatch):
 
 def test_tahuti_mcp_warns_on_source_presence(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        cs, "_script_path",
+        cs,
+        "_script_path",
         _fake_script_path(tmp_path, ["tahuti_mcp.py"]),
     )
     level, label, detail = cs.check_tahuti_mcp()
@@ -141,6 +146,7 @@ def test_tahuti_mcp_fails_when_missing(tmp_path, monkeypatch):
 
 
 # ── Sensei bridge: GET /health with response validation ─────────────
+
 
 def test_sensei_bridge_gets_health_and_validates_response(monkeypatch):
     payload = {
@@ -212,9 +218,11 @@ def test_sensei_bridge_warns_on_unreachable_health(monkeypatch):
 
 # ── Diagnostics: bounded read-only probe, honest reporting ───────────
 
+
 def test_diagnostics_passes_syntax_probe(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        cs, "_script_path",
+        cs,
+        "_script_path",
         _fake_script_path(tmp_path, ["voice_stt_health_check.py"]),
     )
     level, label, detail = cs.check_diagnostics()
@@ -233,7 +241,9 @@ def test_diagnostics_fails_when_missing(tmp_path, monkeypatch):
 def test_diagnostics_fails_on_syntax_error(tmp_path, monkeypatch):
     (tmp_path / "voice_stt_health_check.py").write_text("def bad(\n")
     monkeypatch.setattr(
-        cs, "_script_path", lambda name: str(tmp_path / name),
+        cs,
+        "_script_path",
+        lambda name: str(tmp_path / name),
     )
     level, _, detail = cs.check_diagnostics()
     assert level == cs.FAIL
@@ -242,12 +252,14 @@ def test_diagnostics_fails_on_syntax_error(tmp_path, monkeypatch):
 
 # ── run_doctor failure containment ───────────────────────────────────
 
+
 def test_run_doctor_contains_check_exception(monkeypatch):
     def boom():
         raise RuntimeError("simulated crash")
 
     monkeypatch.setattr(
-        cs, "BACKENDS",
+        cs,
+        "BACKENDS",
         [cs.Backend("crasher", "controller", "live", boom)],
     )
     rows = cs.run_doctor()
@@ -263,7 +275,8 @@ def test_run_doctor_suppresses_info_rows(monkeypatch):
         return ("INFO", "info-test", "should be filtered")
 
     monkeypatch.setattr(
-        cs, "BACKENDS",
+        cs,
+        "BACKENDS",
         [cs.Backend("info-test", "controller", "live", info_backend)],
     )
     rows = cs.run_doctor()
@@ -275,7 +288,8 @@ def test_backend_status_contains_check_exception(monkeypatch):
         raise RuntimeError("simulated crash")
 
     monkeypatch.setattr(
-        cs, "BACKENDS",
+        cs,
+        "BACKENDS",
         [cs.Backend("crasher", "controller", "live", boom)],
     )
     source, category, result = cs.backend_status("crasher")
@@ -285,7 +299,6 @@ def test_backend_status_contains_check_exception(monkeypatch):
 
 
 def test_registry_rejects_unknown_backend_category():
-    bad = cs.Backend("bad-cat", "not-a-category", "live",
-                     lambda: (cs.OK, "", ""))
+    bad = cs.Backend("bad-cat", "not-a-category", "live", lambda: (cs.OK, "", ""))
     with pytest.raises(ValueError, match="not-a-category"):
         cs._validate_backends([bad], cs.CATEGORIES)

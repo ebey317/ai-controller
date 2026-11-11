@@ -241,7 +241,9 @@ def _save_input_target(target: str) -> str:
 def _load_voice_state_pack() -> Optional[str]:
     """Read the keyboard voice-pack state file that the runtime reads."""
     try:
-        with open(os.path.join(config_dir(), "ai_controller_voice"), "r", encoding="utf-8") as f:
+        with open(
+            os.path.join(config_dir(), "ai_controller_voice"), "r", encoding="utf-8"
+        ) as f:
             return f.read().strip()
     except (FileNotFoundError, OSError):
         return None
@@ -267,7 +269,6 @@ def _load_profiles() -> dict:
 
 def _save_profiles(data: dict) -> str:
     return vp.save_profiles(data)
-
 
 
 def _verify_readback(key: str, desired) -> tuple:
@@ -298,39 +299,73 @@ def _verify_readback(key: str, desired) -> tuple:
         elif key == "keyboard_gain":
             actual = vp.load_profiles()["keyboard"]["gain"]
         elif key == "tahuti_engine":
-            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get("engine", "kokoro")
+            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get(
+                "engine", "kokoro"
+            )
         elif key == "tahuti_voice":
-            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get("voice", "am_onyx")
+            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get(
+                "voice", "am_onyx"
+            )
         elif key == "tahuti_rate":
-            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get("rate", 1.07)
+            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get(
+                "rate", 1.07
+            )
         elif key == "tahuti_pitch":
-            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get("pitch_semitones", 0.0)
+            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get(
+                "pitch_semitones", 0.0
+            )
         elif key == "tahuti_gain":
-            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get("gain", 1.0)
+            actual = vp.get_avatar_profile(vp.load_profiles(), "tahuti").get(
+                "gain", 1.0
+            )
         elif key == "avatar_active":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("active_avatar", "tahuti")
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "active_avatar", "tahuti"
+            )
         elif key == "avatar_show_trigger":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("show_trigger", "talk_buttons")
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "show_trigger", "talk_buttons"
+            )
         elif key == "avatar_enabled":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("enabled_by_default", True)
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "enabled_by_default", True
+            )
         elif key == "avatar_size_px":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("size_px", vp.AVATAR_SIZE_DEFAULT_PX)
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "size_px", vp.AVATAR_SIZE_DEFAULT_PX
+            )
         elif key == "avatar_movement":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("movement", "corner_loop")
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "movement", "corner_loop"
+            )
         elif key == "avatar_respect_corner":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("respect_notification_corner", True)
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "respect_notification_corner", True
+            )
         elif key == "avatar_notification_corner":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("notification_corner", "top-right")
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "notification_corner", "top-right"
+            )
         elif key == "avatar_approval_box":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("approval_box", True)
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "approval_box", True
+            )
         elif key == "avatar_show_on_talk":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("show_on_talk", True)
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "show_on_talk", True
+            )
         elif key == "avatar_stay_working":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("stay_while_working", True)
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "stay_while_working", True
+            )
         elif key == "avatar_fade_done":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("fade_when_done", True)
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "fade_when_done", True
+            )
         elif key == "avatar_popup_approval":
-            actual = vp.get_avatar_settings(vp.load_profiles()).get("popup_on_approval", True)
+            actual = vp.get_avatar_settings(vp.load_profiles()).get(
+                "popup_on_approval", True
+            )
         else:
             return False, None, f"no readback source for {key!r}"
     except Exception as exc:
@@ -487,7 +522,9 @@ def apply_setting(key: str, value) -> tuple:
             if value not in INPUT_TARGETS:
                 return False, _load_input_target(), f"unknown input target {value!r}"
             readback = _save_input_target(value)
-            return _verified("input_target", readback, f"Input target set to {readback}")
+            return _verified(
+                "input_target", readback, f"Input target set to {readback}"
+            )
 
         if key == "keyboard_pack":
             packs = _discover_voice_packs()
@@ -497,7 +534,11 @@ def apply_setting(key: str, value) -> tuple:
                     return False, current_pack, f"voice pack {value!r} not found"
             else:
                 if value != current_pack:
-                    return False, current_pack, f"no voice packs installed; only {current_pack!r} is permitted"
+                    return (
+                        False,
+                        current_pack,
+                        f"no voice packs installed; only {current_pack!r} is permitted",
+                    )
             kb["pack"] = value
             _save_profiles(data)
             state_file = os.path.join(config_dir(), "ai_controller_voice")
@@ -505,27 +546,45 @@ def apply_setting(key: str, value) -> tuple:
                 with open(state_file, "w", encoding="utf-8") as f:
                     f.write(value)
             except Exception as exc:
-                return False, kb["pack"], f"Profiles saved but voice state file could not be written: {exc}"
-            return _verified("keyboard_pack", value, f"Keyboard voice pack set to {value}")
+                return (
+                    False,
+                    kb["pack"],
+                    f"Profiles saved but voice state file could not be written: {exc}",
+                )
+            return _verified(
+                "keyboard_pack", value, f"Keyboard voice pack set to {value}"
+            )
 
         if key == "keyboard_rate":
             kb["rate"] = float(value)
             _save_profiles(data)
-            return _verified("keyboard_rate", kb["rate"], f"Keyboard speed set to {kb['rate']}")
+            return _verified(
+                "keyboard_rate", kb["rate"], f"Keyboard speed set to {kb['rate']}"
+            )
 
         if key == "keyboard_pitch":
             kb["pitch_semitones"] = float(value)
             _save_profiles(data)
-            return _verified("keyboard_pitch", kb["pitch_semitones"], f"Keyboard pitch set to {kb['pitch_semitones']}st")
+            return _verified(
+                "keyboard_pitch",
+                kb["pitch_semitones"],
+                f"Keyboard pitch set to {kb['pitch_semitones']}st",
+            )
 
         if key == "keyboard_gain":
             kb["gain"] = float(value)
             _save_profiles(data)
-            return _verified("keyboard_gain", kb["gain"], f"Keyboard volume set to {kb['gain']}")
+            return _verified(
+                "keyboard_gain", kb["gain"], f"Keyboard volume set to {kb['gain']}"
+            )
 
         if key == "tahuti_engine":
             if value not in TAHUTI_ENGINES:
-                return False, tahuti.get("engine", "kokoro"), f"unknown engine {value!r}"
+                return (
+                    False,
+                    tahuti.get("engine", "kokoro"),
+                    f"unknown engine {value!r}",
+                )
             tahuti["engine"] = value
             _save_profiles(data)
             return _verified("tahuti_engine", value, f"Tahuti engine set to {value}")
@@ -533,22 +592,32 @@ def apply_setting(key: str, value) -> tuple:
         if key == "tahuti_voice":
             tahuti["voice"] = str(value)
             _save_profiles(data)
-            return _verified("tahuti_voice", str(value), f"Tahuti voice id set to {value}")
+            return _verified(
+                "tahuti_voice", str(value), f"Tahuti voice id set to {value}"
+            )
 
         if key == "tahuti_rate":
             tahuti["rate"] = float(value)
             _save_profiles(data)
-            return _verified("tahuti_rate", tahuti["rate"], f"Tahuti speed set to {tahuti['rate']}")
+            return _verified(
+                "tahuti_rate", tahuti["rate"], f"Tahuti speed set to {tahuti['rate']}"
+            )
 
         if key == "tahuti_pitch":
             tahuti["pitch_semitones"] = float(value)
             _save_profiles(data)
-            return _verified("tahuti_pitch", tahuti["pitch_semitones"], f"Tahuti pitch set to {tahuti['pitch_semitones']}st")
+            return _verified(
+                "tahuti_pitch",
+                tahuti["pitch_semitones"],
+                f"Tahuti pitch set to {tahuti['pitch_semitones']}st",
+            )
 
         if key == "tahuti_gain":
             tahuti["gain"] = float(value)
             _save_profiles(data)
-            return _verified("tahuti_gain", tahuti["gain"], f"Tahuti volume set to {tahuti['gain']}")
+            return _verified(
+                "tahuti_gain", tahuti["gain"], f"Tahuti volume set to {tahuti['gain']}"
+            )
 
         if key == "avatar_active":
             names = vp.available_avatars()
@@ -558,51 +627,87 @@ def apply_setting(key: str, value) -> tuple:
                     return False, current_avatar, f"no portrait for {value!r}"
             else:
                 if value != current_avatar:
-                    return False, current_avatar, f"no portraits installed; only {current_avatar!r} is permitted"
+                    return (
+                        False,
+                        current_avatar,
+                        f"no portraits installed; only {current_avatar!r} is permitted",
+                    )
             avatar["active_avatar"] = value
             _save_profiles(data)
             return _verified("avatar_active", value, f"Active avatar set to {value}")
 
         if key == "avatar_show_trigger":
             if value not in vp.SHOW_TRIGGERS:
-                return False, avatar.get("show_trigger", "talk_buttons"), f"unknown trigger {value!r}"
+                return (
+                    False,
+                    avatar.get("show_trigger", "talk_buttons"),
+                    f"unknown trigger {value!r}",
+                )
             avatar["show_trigger"] = value
             _save_profiles(data)
-            return _verified("avatar_show_trigger", value, f"Avatar shows {vp.SHOW_TRIGGER_LABELS[value]}")
+            return _verified(
+                "avatar_show_trigger",
+                value,
+                f"Avatar shows {vp.SHOW_TRIGGER_LABELS[value]}",
+            )
 
         if key == "avatar_enabled":
             desired = bool(value)
             avatar["enabled_by_default"] = desired
             _save_profiles(data)
-            return _verified("avatar_enabled", desired, "Avatar feature " + ("armed" if desired else "disarmed"))
+            return _verified(
+                "avatar_enabled",
+                desired,
+                "Avatar feature " + ("armed" if desired else "disarmed"),
+            )
 
         if key == "avatar_size_px":
             size = int(value)
             if not (vp.AVATAR_SIZE_MIN_PX <= size <= vp.AVATAR_SIZE_MAX_PX):
-                return False, avatar.get("size_px", vp.AVATAR_SIZE_DEFAULT_PX), "size out of range"
+                return (
+                    False,
+                    avatar.get("size_px", vp.AVATAR_SIZE_DEFAULT_PX),
+                    "size out of range",
+                )
             avatar["size_px"] = size
             _save_profiles(data)
             return _verified("avatar_size_px", size, f"Avatar size set to {size}px")
 
         if key == "avatar_movement":
             if value not in vp.MOVEMENT_PATTERNS:
-                return False, avatar.get("movement", "corner_loop"), f"unknown movement {value!r}"
+                return (
+                    False,
+                    avatar.get("movement", "corner_loop"),
+                    f"unknown movement {value!r}",
+                )
             avatar["movement"] = value
             _save_profiles(data)
-            return _verified("avatar_movement", value, f"Avatar movement set to {value}")
+            return _verified(
+                "avatar_movement", value, f"Avatar movement set to {value}"
+            )
 
         if key == "avatar_respect_corner":
             desired = bool(value)
             avatar["respect_notification_corner"] = desired
             _save_profiles(data)
-            return _verified("avatar_respect_corner", desired, "Notification-corner respect updated")
+            return _verified(
+                "avatar_respect_corner", desired, "Notification-corner respect updated"
+            )
 
         if key == "avatar_notification_corner":
             if value not in vp.NOTIFICATION_CORNERS:
-                return False, avatar.get("notification_corner", "top-right"), f"unknown corner {value!r}"
+                return (
+                    False,
+                    avatar.get("notification_corner", "top-right"),
+                    f"unknown corner {value!r}",
+                )
             avatar["notification_corner"] = value
             _save_profiles(data)
-            return _verified("avatar_notification_corner", value, f"Notification corner set to {value}")
+            return _verified(
+                "avatar_notification_corner",
+                value,
+                f"Notification corner set to {value}",
+            )
 
         if key == "avatar_approval_box":
             desired = bool(value)
@@ -620,7 +725,9 @@ def apply_setting(key: str, value) -> tuple:
             desired = bool(value)
             avatar["stay_while_working"] = desired
             _save_profiles(data)
-            return _verified("avatar_stay_working", desired, "Stay-while-working updated")
+            return _verified(
+                "avatar_stay_working", desired, "Stay-while-working updated"
+            )
 
         if key == "avatar_fade_done":
             desired = bool(value)
@@ -632,14 +739,18 @@ def apply_setting(key: str, value) -> tuple:
             desired = bool(value)
             avatar["popup_on_approval"] = desired
             _save_profiles(data)
-            return _verified("avatar_popup_approval", desired, "Approval pop-up updated")
+            return _verified(
+                "avatar_popup_approval", desired, "Approval pop-up updated"
+            )
 
         return False, None, f"unknown setting {key!r}"
     except Exception as exc:
         return False, None, f"Save failed: {exc}"
 
 
-def run_voice_test(profile: dict, name: str = "voice", text: Optional[str] = None) -> str:
+def run_voice_test(
+    profile: dict, name: str = "voice", text: Optional[str] = None
+) -> str:
     """Speak a preview line for a profile and return an honest outcome string.
 
     Uses controller_setup.speak_preview, which itself returns False when the
@@ -648,7 +759,11 @@ def run_voice_test(profile: dict, name: str = "voice", text: Optional[str] = Non
     if not has_display():
         return "Test voice needs a display."
     ok = cs.speak_preview(profile, name, text=text)
-    return "Voice test played." if ok else "Voice test could not play (engine/model missing or no network)."
+    return (
+        "Voice test played."
+        if ok
+        else "Voice test could not play (engine/model missing or no network)."
+    )
 
 
 def gather_health():
@@ -698,9 +813,7 @@ def redacted_doctor_text(home_path: str = None) -> str:
         "",
     ]
     for level, label, detail in rows:
-        lines.append(
-            f"{level:<4}  {label}: {redact_detail(detail, home_path)}"
-        )
+        lines.append(f"{level:<4}  {label}: {redact_detail(detail, home_path)}")
     return "\n".join(lines)
 
 
@@ -839,8 +952,9 @@ def _choice_control(choices, current):
 
 
 def _spin_control(value: float, lo: float, hi: float, step: float, digits: int = 2):
-    adj = Gtk.Adjustment(value=value, lower=lo, upper=hi,
-                         step_increment=step, page_increment=step * 10)
+    adj = Gtk.Adjustment(
+        value=value, lower=lo, upper=hi, step_increment=step, page_increment=step * 10
+    )
     spin = Gtk.SpinButton(adjustment=adj, climb_rate=0.1, digits=digits)
     spin.set_numeric(True)
     return spin
@@ -981,17 +1095,23 @@ class SetupCenter(Gtk.Window):
     def _build_controller_section(self):
         box = self._section_box("Controller")
 
-        ptt = _Card(box, "PTT text style",
-                    "How dictated text looks when sent from the controller.",
-                    _load_ptt_mode())
+        ptt = _Card(
+            box,
+            "PTT text style",
+            "How dictated text looks when sent from the controller.",
+            _load_ptt_mode(),
+        )
         ptt.add_editable(
             _choice_control(PTT_MODES, _load_ptt_mode()),
             lambda v: apply_setting("ptt_mode", v),
         )
 
-        target = _Card(box, "Input target",
-                       "Type straight into the focused window, or copy to the clipboard only.",
-                       _load_input_target())
+        target = _Card(
+            box,
+            "Input target",
+            "Type straight into the focused window, or copy to the clipboard only.",
+            _load_input_target(),
+        )
         target.add_editable(
             _choice_control(INPUT_TARGETS, _load_input_target()),
             lambda v: apply_setting("input_target", v),
@@ -1002,76 +1122,103 @@ class SetupCenter(Gtk.Window):
         s = self._settings
 
         packs = s.get("voice_packs") or ["aria"]
-        pack_card = _Card(box, "Keyboard voice pack",
-                          "The voice pack the keyboard speaks with.",
-                          s["keyboard_pack"])
+        pack_card = _Card(
+            box,
+            "Keyboard voice pack",
+            "The voice pack the keyboard speaks with.",
+            s["keyboard_pack"],
+        )
         pack_card.add_editable(
             _choice_control(packs, s["keyboard_pack"]),
             lambda v: apply_setting("keyboard_pack", v),
             lambda: _run_keyboard_voice_test(),
         )
 
-        rate_card = _Card(box, "Keyboard speaking speed",
-                          "Multiplier: 0.5 slow, 1.0 natural, 2.0 fast.",
-                          s["keyboard_rate"])
+        rate_card = _Card(
+            box,
+            "Keyboard speaking speed",
+            "Multiplier: 0.5 slow, 1.0 natural, 2.0 fast.",
+            s["keyboard_rate"],
+        )
         rate_card.add_editable(
             _spin_control(s["keyboard_rate"], vp.RATE_MIN, vp.RATE_MAX, 0.05),
             lambda v: apply_setting("keyboard_rate", v),
             lambda: _run_keyboard_voice_test(),
         )
 
-        pitch_card = _Card(box, "Keyboard pitch",
-                           "Pitch shift in semitones (-12 .. +12).",
-                           s["keyboard_pitch"])
+        pitch_card = _Card(
+            box,
+            "Keyboard pitch",
+            "Pitch shift in semitones (-12 .. +12).",
+            s["keyboard_pitch"],
+        )
         pitch_card.add_readonly(
             "voice_toggle.speak/_piper_speak does not apply keyboard pitch yet"
         )
 
-        gain_card = _Card(box, "Keyboard volume / gain",
-                          "Output volume multiplier: 0 mute, 1 natural, 2 double.",
-                          s["keyboard_gain"])
+        gain_card = _Card(
+            box,
+            "Keyboard volume / gain",
+            "Output volume multiplier: 0 mute, 1 natural, 2 double.",
+            s["keyboard_gain"],
+        )
         gain_card.add_readonly(
             "voice_toggle.speak/_piper_speak does not apply keyboard gain yet"
         )
 
-        engine_card = _Card(box, "Tahuti voice engine",
-                            "Speech engine Tahuti uses for replies.",
-                            s["tahuti_engine"])
+        engine_card = _Card(
+            box,
+            "Tahuti voice engine",
+            "Speech engine Tahuti uses for replies.",
+            s["tahuti_engine"],
+        )
         engine_card.add_editable(
             _choice_control(list(TAHUTI_ENGINES), s["tahuti_engine"]),
             lambda v: apply_setting("tahuti_engine", v),
         )
 
-        voice_card = _Card(box, "Tahuti voice id",
-                           "Voice identifier for the chosen engine (e.g. am_onyx for Kokoro).",
-                           s["tahuti_voice"])
+        voice_card = _Card(
+            box,
+            "Tahuti voice id",
+            "Voice identifier for the chosen engine (e.g. am_onyx for Kokoro).",
+            s["tahuti_voice"],
+        )
         voice_card.add_editable(
             Gtk.Entry(text=s["tahuti_voice"]),
             lambda v: apply_setting("tahuti_voice", v),
             lambda: run_voice_test(_tahuti_voice_profile(_load_profiles()), "tahuti"),
         )
 
-        trate_card = _Card(box, "Tahuti speaking speed",
-                           "Multiplier: 0.5 slow, 1.0 natural, 2.0 fast.",
-                           s["tahuti_rate"])
+        trate_card = _Card(
+            box,
+            "Tahuti speaking speed",
+            "Multiplier: 0.5 slow, 1.0 natural, 2.0 fast.",
+            s["tahuti_rate"],
+        )
         trate_card.add_editable(
             _spin_control(s["tahuti_rate"], vp.RATE_MIN, vp.RATE_MAX, 0.05),
             lambda v: apply_setting("tahuti_rate", v),
             lambda: run_voice_test(_tahuti_voice_profile(_load_profiles()), "tahuti"),
         )
 
-        tpitch_card = _Card(box, "Tahuti pitch",
-                            "Pitch shift in semitones (-12 .. +12).",
-                            s["tahuti_pitch"])
+        tpitch_card = _Card(
+            box,
+            "Tahuti pitch",
+            "Pitch shift in semitones (-12 .. +12).",
+            s["tahuti_pitch"],
+        )
         tpitch_card.add_editable(
             _spin_control(s["tahuti_pitch"], vp.PITCH_MIN, vp.PITCH_MAX, 0.5),
             lambda v: apply_setting("tahuti_pitch", v),
             lambda: run_voice_test(_tahuti_voice_profile(_load_profiles()), "tahuti"),
         )
 
-        tgain_card = _Card(box, "Tahuti volume / gain",
-                           "Output volume multiplier: 0 mute, 1 natural, 2 double.",
-                           s["tahuti_gain"])
+        tgain_card = _Card(
+            box,
+            "Tahuti volume / gain",
+            "Output volume multiplier: 0 mute, 1 natural, 2 double.",
+            s["tahuti_gain"],
+        )
         tgain_card.add_editable(
             _spin_control(s["tahuti_gain"], vp.GAIN_MIN, vp.GAIN_MAX, 0.05),
             lambda v: apply_setting("tahuti_gain", v),
@@ -1083,64 +1230,97 @@ class SetupCenter(Gtk.Window):
         s = self._settings
 
         avatars = vp.available_avatars() or ["tahuti"]
-        active_card = _Card(box, "Active avatar",
-                            "Which portrait the Tahuti overlay shows.",
-                            s["avatar_active"])
+        active_card = _Card(
+            box,
+            "Active avatar",
+            "Which portrait the Tahuti overlay shows.",
+            s["avatar_active"],
+        )
         active_card.add_editable(
             _choice_control(avatars, s["avatar_active"]),
             lambda v: apply_setting("avatar_active", v),
         )
 
-        trigger_card = _Card(box, "Show trigger",
-                             "When the avatar pops up.",
-                             vp.SHOW_TRIGGER_LABELS.get(s["avatar_show_trigger"], s["avatar_show_trigger"]))
+        trigger_card = _Card(
+            box,
+            "Show trigger",
+            "When the avatar pops up.",
+            vp.SHOW_TRIGGER_LABELS.get(
+                s["avatar_show_trigger"], s["avatar_show_trigger"]
+            ),
+        )
         trigger_card.add_readonly(
             "no live runtime consumer reads avatar.show_trigger yet"
         )
 
-        armed_card = _Card(box, "Avatar armed",
-                           "Turn the avatar overlay feature on or off.",
-                           "on" if s["avatar_enabled"] else "off")
+        armed_card = _Card(
+            box,
+            "Avatar armed",
+            "Turn the avatar overlay feature on or off.",
+            "on" if s["avatar_enabled"] else "off",
+        )
         armed_card.add_readonly(
             "no live runtime consumer reads avatar.enabled_by_default yet"
         )
 
-        size_card = _Card(box, "Avatar size",
-                          "On-screen size in pixels (small companion).",
-                          f"{s['avatar_size_px']}px")
+        size_card = _Card(
+            box,
+            "Avatar size",
+            "On-screen size in pixels (small companion).",
+            f"{s['avatar_size_px']}px",
+        )
         size_card.add_editable(
-            _spin_control(s["avatar_size_px"], vp.AVATAR_SIZE_MIN_PX,
-                        vp.AVATAR_SIZE_MAX_PX, 5, digits=0),
+            _spin_control(
+                s["avatar_size_px"],
+                vp.AVATAR_SIZE_MIN_PX,
+                vp.AVATAR_SIZE_MAX_PX,
+                5,
+                digits=0,
+            ),
             lambda v: apply_setting("avatar_size_px", v),
         )
 
-        move_card = _Card(box, "Avatar movement",
-                          "Corner loop animation or stay put.",
-                          s["avatar_movement"])
+        move_card = _Card(
+            box,
+            "Avatar movement",
+            "Corner loop animation or stay put.",
+            s["avatar_movement"],
+        )
         move_card.add_editable(
             _choice_control(list(vp.MOVEMENT_PATTERNS), s["avatar_movement"]),
             lambda v: apply_setting("avatar_movement", v),
         )
 
-        respect_card = _Card(box, "Respect notification corner",
-                             "Keep the corner loop out of the corner you get system notifications in.",
-                             "yes" if s["avatar_respect_corner"] else "no")
+        respect_card = _Card(
+            box,
+            "Respect notification corner",
+            "Keep the corner loop out of the corner you get system notifications in.",
+            "yes" if s["avatar_respect_corner"] else "no",
+        )
         respect_card.add_editable(
             Gtk.Switch(active=s["avatar_respect_corner"]),
             lambda v: apply_setting("avatar_respect_corner", v),
         )
 
-        corner_card = _Card(box, "Notification corner",
-                            "The corner the avatar should avoid when respect is on.",
-                            s["avatar_notification_corner"])
+        corner_card = _Card(
+            box,
+            "Notification corner",
+            "The corner the avatar should avoid when respect is on.",
+            s["avatar_notification_corner"],
+        )
         corner_card.add_editable(
-            _choice_control(list(vp.NOTIFICATION_CORNERS), s["avatar_notification_corner"]),
+            _choice_control(
+                list(vp.NOTIFICATION_CORNERS), s["avatar_notification_corner"]
+            ),
             lambda v: apply_setting("avatar_notification_corner", v),
         )
 
-        approval_card = _Card(box, "Approval box",
-                              "Tahuti can show its approval request beside the avatar.",
-                              "on" if s["avatar_approval_box"] else "off")
+        approval_card = _Card(
+            box,
+            "Approval box",
+            "Tahuti can show its approval request beside the avatar.",
+            "on" if s["avatar_approval_box"] else "off",
+        )
         approval_card.add_editable(
             Gtk.Switch(active=s["avatar_approval_box"]),
             lambda v: apply_setting("avatar_approval_box", v),
@@ -1148,14 +1328,26 @@ class SetupCenter(Gtk.Window):
 
         # Lifecycle toggles
         for key, title, desc in (
-            ("avatar_show_on_talk", "Show on talk",
-             "Pop up while L or R talk button is held."),
-            ("avatar_stay_working", "Stay while working",
-             "Keep showing while the agent is working after you release the button."),
-            ("avatar_fade_done", "Fade when done",
-             "Fade out once the agent's result lands."),
-            ("avatar_popup_approval", "Pop up on approval",
-             "Pop up with the approval box whenever approval is needed."),
+            (
+                "avatar_show_on_talk",
+                "Show on talk",
+                "Pop up while L or R talk button is held.",
+            ),
+            (
+                "avatar_stay_working",
+                "Stay while working",
+                "Keep showing while the agent is working after you release the button.",
+            ),
+            (
+                "avatar_fade_done",
+                "Fade when done",
+                "Fade out once the agent's result lands.",
+            ),
+            (
+                "avatar_popup_approval",
+                "Pop up on approval",
+                "Pop up with the approval box whenever approval is needed.",
+            ),
         ):
             value = bool(s[key])
             card = _Card(box, title, desc, "on" if value else "off")
@@ -1171,9 +1363,12 @@ class SetupCenter(Gtk.Window):
             level, label, detail = WARN, "sensei bridge", "status unavailable"
         else:
             level, label, detail = result
-        card = _Card(box, "Sensei bridge",
-                     "Connection to the Sensei/Master AI bridge at 127.0.0.1:8791.",
-                     f"{level} — {detail}")
+        card = _Card(
+            box,
+            "Sensei bridge",
+            "Connection to the Sensei/Master AI bridge at 127.0.0.1:8791.",
+            f"{level} — {detail}",
+        )
         card.add_readonly(
             "No setup-side writer is wired for the Sensei bridge config yet; "
             "use the terminal wizard or edit the bridge config directly."
@@ -1183,7 +1378,12 @@ class SetupCenter(Gtk.Window):
         box = self._section_box("Services & Diagnostics")
 
         # Action bar card
-        action_card = _Card(box, "Actions", "Refresh status, view diagnostics, or open the advanced terminal wizard.", "")
+        action_card = _Card(
+            box,
+            "Actions",
+            "Refresh status, view diagnostics, or open the advanced terminal wizard.",
+            "",
+        )
         refresh_btn = Gtk.Button(label="Refresh")
         refresh_btn.get_style_context().add_class("action-primary")
         refresh_btn.connect("clicked", self._on_refresh)
@@ -1219,9 +1419,7 @@ class SetupCenter(Gtk.Window):
             for row in section["rows"]:
                 row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
                 level_lbl = Gtk.Label(label=row["level"])
-                level_lbl.get_style_context().add_class(
-                    f"level-{row['level'].lower()}"
-                )
+                level_lbl.get_style_context().add_class(f"level-{row['level'].lower()}")
                 level_lbl.set_size_request(40, -1)
                 level_lbl.set_halign(Gtk.Align.START)
 
@@ -1255,7 +1453,12 @@ class SetupCenter(Gtk.Window):
         def run():
             try:
                 data = self._gather_data()
-                GLib.idle_add(self._rebuild_sections, data["settings"], data["health"], data["sensei"])
+                GLib.idle_add(
+                    self._rebuild_sections,
+                    data["settings"],
+                    data["health"],
+                    data["sensei"],
+                )
                 GLib.idle_add(self._set_status, "Setup Center refreshed.")
             except Exception as exc:
                 GLib.idle_add(self._set_status, f"Refresh failed: {exc}")
@@ -1315,9 +1518,7 @@ class SetupCenter(Gtk.Window):
                 parent_geom = (px, py, pw, ph)
             except Exception:
                 pass
-        x, y = _compute_setup_position(
-            parent_geom, (self.WIDTH, self.HEIGHT), (sw, sh)
-        )
+        x, y = _compute_setup_position(parent_geom, (self.WIDTH, self.HEIGHT), (sw, sh))
         self.move(x, y)
 
 

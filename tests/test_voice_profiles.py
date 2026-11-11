@@ -36,8 +36,10 @@ def test_round_trip_save_load(tmp_path):
     data = vp.load_profiles(path)
     data["avatars"]["tahuti"]["rate"] = 1.21
     data["avatars"]["seba"] = {
-        "engine": "piper", "voice": "joe",
-        "pitch_semitones": 0.0, "rate": 1.0,
+        "engine": "piper",
+        "voice": "joe",
+        "pitch_semitones": 0.0,
+        "rate": 1.0,
     }
     data["keyboard"]["rate"] = 1.1
     data["avatar"]["scale"] = 1.5
@@ -56,14 +58,18 @@ def test_round_trip_save_load(tmp_path):
 
 def test_partial_file_merges_over_defaults(tmp_path):
     path = tmp_path / "voice-profiles.json"
-    path.write_text(json.dumps({
-        "version": 1,
-        "avatars": {"tahuti": {"rate": 0.95}},
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "avatars": {"tahuti": {"rate": 0.95}},
+            }
+        )
+    )
     data = vp.load_profiles(str(path))
     tahuti = vp.get_avatar_profile(data, "tahuti")
     assert tahuti["rate"] == 0.95
-    assert tahuti["engine"] == "kokoro"      # default survived the merge
+    assert tahuti["engine"] == "kokoro"  # default survived the merge
     assert tahuti["voice"] == "am_onyx"
 
 
@@ -87,9 +93,21 @@ def test_save_refuses_invalid(tmp_path):
 
 def test_corrupt_file_raises(tmp_path):
     path = tmp_path / "voice-profiles.json"
-    path.write_text(json.dumps({"version": 1, "avatars": {
-        "tahuti": {"engine": "kokoro", "voice": "am_onyx",
-                   "pitch_semitones": 0.0, "rate": "fast"}}}))
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "avatars": {
+                    "tahuti": {
+                        "engine": "kokoro",
+                        "voice": "am_onyx",
+                        "pitch_semitones": 0.0,
+                        "rate": "fast",
+                    }
+                },
+            }
+        )
+    )
     with pytest.raises(ValueError):
         vp.load_profiles(str(path))
 
@@ -107,10 +125,13 @@ def test_preview_line_for_tahuti():
 
 # ── voice-board knobs ────────────────────────────────────────────────
 
+
 def test_knob_values_defaults_are_neutral():
     """A profile that never opened the board gets engine neutrals."""
     assert vp.knob_values({}) == {
-        "gain": 1.0, "bass_db": 0.0, "treble_db": 0.0,
+        "gain": 1.0,
+        "bass_db": 0.0,
+        "treble_db": 0.0,
         "noise_scale": vp.NOISE_SCALE_DEFAULT,
         "noise_w": vp.NOISE_W_DEFAULT,
     }
@@ -120,8 +141,13 @@ def test_knob_values_defaults_are_neutral():
 def test_knob_fields_round_trip(tmp_path):
     path = str(tmp_path / "voice-profiles.json")
     data = vp.load_profiles(path)
-    knobs = {"gain": 1.3, "bass_db": -3.0, "treble_db": 4.5,
-             "noise_scale": 0.5, "noise_w": 0.25}
+    knobs = {
+        "gain": 1.3,
+        "bass_db": -3.0,
+        "treble_db": 4.5,
+        "noise_scale": 0.5,
+        "noise_w": 0.25,
+    }
     data["avatars"]["tahuti"].update(knobs)
     data["keyboard"].update(knobs)
     vp.save_profiles(data, path)
@@ -137,8 +163,13 @@ def test_knob_fields_round_trip(tmp_path):
 
 
 def test_knob_bounds_rejected():
-    bad_values = {"gain": 2.5, "bass_db": -20.0, "treble_db": 16.0,
-                  "noise_scale": 1.5, "noise_w": -0.1}
+    bad_values = {
+        "gain": 2.5,
+        "bass_db": -20.0,
+        "treble_db": 16.0,
+        "noise_scale": 1.5,
+        "noise_w": -0.1,
+    }
     for field, bad in bad_values.items():
         data = copy.deepcopy(vp.DEFAULT_PROFILES)
         data["avatars"]["tahuti"][field] = bad
@@ -153,8 +184,11 @@ def test_knob_bounds_rejected():
 def test_save_refuses_out_of_bounds_knob(tmp_path):
     data = copy.deepcopy(vp.DEFAULT_PROFILES)
     data["avatars"]["tahuti"] = {
-        "engine": "piper", "voice": "joe", "pitch_semitones": 0.0,
-        "rate": 1.0, "gain": 9.9,
+        "engine": "piper",
+        "voice": "joe",
+        "pitch_semitones": 0.0,
+        "rate": 1.0,
+        "gain": 9.9,
     }
     with pytest.raises(ValueError):
         vp.save_profiles(data, str(tmp_path / "voice-profiles.json"))
@@ -168,6 +202,7 @@ def test_profile_without_knob_keys_still_valid():
 
 
 # ── Edge demo bridge (Tahuti voice loop) ─────────────────────────
+
 
 def test_edge_demo_preset_values_and_lock_unchanged(tmp_path):
     path = str(tmp_path / "voice-profiles.json")
@@ -183,8 +218,10 @@ def test_edge_demo_preset_values_and_lock_unchanged(tmp_path):
     assert vp.canonical_engine(demo["engine"]) == "edge"
     # The demo preset never moves Tahuti's locked local default.
     assert data["avatars"]["tahuti"] == {
-        "engine": "kokoro", "voice": "am_onyx",
-        "pitch_semitones": 0.0, "rate": 1.07,
+        "engine": "kokoro",
+        "voice": "am_onyx",
+        "pitch_semitones": 0.0,
+        "rate": 1.07,
     }
     vp.save_profiles(data, path)
     loaded = vp.load_profiles(path)
@@ -199,7 +236,9 @@ def test_edge_engine_spellings_both_validate():
     assert vp.canonical_engine("kokoro") == "kokoro"
     data = copy.deepcopy(vp.DEFAULT_PROFILES)
     data["avatars"]["seba"] = {
-        "engine": "edge-tts", "voice": "en-US-GuyNeural",
-        "pitch_semitones": 0.0, "rate": 1.0,
+        "engine": "edge-tts",
+        "voice": "en-US-GuyNeural",
+        "pitch_semitones": 0.0,
+        "rate": 1.0,
     }
     assert vp.validate_profiles(data) == []

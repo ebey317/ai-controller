@@ -65,8 +65,11 @@ def _lowpass(samples, sr, cutoff_hz):
             acc += alpha * (float(x) - acc)
             out[i] = acc
     else:
-        acc = samples[0].astype(np.float64).copy() \
-            if len(samples) else np.zeros(samples.shape[1])
+        acc = (
+            samples[0].astype(np.float64).copy()
+            if len(samples)
+            else np.zeros(samples.shape[1])
+        )
         for i in range(len(samples)):
             acc += alpha * (samples[i].astype(np.float64) - acc)
             out[i] = acc
@@ -88,8 +91,7 @@ def apply_tone(samples, sr, bass_db=0.0, treble_db=0.0):
     return out.astype(np.float32)
 
 
-def apply_fx(samples, sr, pitch_semitones=0.0, bass_db=0.0,
-             treble_db=0.0, gain=1.0):
+def apply_fx(samples, sr, pitch_semitones=0.0, bass_db=0.0, treble_db=0.0, gain=1.0):
     """The full chain, in render order. Returns float32 samples."""
     out = np.asarray(samples, dtype=np.float32)
     out = pitch_shift(out, pitch_semitones)
@@ -99,31 +101,30 @@ def apply_fx(samples, sr, pitch_semitones=0.0, bass_db=0.0,
     return np.clip(out, -1.0, 1.0).astype(np.float32)
 
 
-def is_neutral(pitch_semitones=0.0, bass_db=0.0, treble_db=0.0,
-               gain=1.0):
-    return (not pitch_semitones and not bass_db and not treble_db
-            and gain == 1.0)
+def is_neutral(pitch_semitones=0.0, bass_db=0.0, treble_db=0.0, gain=1.0):
+    return not pitch_semitones and not bass_db and not treble_db and gain == 1.0
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("in_wav")
     ap.add_argument("out_wav")
-    ap.add_argument("--pitch", type=float, default=0.0,
-                    help="pitch shift in semitones")
-    ap.add_argument("--bass", type=float, default=0.0,
-                    help="bass gain in dB")
-    ap.add_argument("--treble", type=float, default=0.0,
-                    help="treble gain in dB")
-    ap.add_argument("--gain", type=float, default=1.0,
-                    help="volume multiplier")
+    ap.add_argument("--pitch", type=float, default=0.0, help="pitch shift in semitones")
+    ap.add_argument("--bass", type=float, default=0.0, help="bass gain in dB")
+    ap.add_argument("--treble", type=float, default=0.0, help="treble gain in dB")
+    ap.add_argument("--gain", type=float, default=1.0, help="volume multiplier")
     args = ap.parse_args(argv)
     import soundfile as sf
-    samples, sr = sf.read(args.in_wav, dtype="float32",
-                          always_2d=False)
-    out = apply_fx(samples, sr, pitch_semitones=args.pitch,
-                   bass_db=args.bass, treble_db=args.treble,
-                   gain=args.gain)
+
+    samples, sr = sf.read(args.in_wav, dtype="float32", always_2d=False)
+    out = apply_fx(
+        samples,
+        sr,
+        pitch_semitones=args.pitch,
+        bass_db=args.bass,
+        treble_db=args.treble,
+        gain=args.gain,
+    )
     sf.write(args.out_wav, out, sr)
     return 0
 

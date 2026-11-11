@@ -32,14 +32,14 @@ START_DEGREES = -135.0
 
 @dataclass(frozen=True)
 class KnobSpec:
-    field: str          # profile field the knob writes
-    label: str          # plain-English board label
+    field: str  # profile field the knob writes
+    label: str  # plain-English board label
     lo: float
     hi: float
-    neutral: float      # engine-default value (double-click reset
-                        # target is the SAVED value; this is the
-                        # factory neutral used for new profiles)
-    fmt: str            # readout style key, see format_value()
+    neutral: float  # engine-default value (double-click reset
+    # target is the SAVED value; this is the
+    # factory neutral used for new profiles)
+    fmt: str  # readout style key, see format_value()
     engines: tuple = ()  # empty = every engine; else engine names
 
     def clamp(self, value):
@@ -66,20 +66,30 @@ class KnobSpec:
 
 KNOB_SPECS = (
     KnobSpec("rate", "Pace", vp.RATE_MIN, vp.RATE_MAX, 1.0, "rate"),
-    KnobSpec("pitch_semitones", "Pitch",
-             vp.PITCH_MIN, vp.PITCH_MAX, 0.0, "pitch"),
-    KnobSpec("gain", "Volume",
-             vp.GAIN_MIN, vp.GAIN_MAX, vp.GAIN_DEFAULT, "gain"),
-    KnobSpec("bass_db", "Bass",
-             vp.BASS_MIN, vp.BASS_MAX, vp.BASS_DEFAULT, "db"),
-    KnobSpec("treble_db", "Treble",
-             vp.TREBLE_MIN, vp.TREBLE_MAX, vp.TREBLE_DEFAULT, "db"),
-    KnobSpec("noise_scale", "Expression",
-             vp.NOISE_SCALE_MIN, vp.NOISE_SCALE_MAX,
-             vp.NOISE_SCALE_DEFAULT, "unit", engines=("piper",)),
-    KnobSpec("noise_w", "Variation",
-             vp.NOISE_W_MIN, vp.NOISE_W_MAX,
-             vp.NOISE_W_DEFAULT, "unit", engines=("piper",)),
+    KnobSpec("pitch_semitones", "Pitch", vp.PITCH_MIN, vp.PITCH_MAX, 0.0, "pitch"),
+    KnobSpec("gain", "Volume", vp.GAIN_MIN, vp.GAIN_MAX, vp.GAIN_DEFAULT, "gain"),
+    KnobSpec("bass_db", "Bass", vp.BASS_MIN, vp.BASS_MAX, vp.BASS_DEFAULT, "db"),
+    KnobSpec(
+        "treble_db", "Treble", vp.TREBLE_MIN, vp.TREBLE_MAX, vp.TREBLE_DEFAULT, "db"
+    ),
+    KnobSpec(
+        "noise_scale",
+        "Expression",
+        vp.NOISE_SCALE_MIN,
+        vp.NOISE_SCALE_MAX,
+        vp.NOISE_SCALE_DEFAULT,
+        "unit",
+        engines=("piper",),
+    ),
+    KnobSpec(
+        "noise_w",
+        "Variation",
+        vp.NOISE_W_MIN,
+        vp.NOISE_W_MAX,
+        vp.NOISE_W_DEFAULT,
+        "unit",
+        engines=("piper",),
+    ),
 )
 
 SPECS_BY_FIELD = {spec.field: spec for spec in KNOB_SPECS}
@@ -112,9 +122,10 @@ def profile_values(profile):
     rate/pitch straight from the profile, the five extended fields
     through voice_profiles.knob_values() (neutrals filled)."""
     values = vp.knob_values(profile)
-    values["rate"] = float(profile.get("rate", 1.0)) \
-        if isinstance(profile, dict) else 1.0
-    values["pitch_semitones"] = float(
-        profile.get("pitch_semitones", 0.0)) \
-        if isinstance(profile, dict) else 0.0
+    values["rate"] = (
+        float(profile.get("rate", 1.0)) if isinstance(profile, dict) else 1.0
+    )
+    values["pitch_semitones"] = (
+        float(profile.get("pitch_semitones", 0.0)) if isinstance(profile, dict) else 0.0
+    )
     return values

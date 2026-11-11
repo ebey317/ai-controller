@@ -41,8 +41,8 @@ Register with OpenCode in ``~/.config/opencode/opencode.json``::
     "mcp": {
       "cua": {
         "type": "local",
-        "command": ["/home/elijah/ai-controller/.venv/bin/python",
-                    "/home/elijah/ai-controller/scripts/tahuti_mcp.py"],
+        "command": ["~/ai-controller/.venv/bin/python",
+                    "~/ai-controller/scripts/tahuti_mcp.py"],
         "environment": { "TAHUTI_MODE": "foreground" },
         "enabled": true
       }

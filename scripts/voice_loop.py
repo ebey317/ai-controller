@@ -64,11 +64,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 import voice_profiles as vp  # noqa: E402
-from ai_controller_paths import (  # noqa: E402
-    ai_controller_dir,
-    config_dir,
-    load_env,
-)
+from ai_controller_paths import ai_controller_dir, config_dir, load_env  # noqa: E402
 
 STATES = ("idle", "listening", "thinking", "speaking", "working", "done")
 
@@ -93,17 +89,18 @@ _CLAUSE_BREAKS = (",", ";", ":", " — ", " – ", " - ")
 
 def state_path() -> str:
     return os.path.expanduser(
-        os.environ.get("AI_CONTROLLER_LOOP_STATE", DEFAULT_STATE_PATH))
+        os.environ.get("AI_CONTROLLER_LOOP_STATE", DEFAULT_STATE_PATH)
+    )
 
 
 def barge_flag_path() -> str:
     return os.path.expanduser(
-        os.environ.get("AI_CONTROLLER_BARGE_FLAG", DEFAULT_BARGE_FLAG))
+        os.environ.get("AI_CONTROLLER_BARGE_FLAG", DEFAULT_BARGE_FLAG)
+    )
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(
-        timespec="seconds")
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
 def _atomic_write_json(path, payload) -> str:
@@ -144,7 +141,7 @@ def chunk_text(text, max_chars=140) -> list:
                 continue
             while len(sentence) > max_chars:
                 cut = -1
-                window = sentence[:max_chars + 1]
+                window = sentence[: max_chars + 1]
                 for mark in _CLAUSE_BREAKS:
                     idx = window.rfind(mark)
                     if idx >= max_chars // 3:
@@ -178,17 +175,19 @@ def _edge_python() -> str:
     return sys.executable
 
 
-def edge_voice_names(python=None, runner=subprocess.run,
-                     timeout=30) -> list:
+def edge_voice_names(python=None, runner=subprocess.run, timeout=30) -> list:
     """Voice short names from the installed edge-tts package."""
     python = python or _edge_python()
     result = runner(
         [python, "-m", "edge_tts", "--list-voices"],
-        capture_output=True, text=True, timeout=timeout)
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
     if result.returncode != 0:
         raise RuntimeError(
-            "edge-tts --list-voices failed: "
-            + (result.stderr or "")[-200:])
+            "edge-tts --list-voices failed: " + (result.stderr or "")[-200:]
+        )
     names = []
     for line in result.stdout.splitlines():
         parts = line.split()
@@ -202,8 +201,7 @@ def _apply_profile_fx(mp3_path, wav_path, profile) -> str:
     import soundfile as sf
     import voice_fx
 
-    samples, sample_rate = sf.read(
-        mp3_path, dtype="float32", always_2d=False)
+    samples, sample_rate = sf.read(mp3_path, dtype="float32", always_2d=False)
     knobs = vp.knob_values(profile)
     out = voice_fx.apply_fx(
         samples,
@@ -217,24 +215,35 @@ def _apply_profile_fx(mp3_path, wav_path, profile) -> str:
     return wav_path
 
 
-def render_edge_profile(text, profile, out_path,
-                        runner=subprocess.run) -> str:
+def render_edge_profile(text, profile, out_path, runner=subprocess.run) -> str:
     """Render one phrase with Edge TTS, then voice_fx, to a WAV."""
     out_path = os.path.expanduser(out_path)
     mp3_path = out_path + ".mp3"
     rate = float(profile.get("rate", 1.0))
     result = runner(
-        [_edge_python(), "-m", "edge_tts",
-         "--voice", profile.get("voice", "en-US-ChristopherNeural"),
-         f"--rate={round((rate - 1.0) * 100):+d}%",
-         "--pitch=+0Hz",
-         "--text", text,
-         "--write-media", mp3_path],
-        capture_output=True, text=True, timeout=60)
-    if result.returncode != 0 or not os.path.exists(mp3_path) \
-            or os.path.getsize(mp3_path) == 0:
-        raise RuntimeError(
-            "edge-tts render failed: " + (result.stderr or "")[-300:])
+        [
+            _edge_python(),
+            "-m",
+            "edge_tts",
+            "--voice",
+            profile.get("voice", "en-US-ChristopherNeural"),
+            f"--rate={round((rate - 1.0) * 100):+d}%",
+            "--pitch=+0Hz",
+            "--text",
+            text,
+            "--write-media",
+            mp3_path,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if (
+        result.returncode != 0
+        or not os.path.exists(mp3_path)
+        or os.path.getsize(mp3_path) == 0
+    ):
+        raise RuntimeError("edge-tts render failed: " + (result.stderr or "")[-300:])
     try:
         return _apply_profile_fx(mp3_path, out_path, profile)
     finally:
@@ -247,13 +256,14 @@ def render_edge_profile(text, profile, out_path,
 def _default_player(path):
     if shutil.which("mpv"):
         return subprocess.Popen(
-            ["mpv", "--no-video", "--force-media-title=AI_TTS_BARGE",
-             path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ["mpv", "--no-video", "--force-media-title=AI_TTS_BARGE", path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     if shutil.which("aplay"):
         return subprocess.Popen(
-            ["aplay", "-q", path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ["aplay", "-q", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
     raise RuntimeError("no audio player found (mpv/aplay)")
 
 
@@ -341,8 +351,7 @@ def _load_groq_key() -> str:
         key = ""
     if _plausible_key(key):
         return key.strip()
-    keychain = (Path.home() / "Desktop" / "Projects" / "keychain"
-                / "master_ai_keys")
+    keychain = Path.home() / "Desktop" / "Projects" / "keychain" / "master_ai_keys"
     if keychain.exists():
         try:
             for line in keychain.read_text().splitlines():
@@ -355,21 +364,23 @@ def _load_groq_key() -> str:
     return ""
 
 
-def _multipart_body(fields, file_field, filename, content_type, data,
-                    boundary) -> bytes:
+def _multipart_body(
+    fields, file_field, filename, content_type, data, boundary
+) -> bytes:
     """Build a multipart/form-data body (stdlib only)."""
     out = []
     for name, value in fields:
         out.append(f"--{boundary}\r\n".encode())
-        out.append(
-            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
-            .encode())
+        out.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
         out.append(str(value).encode("utf-8"))
         out.append(b"\r\n")
     out.append(f"--{boundary}\r\n".encode())
     out.append(
-        (f'Content-Disposition: form-data; name="{file_field}"; '
-         f'filename="{filename}"\r\n').encode())
+        (
+            f'Content-Disposition: form-data; name="{file_field}"; '
+            f'filename="{filename}"\r\n'
+        ).encode()
+    )
     out.append(f"Content-Type: {content_type}\r\n\r\n".encode())
     out.append(data)
     out.append(b"\r\n")
@@ -385,17 +396,25 @@ class STTClient:
     truncated to MAX_TRANSCRIPT_CHARS exactly as the bridge does.
     """
 
-    def __init__(self, api_key=None, url=GROQ_STT_URL,
-                 model=GROQ_STT_MODEL, prompt=GROQ_STT_PROMPT,
-                 timeout=None, urlopen=urllib.request.urlopen):
+    def __init__(
+        self,
+        api_key=None,
+        url=GROQ_STT_URL,
+        model=GROQ_STT_MODEL,
+        prompt=GROQ_STT_PROMPT,
+        timeout=None,
+        urlopen=urllib.request.urlopen,
+    ):
         self.api_key = _load_groq_key() if api_key is None else api_key
         self.url = url
         self.model = model
         self.prompt = prompt
         # Same knob the bridge reads: VOICE_BRIDGE_GROQ_TIMEOUT.
-        self.timeout = (float(os.environ.get(
-            "VOICE_BRIDGE_GROQ_TIMEOUT", "30"))
-            if timeout is None else timeout)
+        self.timeout = (
+            float(os.environ.get("VOICE_BRIDGE_GROQ_TIMEOUT", "30"))
+            if timeout is None
+            else timeout
+        )
         self._urlopen = urlopen
 
     def transcribe(self, audio_bytes, content_type="audio/webm") -> str:
@@ -405,22 +424,28 @@ class STTClient:
             raise STTError(
                 "Groq STT unavailable: no GROQ_API_KEY found in the "
                 "environment, the ai-controller config, or the "
-                "master keychain")
+                "master keychain"
+            )
         filename = _AUDIO_FILENAMES.get(content_type, "audio.wav")
         boundary = "voice-loop-" + uuid.uuid4().hex
         body = _multipart_body(
             [("model", self.model), ("prompt", self.prompt)],
-            "file", filename, content_type, audio_bytes, boundary)
+            "file",
+            filename,
+            content_type,
+            audio_bytes,
+            boundary,
+        )
         request = urllib.request.Request(
             self.url,
             data=body,
             headers={
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type":
-                    f"multipart/form-data; boundary={boundary}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
                 "User-Agent": GROQ_USER_AGENT,
             },
-            method="POST")
+            method="POST",
+        )
         try:
             with self._urlopen(request, timeout=self.timeout) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
@@ -431,15 +456,14 @@ class STTClient:
             raise STTError(f"Groq STT request failed: {e}") from e
         if payload.get("error"):
             raise STTError(f"Groq STT error: {payload['error']}")
-        return str(payload.get("text", "")).strip()[
-            :MAX_TRANSCRIPT_CHARS]
+        return str(payload.get("text", "")).strip()[:MAX_TRANSCRIPT_CHARS]
 
     def transcribe_file(self, path, content_type=None) -> str:
         with open(path, "rb") as f:
             data = f.read()
         return self.transcribe(
-            data,
-            content_type=content_type or content_type_for_path(path))
+            data, content_type=content_type or content_type_for_path(path)
+        )
 
 
 class LocalSTTClient:
@@ -452,8 +476,9 @@ class LocalSTTClient:
     experiments; selected only via AI_CONTROLLER_STT=local.
     """
 
-    def __init__(self, base_url=DEFAULT_STT_URL, timeout=120,
-                 urlopen=urllib.request.urlopen):
+    def __init__(
+        self, base_url=DEFAULT_STT_URL, timeout=120, urlopen=urllib.request.urlopen
+    ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self._urlopen = urlopen
@@ -465,14 +490,14 @@ class LocalSTTClient:
             self.base_url + "/stt",
             data=audio_bytes,
             headers={"Content-Type": content_type},
-            method="POST")
+            method="POST",
+        )
         try:
             with self._urlopen(request, timeout=self.timeout) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="replace")[:300]
-            raise STTError(f"/stt returned HTTP {e.code}: {detail}") \
-                from e
+            raise STTError(f"/stt returned HTTP {e.code}: {detail}") from e
         except Exception as e:
             raise STTError(f"/stt request failed: {e}") from e
         if payload.get("error"):
@@ -483,8 +508,8 @@ class LocalSTTClient:
         with open(path, "rb") as f:
             data = f.read()
         return self.transcribe(
-            data,
-            content_type=content_type or content_type_for_path(path))
+            data, content_type=content_type or content_type_for_path(path)
+        )
 
 
 def default_stt_client():
@@ -494,14 +519,12 @@ def default_stt_client():
     labeled non-default fallback. Anything else -- including unset
     -- is the Groq route voice_bridge.py runs.
     """
-    if os.environ.get("AI_CONTROLLER_STT", "").strip().lower() \
-            == "local":
+    if os.environ.get("AI_CONTROLLER_STT", "").strip().lower() == "local":
         return LocalSTTClient()
     return STTClient()
 
 
-def signal_barge_in(state_file=None, flag_file=None,
-                    source="lr") -> bool:
+def signal_barge_in(state_file=None, flag_file=None, source="lr") -> bool:
     """File-level barge-in for an L/R handler in another process.
 
     Touches the shared barge tombstone and, when the recorded loop
@@ -537,19 +560,26 @@ def signal_barge_in(state_file=None, flag_file=None,
 class VoiceLoop:
     """One conversation cycle, with pollable state and barge-in."""
 
-    def __init__(self, profile_name="tahuti_demo", profile=None,
-                 profiles_data=None, profiles_path=None,
-                 state_file=None, flag_file=None, synthesizer=None,
-                 player_factory=None, stt_client=None,
-                 poll_interval=0.02):
+    def __init__(
+        self,
+        profile_name="tahuti_demo",
+        profile=None,
+        profiles_data=None,
+        profiles_path=None,
+        state_file=None,
+        flag_file=None,
+        synthesizer=None,
+        player_factory=None,
+        stt_client=None,
+        poll_interval=0.02,
+    ):
         self.state_file = state_file or state_path()
         self.flag_file = flag_file or barge_flag_path()
         if profiles_data is None:
             profiles_data = vp.load_profiles(profiles_path)
         self.profiles_data = profiles_data
         self.profile_name = profile_name
-        self.profile = profile or vp.get_avatar_profile(
-            profiles_data, profile_name)
+        self.profile = profile or vp.get_avatar_profile(profiles_data, profile_name)
         self.settings = vp.get_avatar_settings(profiles_data)
         self.synthesizer = synthesizer or self._default_synthesizer
         self.player_factory = player_factory or _default_player
@@ -581,18 +611,15 @@ class VoiceLoop:
             "previous_state": self.previous_state,
             "element": "tahuti",
             "profile_name": self.profile_name,
-            "engine": vp.canonical_engine(
-                self.profile.get("engine", "")),
+            "engine": vp.canonical_engine(self.profile.get("engine", "")),
             "voice": self.profile.get("voice"),
             "avatar": {
                 "active_avatar": self.settings.get("active_avatar"),
                 "visible": self._avatar_visible(self.state),
                 "show_on_talk": self.settings.get("show_on_talk"),
-                "stay_while_working": self.settings.get(
-                    "stay_while_working"),
+                "stay_while_working": self.settings.get("stay_while_working"),
                 "fade_when_done": self.settings.get("fade_when_done"),
-                "popup_on_approval": self.settings.get(
-                    "popup_on_approval"),
+                "popup_on_approval": self.settings.get("popup_on_approval"),
                 "result_supersedes": self.state == "done",
             },
             "detail": self.detail,
@@ -609,10 +636,8 @@ class VoiceLoop:
     def transition(self, new_state, **detail) -> str:
         if new_state not in STATES:
             raise ValueError(f"unknown loop state {new_state!r}")
-        if new_state != self.state and \
-                new_state not in TRANSITIONS[self.state]:
-            raise ValueError(
-                f"loop cannot go {self.state} -> {new_state}")
+        if new_state != self.state and new_state not in TRANSITIONS[self.state]:
+            raise ValueError(f"loop cannot go {self.state} -> {new_state}")
         self.previous_state = self.state
         self.state = new_state
         self.detail = detail or {"reason": "transition"}
@@ -620,26 +645,31 @@ class VoiceLoop:
         return self.state
 
     def begin_listening(self, **detail):
-        return self.transition("listening", **(detail or {
-            "reason": "talk_button"}))
+        return self.transition("listening", **(detail or {"reason": "talk_button"}))
 
     def begin_thinking(self, **detail):
-        return self.transition("thinking", **(detail or {
-            "reason": "reply_pending"}))
+        return self.transition("thinking", **(detail or {"reason": "reply_pending"}))
 
     def begin_working(self, **detail):
-        return self.transition("working", **(detail or {
-            "reason": "task_running"}))
+        return self.transition("working", **(detail or {"reason": "task_running"}))
 
     def finish(self, **detail):
-        return self.transition("done", **(detail or {
-            "reason": "result_ready", "result_ready": True}))
+        return self.transition(
+            "done", **(detail or {"reason": "result_ready", "result_ready": True})
+        )
 
     def settle(self, **detail):
         """done -> idle: the result has landed; the avatar fades."""
-        return self.transition("idle", **(detail or {
-            "reason": "settled", "faded": bool(
-                self.settings.get("fade_when_done", True))}))
+        return self.transition(
+            "idle",
+            **(
+                detail
+                or {
+                    "reason": "settled",
+                    "faded": bool(self.settings.get("fade_when_done", True)),
+                }
+            ),
+        )
 
     # ── barge-in ─────────────────────────────────────────────────
 
@@ -662,8 +692,7 @@ class VoiceLoop:
         was_speaking = self.state == "speaking"
         self._stop_current_player()
         if was_speaking:
-            self.transition(
-                "listening", reason="barge_in", barge_source=str(source))
+            self.transition("listening", reason="barge_in", barge_source=str(source))
         return was_speaking
 
     # The L/R handler's natural verb.
@@ -686,8 +715,7 @@ class VoiceLoop:
             # which made a raw >= check flaky; a changed stamp is
             # unambiguous.
             stamp = self._flag_stamp()
-            if stamp is not None and \
-                    stamp != self._barge_flag_baseline:
+            if stamp is not None and stamp != self._barge_flag_baseline:
                 return True
         return False
 
@@ -725,30 +753,36 @@ class VoiceLoop:
         """Speak a reply phrase by phrase; barge-in returns early."""
         phrases = chunk_text(text)
         if not phrases:
-            return {"ok": False, "interrupted": False, "phrases": 0,
-                    "reason": "empty_text"}
+            return {
+                "ok": False,
+                "interrupted": False,
+                "phrases": 0,
+                "reason": "empty_text",
+            }
         if self.state in ("idle", "done"):
             self.transition("listening", reason="reply_cycle")
         if self.state == "listening":
-            self.transition("thinking", reason="reply_ready",
-                            phrase_count=len(phrases))
+            self.transition("thinking", reason="reply_ready", phrase_count=len(phrases))
         self._barge_event.clear()
         self._stream_started_at = time.time()
         self._barge_flag_baseline = self._flag_stamp()
         interrupted = False
-        with tempfile.TemporaryDirectory(
-                prefix="voice-loop-") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="voice-loop-") as tmpdir:
             for index, phrase in enumerate(phrases):
                 if self._barge_requested():
                     interrupted = True
                     break
                 self.transition(
-                    "speaking", reason="phrase", phrase_index=index,
-                    phrase_count=len(phrases), phrase=phrase)
-                out_path = os.path.join(
-                    tmpdir, f"phrase-{index:03d}.wav")
+                    "speaking",
+                    reason="phrase",
+                    phrase_index=index,
+                    phrase_count=len(phrases),
+                    phrase=phrase,
+                )
+                out_path = os.path.join(tmpdir, f"phrase-{index:03d}.wav")
                 rendered, already_played = self.synthesizer(
-                    phrase, self.profile, out_path)
+                    phrase, self.profile, out_path
+                )
                 if self._barge_requested():
                     interrupted = True
                     break
@@ -774,29 +808,24 @@ class VoiceLoop:
         if interrupted:
             if self.state != "listening":
                 self.transition(
-                    "listening", reason="barge_in",
-                    phrase_count=len(phrases))
-            return {"ok": False, "interrupted": True,
-                    "phrases": len(phrases)}
+                    "listening", reason="barge_in", phrase_count=len(phrases)
+                )
+            return {"ok": False, "interrupted": True, "phrases": len(phrases)}
         self.transition(
-            "done", reason="result_ready", result_ready=True,
-            phrase_count=len(phrases))
+            "done", reason="result_ready", result_ready=True, phrase_count=len(phrases)
+        )
         if settle:
             self.settle()
-        return {"ok": True, "interrupted": False,
-                "phrases": len(phrases)}
+        return {"ok": True, "interrupted": False, "phrases": len(phrases)}
 
     # ── listening / STT ──────────────────────────────────────────
 
-    def transcribe_audio(self, audio_bytes,
-                         content_type="audio/webm") -> str:
+    def transcribe_audio(self, audio_bytes, content_type="audio/webm") -> str:
         """State-wrapped STT through the Groq Whisper route."""
         if self.state in ("idle", "done", "speaking"):
             self.transition("listening", reason="audio_received")
-        text = self.stt_client.transcribe(
-            audio_bytes, content_type=content_type)
-        self.transition("thinking", reason="transcribed",
-                        transcript_chars=len(text))
+        text = self.stt_client.transcribe(audio_bytes, content_type=content_type)
+        self.transition("thinking", reason="transcribed", transcript_chars=len(text))
         return text
 
 
@@ -831,8 +860,11 @@ def main(argv=None):
         hit = signal_barge_in(state_file, flag_file, args.source)
         print("interrupted speaking" if hit else "barge flag set")
         return 0
-    loop = VoiceLoop(state_file=state_file, flag_file=flag_file,
-                     profile_name=getattr(args, "profile", "tahuti_demo"))
+    loop = VoiceLoop(
+        state_file=state_file,
+        flag_file=flag_file,
+        profile_name=getattr(args, "profile", "tahuti_demo"),
+    )
     if args.cmd == "set-state":
         loop.transition(args.state, reason="cli")
         print(loop.state)
@@ -843,8 +875,11 @@ def main(argv=None):
         return 0 if result["ok"] else 2
     if args.cmd == "transcribe":
         with open(args.audio, "rb") as f:
-            print(loop.transcribe_audio(
-                f.read(), content_type=content_type_for_path(args.audio)))
+            print(
+                loop.transcribe_audio(
+                    f.read(), content_type=content_type_for_path(args.audio)
+                )
+            )
         return 0
     return 2
 

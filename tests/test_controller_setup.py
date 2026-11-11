@@ -90,6 +90,7 @@ def test_doctor_kokoro_missing_home(tmp_path):
 
 # ── avatar setup (wizard section 3 / doctor "avatar setup") ─────────
 
+
 def _portraits(tmp_path, *names):
     d = tmp_path / "avatars"
     d.mkdir()
@@ -190,6 +191,7 @@ def test_validate_avatar_settings_flags_unknown_active(tmp_path):
 
 # ── avatar visibility lifecycle ─────────────────────────────────────
 
+
 def test_lifecycle_defaults_all_on():
     s = vp.get_avatar_settings(vp.load_profiles("/nonexistent.json"))
     for key in vp.LIFECYCLE_KEYS:
@@ -222,12 +224,17 @@ def test_doctor_reports_lifecycle(tmp_path):
     d = _portraits(tmp_path, "tahuti")
     level, _, detail = cs.check_avatar(path, d)
     assert level == cs.OK
-    for word in ("talk pop-up on", "stays while working on",
-                 "fades when done on", "approval pop-up on"):
+    for word in (
+        "talk pop-up on",
+        "stays while working on",
+        "fades when done on",
+        "approval pop-up on",
+    ):
         assert word in detail, word
 
 
 # ── voice board ─────────────────────────────────────────────────────
+
 
 def test_voice_board_doctor_ok(tmp_path):
     path = str(tmp_path / "voice-profiles.json")
@@ -256,8 +263,9 @@ def test_voice_board_doctor_fails_on_corrupt_file(tmp_path):
 
 
 def test_piper_argv_carries_the_noise_knobs():
-    argv = cs._piper_argv("piper", "model.onnx", "out.wav", 1.25,
-                          {"noise_scale": 0.5, "noise_w": 0.25})
+    argv = cs._piper_argv(
+        "piper", "model.onnx", "out.wav", 1.25, {"noise_scale": 0.5, "noise_w": 0.25}
+    )
     assert argv[argv.index("--length-scale") + 1] == "0.8000"
     assert argv[argv.index("--noise-scale") + 1] == "0.500"
     assert argv[argv.index("--noise-w-scale") + 1] == "0.250"
@@ -289,12 +297,13 @@ def test_apply_fx_runs_the_chain(tmp_path):
 
 # ── Edge demo voice (doctor row) ─────────────────────────────────
 
+
 def test_doctor_edge_demo_ok(tmp_path):
     path = str(tmp_path / "voice-profiles.json")
     vp.save_profiles(vp.load_profiles(path), path)
     level, label, detail = cs.check_edge_demo(
-        path, voice_names=["en-US-ChristopherNeural",
-                           "en-US-AriaNeural"])
+        path, voice_names=["en-US-ChristopherNeural", "en-US-AriaNeural"]
+    )
     assert level == cs.OK
     assert label == "edge demo voice"
     assert "en-US-ChristopherNeural" in detail
@@ -311,6 +320,7 @@ def test_doctor_edge_demo_missing_voice_warns_not_fails(tmp_path):
 
 def test_ptt_pynput_flock_failure_reports_warn_not_ok(tmp_path, monkeypatch):
     import fcntl
+
     script = tmp_path / "ptt_pynput.py"
     script.write_text("# present\n")
     monkeypatch.setattr(cs, "_script_path", lambda name: str(script))
@@ -334,9 +344,11 @@ def test_ptt_pynput_flock_failure_reports_warn_not_ok(tmp_path, monkeypatch):
 
 # ── Kokoro subprocess environment isolation ───────────────────────────
 
+
 def test_kokoro_probe_env_excludes_pythonpath(tmp_path, monkeypatch):
     """The Kokoro import probe must not inherit Hermes's PYTHONPATH."""
     import os as _os
+
     monkeypatch.setenv("PYTHONPATH", "/bad/python3.14/site-packages")
     (tmp_path / "models").mkdir()
     (tmp_path / "models" / "kokoro-v1.0.onnx").write_text("model")
@@ -349,9 +361,11 @@ def test_kokoro_probe_env_excludes_pythonpath(tmp_path, monkeypatch):
     def fake_run(*args, **kwargs):
         captured["env"] = kwargs.get("env")
         captured["args"] = args[0] if args else None
+
         class _Result:
             returncode = 0
             stderr = b""
+
         return _Result()
 
     monkeypatch.setattr(cs.subprocess, "run", fake_run)
@@ -366,6 +380,7 @@ def test_kokoro_probe_env_excludes_pythonpath(tmp_path, monkeypatch):
 def test_speak_preview_kokoro_env_excludes_pythonpath(tmp_path, monkeypatch):
     """The Kokoro preview render subprocess must not inherit PYTHONPATH."""
     import os as _os
+
     monkeypatch.setenv("PYTHONPATH", "/bad/python3.14/site-packages")
 
     captured = {}
@@ -373,9 +388,11 @@ def test_speak_preview_kokoro_env_excludes_pythonpath(tmp_path, monkeypatch):
     def fake_run(*args, **kwargs):
         captured["env"] = kwargs.get("env")
         captured["args"] = args[0] if args else None
+
         class _Result:
             returncode = 0
             stderr = ""
+
         return _Result()
 
     monkeypatch.setattr(cs.subprocess, "run", fake_run)

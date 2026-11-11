@@ -55,7 +55,7 @@ else
 fi
 
 echo "== systemd services =="
-SERVICES=$(grep -oP '^\s{4}\K[a-z0-9._-]+\.service' "$INSTALL_DIR/install.sh" 2>/dev/null)
+SERVICES=$(grep -oP '^\s{4}\K[a-z0-9._-]+\.service' "$INSTALL_DIR/install.sh" 2>/dev/null | sort -u)
 if [[ -z "$SERVICES" ]]; then
     fail "could not read the SERVICES list out of install.sh"
 else
@@ -92,6 +92,14 @@ else
             else
                 fail "$svc (oneshot) last run did not succeed (Result: ${result:-unknown})"
             fi
+        elif [[ "$svc" == *-headless.service ]] && \
+             [[ "$(systemctl --user is-enabled "$svc" 2>/dev/null)" == "disabled" ]]; then
+            # Headless units are opt-in: only expected active when the user
+            # enabled them (server/no-GUI mode). Disabled on a desktop is
+            # healthy, not a failure -- don't run the is-active check. (This
+            # mirror of the oneshot exemption was added 2026-11-04; before,
+            # a healthy desktop install failed doctor with false FAILs.)
+            ok "$svc (opt-in headless) not enabled -- fine on a desktop"
         else
             state=$(systemctl --user is-active "$svc" 2>/dev/null || true)
             if [[ "$state" != "active" ]]; then

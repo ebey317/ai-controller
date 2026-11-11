@@ -180,7 +180,7 @@
             <button index="5">
                 <slots>
                     <slot>
-                        <path>/home/elijah/ai-controller/scripts/toggle-slide-keyboard.sh</path>
+                        <path>__AI_CONTROLLER_DIR__/scripts/toggle-slide-keyboard.sh</path>
                         <mode>execute</mode>
                     </slot>
                 </slots>
@@ -188,7 +188,7 @@
             <button index="4">
                 <slots>
                     <slot>
-                        <path>/home/elijah/ai-controller/scripts/ai-rofi-launcher.sh</path>
+                        <path>__AI_CONTROLLER_DIR__/scripts/ai-rofi-launcher.sh</path>
                         <mode>execute</mode>
                     </slot>
                 </slots>
@@ -212,7 +212,7 @@
             <button index="1">
                 <slots>
                     <slot>
-                        <path>/home/elijah/ai-controller/scripts/settle_wiggle.sh</path>
+                        <path>__AI_CONTROLLER_DIR__/scripts/settle_wiggle.sh</path>
                         <mode>execute</mode>
                     </slot>
                     <slot>

@@ -21,6 +21,7 @@ import setup_panel as sp  # noqa: E402
 
 # ── registry-driven health gathering ───────────────────────────────────
 
+
 def test_gather_health_uses_registry_and_groups_by_category(monkeypatch):
     calls = []
 
@@ -33,7 +34,8 @@ def test_gather_health_uses_registry_and_groups_by_category(monkeypatch):
         return (cs.WARN, "warn-backend", "needs attention")
 
     monkeypatch.setattr(
-        cs, "BACKENDS",
+        cs,
+        "BACKENDS",
         [
             cs.Backend("ok-one", "controller", "live", ok_check),
             cs.Backend("warn-one", "audio-voice", "live", warn_check),
@@ -56,7 +58,8 @@ def test_gather_health_flattens_list_results(monkeypatch):
         ]
 
     monkeypatch.setattr(
-        cs, "BACKENDS",
+        cs,
+        "BACKENDS",
         [cs.Backend("services", "services", "external", multi_check)],
     )
     health = sp.gather_health()
@@ -72,7 +75,8 @@ def test_gather_health_contains_backend_source(monkeypatch):
         return (cs.OK, "x", "y")
 
     monkeypatch.setattr(
-        cs, "BACKENDS",
+        cs,
+        "BACKENDS",
         [cs.Backend("x", "controller", "optional", check)],
     )
     row = sp.gather_health()[0]["rows"][0]
@@ -82,7 +86,9 @@ def test_gather_health_contains_backend_source(monkeypatch):
 def test_gather_health_with_real_registry_runs_doctor_rows(tmp_path, monkeypatch):
     """Use the real registry but keep it filesystem-only (no services/HTTP)."""
     # Point voice-profiles and avatars at temp dirs so the test is hermetic.
-    monkeypatch.setenv("AI_CONTROLLER_VOICE_PROFILES", str(tmp_path / "voice-profiles.json"))
+    monkeypatch.setenv(
+        "AI_CONTROLLER_VOICE_PROFILES", str(tmp_path / "voice-profiles.json")
+    )
     avatars = tmp_path / "avatars"
     avatars.mkdir()
     (avatars / "tahuti.webp").write_bytes(b"portrait")
@@ -102,6 +108,7 @@ def test_gather_health_with_real_registry_runs_doctor_rows(tmp_path, monkeypatch
 
 # ── support-output redaction ──────────────────────────────────────────
 
+
 def test_redact_detail_obscures_home_path(tmp_path):
     home = str(tmp_path / "home" / "elijah")
     detail = f"file at {home}/.config/ai-controller/config.env"
@@ -112,9 +119,9 @@ def test_redact_detail_obscures_home_path(tmp_path):
 
 def test_redacted_doctor_text_uses_run_doctor(monkeypatch):
     monkeypatch.setattr(
-        cs, "BACKENDS",
-        [cs.Backend("demo", "controller", "live",
-                    lambda: (cs.OK, "demo", "fine"))],
+        cs,
+        "BACKENDS",
+        [cs.Backend("demo", "controller", "live", lambda: (cs.OK, "demo", "fine"))],
     )
     text = sp.redacted_doctor_text(home_path="/nowhere")
     assert "OK" in text
@@ -123,6 +130,7 @@ def test_redacted_doctor_text_uses_run_doctor(monkeypatch):
 
 
 # ── consumer apply status mapping ────────────────────────────────────
+
 
 def test_consumer_apply_status_ready_next_use():
     for key in ("ptt_mode", "input_target", "keyboard_pack", "keyboard_rate"):
@@ -176,6 +184,7 @@ def test_consumer_apply_status_unmapped_is_truthful_not_ready():
 
 # ── action availability ───────────────────────────────────────────────
 
+
 def test_has_display_true_when_display_env_set(monkeypatch):
     monkeypatch.setenv("DISPLAY", ":0")
     assert sp.has_display()
@@ -190,8 +199,9 @@ def test_has_display_false_without_display_env(monkeypatch):
 def test_open_voice_board_returns_outcome(monkeypatch):
     monkeypatch.setenv("DISPLAY", ":0")
     # launch_voice_board tries to Popen the board; avoid spawning a window.
-    monkeypatch.setattr(cs, "launch_voice_board",
-                        lambda: "voice board would open on :0")
+    monkeypatch.setattr(
+        cs, "launch_voice_board", lambda: "voice board would open on :0"
+    )
     assert "voice board" in sp.open_voice_board().lower()
 
 
@@ -202,6 +212,7 @@ def test_open_wizard_in_terminal_returns_message_when_no_terminal(monkeypatch):
 
 
 # ── slide-keyboard wiring ─────────────────────────────────────────────
+
 
 def test_slide_keyboard_launcher_keeps_keyboard_source_separate():
     """The themed keyboard launches the setup wizard as a separate process,
@@ -220,7 +231,11 @@ def test_slide_keyboard_setup_method_launches_page_process(monkeypatch):
     import slide_keyboard as sk
 
     launches = []
-    monkeypatch.setattr(sk.shutil, "which", lambda name: "/usr/bin/gnome-terminal" if name == "gnome-terminal" else None)
+    monkeypatch.setattr(
+        sk.shutil,
+        "which",
+        lambda name: "/usr/bin/gnome-terminal" if name == "gnome-terminal" else None,
+    )
     monkeypatch.setattr(sk.subprocess, "Popen", lambda args: launches.append(args))
 
     sk.SlideKeyboard._on_setup(object(), None)
@@ -246,8 +261,9 @@ def test_slide_keyboard_setup_method_falls_back_without_terminal(monkeypatch):
 
 def test_unbacked_setup_controls_are_read_only(monkeypatch, tmp_path):
     """Cards without a live consumer must be read-only, not editable."""
-    monkeypatch.setenv("AI_CONTROLLER_VOICE_PROFILES",
-                       str(tmp_path / "voice-profiles.json"))
+    monkeypatch.setenv(
+        "AI_CONTROLLER_VOICE_PROFILES", str(tmp_path / "voice-profiles.json")
+    )
     avatars = tmp_path / "avatars"
     avatars.mkdir()
     (avatars / "tahuti.webp").write_bytes(b"portrait")
@@ -273,8 +289,7 @@ def test_unbacked_setup_controls_are_read_only(monkeypatch, tmp_path):
             self.reason = reason
 
     monkeypatch.setattr(sp, "_Card", Recorder)
-    monkeypatch.setattr(sp.SetupCenter, "_section_box",
-                        lambda self, title: [])
+    monkeypatch.setattr(sp.SetupCenter, "_section_box", lambda self, title: [])
 
     class FakeCenter(sp.SetupCenter):
         def __init__(self, parent=None):
@@ -287,8 +302,12 @@ def test_unbacked_setup_controls_are_read_only(monkeypatch, tmp_path):
 
     by_title = {r.title: r for r in recorded}
 
-    for title in ("Keyboard pitch", "Keyboard volume / gain",
-                  "Show trigger", "Avatar armed"):
+    for title in (
+        "Keyboard pitch",
+        "Keyboard volume / gain",
+        "Show trigger",
+        "Avatar armed",
+    ):
         card = by_title[title]
         assert card.readonly, f"{title} should be read-only"
         assert not card.editable, f"{title} must not offer an editable control"
@@ -299,9 +318,14 @@ def test_unbacked_setup_controls_are_read_only(monkeypatch, tmp_path):
     assert "enabled_by_default" in by_title["Avatar armed"].reason.lower()
 
     # Proven-backed controls must stay editable/applyable.
-    for title in ("Keyboard voice pack", "Keyboard speaking speed",
-                  "Tahuti speaking speed", "Tahuti volume / gain",
-                  "Avatar size", "Active avatar"):
+    for title in (
+        "Keyboard voice pack",
+        "Keyboard speaking speed",
+        "Tahuti speaking speed",
+        "Tahuti volume / gain",
+        "Avatar size",
+        "Active avatar",
+    ):
         assert by_title[title].editable, f"{title} must remain editable"
 
 
@@ -332,9 +356,14 @@ def test_apply_setting_backed_controls_round_trip(monkeypatch, tmp_path):
 
 # ── UI quality/safety fixes ────────────────────────────────────────────
 
-def test_apply_setting_keyboard_pack_empty_voice_packs_permits_only_current(monkeypatch, tmp_path):
+
+def test_apply_setting_keyboard_pack_empty_voice_packs_permits_only_current(
+    monkeypatch, tmp_path
+):
     """When no voice packs are discovered, only the current pack may be kept."""
-    monkeypatch.setenv("AI_CONTROLLER_VOICE_PROFILES", str(tmp_path / "voice-profiles.json"))
+    monkeypatch.setenv(
+        "AI_CONTROLLER_VOICE_PROFILES", str(tmp_path / "voice-profiles.json")
+    )
     monkeypatch.setattr(sp, "_discover_voice_packs", lambda: [])
 
     ok, rb, msg = sp.apply_setting("keyboard_pack", "aria")
@@ -347,9 +376,13 @@ def test_apply_setting_keyboard_pack_empty_voice_packs_permits_only_current(monk
     assert "no voice packs installed" in msg.lower()
 
 
-def test_apply_setting_avatar_active_no_portraits_permits_only_current(monkeypatch, tmp_path):
+def test_apply_setting_avatar_active_no_portraits_permits_only_current(
+    monkeypatch, tmp_path
+):
     """When no avatar portraits are on disk, only the current avatar may be kept."""
-    monkeypatch.setenv("AI_CONTROLLER_VOICE_PROFILES", str(tmp_path / "voice-profiles.json"))
+    monkeypatch.setenv(
+        "AI_CONTROLLER_VOICE_PROFILES", str(tmp_path / "voice-profiles.json")
+    )
     monkeypatch.setattr(sp.vp, "available_avatars", lambda: [])
 
     ok, rb, msg = sp.apply_setting("avatar_active", "tahuti")
@@ -362,9 +395,13 @@ def test_apply_setting_avatar_active_no_portraits_permits_only_current(monkeypat
     assert "no portraits installed" in msg.lower()
 
 
-def test_apply_setting_keyboard_pack_state_file_failure_returns_failure(monkeypatch, tmp_path):
+def test_apply_setting_keyboard_pack_state_file_failure_returns_failure(
+    monkeypatch, tmp_path
+):
     """A failure writing the ai_controller_voice state file must not report success."""
-    monkeypatch.setenv("AI_CONTROLLER_VOICE_PROFILES", str(tmp_path / "voice-profiles.json"))
+    monkeypatch.setenv(
+        "AI_CONTROLLER_VOICE_PROFILES", str(tmp_path / "voice-profiles.json")
+    )
     monkeypatch.setattr(sp, "config_dir", lambda: str(tmp_path))
     monkeypatch.setattr(sp, "_discover_voice_packs", lambda: ["aria"])
 
@@ -401,7 +438,11 @@ def test_refresh_gathers_data_in_worker_then_idle_rebuilds(monkeypatch):
 
     center = FakeCenter()
     idle_calls = []
-    monkeypatch.setattr(sp.GLib, "idle_add", lambda fn, *args: idle_calls.append((fn.__name__, args)) or 0)
+    monkeypatch.setattr(
+        sp.GLib,
+        "idle_add",
+        lambda fn, *args: idle_calls.append((fn.__name__, args)) or 0,
+    )
 
     class ImmediateThread:
         def __init__(self, target, daemon=False):
@@ -431,6 +472,7 @@ def test_refresh_gathers_data_in_worker_then_idle_rebuilds(monkeypatch):
 
 def test_rebuild_sections_preserves_vertical_scroll_position(monkeypatch):
     """Rebuilding sections should restore the previous vertical scroll offset."""
+
     class FakeVAdj:
         def __init__(self, value=100.0, upper=500.0, page_size=50.0):
             self.value = value
@@ -477,9 +519,13 @@ def test_rebuild_sections_preserves_vertical_scroll_position(monkeypatch):
     center._scrolled = FakeScrolled(vadj)
     center.cards_box = FakeBox()
     center._health_rows_box = FakeBox()
-    for sec in ("_build_controller_section", "_build_voice_section",
-                "_build_tahuti_section", "_build_sensei_section",
-                "_build_services_section"):
+    for sec in (
+        "_build_controller_section",
+        "_build_voice_section",
+        "_build_tahuti_section",
+        "_build_sensei_section",
+        "_build_services_section",
+    ):
         monkeypatch.setattr(center, sec, lambda: None, raising=False)
 
     sp.SetupCenter._rebuild_sections(center, {}, [], (None, None, None))
@@ -488,6 +534,7 @@ def test_rebuild_sections_preserves_vertical_scroll_position(monkeypatch):
 
 def test_diagnostics_dialog_is_nonmodal_no_run(monkeypatch):
     """Diagnostics dialog must be nonmodal, not accept focus, and never call run()."""
+
     class FakeBuffer:
         def __init__(self):
             self.text = None
@@ -680,6 +727,7 @@ def test_health_rows_detail_label_uses_pango_wrap_mode(monkeypatch):
 
 # ── verified readback + consumer status ──────────────────────────────
 
+
 def test_apply_setting_ptt_verified_and_appends_status(monkeypatch, tmp_path):
     monkeypatch.setattr(sp, "config_dir", lambda: str(tmp_path))
     ok, rb, msg = sp.apply_setting("ptt_mode", "bubbly")
@@ -705,7 +753,8 @@ def test_apply_setting_tahuti_mismatch_returns_failure(monkeypatch, tmp_path):
     profile_path = tmp_path / "voice-profiles.json"
     monkeypatch.setenv("AI_CONTROLLER_VOICE_PROFILES", str(profile_path))
     monkeypatch.setattr(
-        sp.vp, "save_profiles",
+        sp.vp,
+        "save_profiles",
         lambda data, path=None: str(path or sp.vp.profiles_path()),
     )
     ok, rb, msg = sp.apply_setting("tahuti_rate", 1.5)
@@ -715,7 +764,9 @@ def test_apply_setting_tahuti_mismatch_returns_failure(monkeypatch, tmp_path):
     assert sp.consumer_apply_status("tahuti_rate") not in msg
 
 
-def test_apply_setting_forced_source_read_failure_returns_failure(monkeypatch, tmp_path):
+def test_apply_setting_forced_source_read_failure_returns_failure(
+    monkeypatch, tmp_path
+):
     profile_path = tmp_path / "voice-profiles.json"
     monkeypatch.setenv("AI_CONTROLLER_VOICE_PROFILES", str(profile_path))
     real_load = sp.vp.load_profiles
@@ -736,6 +787,7 @@ def test_apply_setting_forced_source_read_failure_returns_failure(monkeypatch, t
 
 
 # ── visible positioning above parent slide keyboard ────────────────────
+
 
 def test_compute_setup_position_centers_above_parent():
     # Parent at (100, 400) size 680x276; setup 640x520; screen 1920x1080.
@@ -847,6 +899,7 @@ def test_show_setup_panel_reuses_singleton_and_updates_parent(monkeypatch):
 
 def test_place_window_uses_parent_geometry(monkeypatch):
     """_place_window reads parent position/size and calls move with clamped coords."""
+
     class FakeScreen:
         def get_width(self):
             return 1920
@@ -879,6 +932,7 @@ def test_place_window_uses_parent_geometry(monkeypatch):
 
 def test_place_window_falls_back_to_screen_center(monkeypatch):
     """_place_window centers on screen when there is no parent."""
+
     class FakeScreen:
         def get_width(self):
             return 1920
@@ -903,6 +957,7 @@ def test_place_window_falls_back_to_screen_center(monkeypatch):
 
 # ── keyboard voice-pack backend mapping ───────────────────────────────
 
+
 def _make_voice_pack(tmp_path, pack_id, config):
     """Create voices/<pack_id>/config.json under a temp AI_CONTROLLER_DIR."""
     voices_dir = tmp_path / "voices" / pack_id
@@ -914,10 +969,14 @@ def _make_voice_pack(tmp_path, pack_id, config):
 def test_keyboard_voice_profile_aria_maps_to_edge_tts_voice(monkeypatch, tmp_path):
     """Aria pack resolves to the exact Edge TTS voice declared in its config."""
     monkeypatch.setenv("AI_CONTROLLER_DIR", str(tmp_path))
-    _make_voice_pack(tmp_path, "aria", {
-        "engine": "edge-tts",
-        "voice": "en-US-AriaNeural",
-    })
+    _make_voice_pack(
+        tmp_path,
+        "aria",
+        {
+            "engine": "edge-tts",
+            "voice": "en-US-AriaNeural",
+        },
+    )
     data = {"keyboard": {"pack": "aria", "rate": 1.0, "pitch_semitones": 0.0}}
     profile = sp._keyboard_voice_profile(data)
     assert profile["engine"] == "edge-tts"
@@ -928,11 +987,15 @@ def test_keyboard_voice_profile_aria_maps_to_edge_tts_voice(monkeypatch, tmp_pat
 def test_keyboard_voice_profile_joe_maps_to_piper_pack_id(monkeypatch, tmp_path):
     """Joe Piper pack resolves engine piper and voice=pack id for _piper_model_for."""
     monkeypatch.setenv("AI_CONTROLLER_DIR", str(tmp_path))
-    voices_dir = _make_voice_pack(tmp_path, "joe", {
-        "engine": "piper",
-        "voice": "en-US-JoeMedium",
-        "model": "en_US-joe-medium.onnx",
-    })
+    voices_dir = _make_voice_pack(
+        tmp_path,
+        "joe",
+        {
+            "engine": "piper",
+            "voice": "en-US-JoeMedium",
+            "model": "en_US-joe-medium.onnx",
+        },
+    )
     # Place the model file so _piper_model_for can resolve it from the pack dir.
     (voices_dir / "en_US-joe-medium.onnx").write_bytes(b"fake model")
     data = {"keyboard": {"pack": "joe", "rate": 1.1, "pitch_semitones": 1.0}}
@@ -940,7 +1003,9 @@ def test_keyboard_voice_profile_joe_maps_to_piper_pack_id(monkeypatch, tmp_path)
     assert profile["engine"] == "piper"
     assert profile["voice"] == "joe"
     # The pack id is what _piper_model_for needs to find the model.
-    assert cs._piper_model_for(profile["voice"]) == str(voices_dir / "en_US-joe-medium.onnx")
+    assert cs._piper_model_for(profile["voice"]) == str(
+        voices_dir / "en_US-joe-medium.onnx"
+    )
 
 
 def test_keyboard_voice_profile_missing_engine_raises(monkeypatch, tmp_path):
@@ -959,13 +1024,19 @@ def test_keyboard_voice_profile_edge_without_voice_raises(monkeypatch, tmp_path)
         sp._keyboard_voice_profile({"keyboard": {"pack": "aria"}})
 
 
-def test_keyboard_voice_test_aria_profile_accepted_without_speech_or_network(monkeypatch, tmp_path):
+def test_keyboard_voice_test_aria_profile_accepted_without_speech_or_network(
+    monkeypatch, tmp_path
+):
     """Aria profile is accepted by speak_preview without touching network/speech."""
     monkeypatch.setenv("AI_CONTROLLER_DIR", str(tmp_path))
-    _make_voice_pack(tmp_path, "aria", {
-        "engine": "edge-tts",
-        "voice": "en-US-AriaNeural",
-    })
+    _make_voice_pack(
+        tmp_path,
+        "aria",
+        {
+            "engine": "edge-tts",
+            "voice": "en-US-AriaNeural",
+        },
+    )
     monkeypatch.setenv("DISPLAY", ":0")
 
     captured = {}
@@ -985,14 +1056,20 @@ def test_keyboard_voice_test_aria_profile_accepted_without_speech_or_network(mon
     assert captured["profile"]["voice"] == "en-US-AriaNeural"
 
 
-def test_keyboard_voice_test_joe_profile_accepted_without_speech_or_network(monkeypatch, tmp_path):
+def test_keyboard_voice_test_joe_profile_accepted_without_speech_or_network(
+    monkeypatch, tmp_path
+):
     """Joe Piper profile is accepted by speak_preview without real synthesis."""
     monkeypatch.setenv("AI_CONTROLLER_DIR", str(tmp_path))
-    voices_dir = _make_voice_pack(tmp_path, "joe", {
-        "engine": "piper",
-        "voice": "en-US-JoeMedium",
-        "model": "en_US-joe-medium.onnx",
-    })
+    voices_dir = _make_voice_pack(
+        tmp_path,
+        "joe",
+        {
+            "engine": "piper",
+            "voice": "en-US-JoeMedium",
+            "model": "en_US-joe-medium.onnx",
+        },
+    )
     (voices_dir / "en_US-joe-medium.onnx").write_bytes(b"fake model")
     monkeypatch.setenv("DISPLAY", ":0")
 
@@ -1041,4 +1118,3 @@ def test_keyboard_voice_test_malformed_config_disabled_not_faked(monkeypatch, tm
     result = sp._run_keyboard_voice_test()
     assert result.startswith("Voice test disabled:")
     assert "invalid JSON" in result
-

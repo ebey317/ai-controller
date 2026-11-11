@@ -3,6 +3,7 @@
 Keeps the writer (voice_bridge.py) and the reader/writer (tahuti_goal_runner.py)
 on the same contract so handoffs never crash on missing fields.
 """
+
 from __future__ import annotations
 
 import re
@@ -13,19 +14,56 @@ from typing import Optional
 # Handoff-approved routing: task verbs create an immediate goal file for the
 # Tahuti headless runner; chat/lookup continue to the LLM for a direct answer.
 TASK_VERBS = {
-    "write", "build", "fix", "open", "launch",
-    "create", "run", "start", "stop", "restart",
-    "edit", "make", "generate", "deploy", "install",
-    "update", "delete", "remove", "send", "move", "copy",
+    "write",
+    "build",
+    "fix",
+    "open",
+    "launch",
+    "create",
+    "run",
+    "start",
+    "stop",
+    "restart",
+    "edit",
+    "make",
+    "generate",
+    "deploy",
+    "install",
+    "update",
+    "delete",
+    "remove",
+    "send",
+    "move",
+    "copy",
 }
 # NOTE 2026-10-30: "open"/"launch" route again — the runner now executes them
 # through gated open_url/open_app tools, so the model acts instead of punting
 # to approvals. "operate" stays chat (unbounded desktop control, Phase 3).
 
 _CHAT_WORDS = {
-    "what", "who", "when", "where", "why", "how", "is", "are", "was", "were",
-    "tell", "explain", "describe", "define", "look", "search", "chat", "talk",
-    "hello", "hi", "hey", "thanks", "thank",
+    "what",
+    "who",
+    "when",
+    "where",
+    "why",
+    "how",
+    "is",
+    "are",
+    "was",
+    "were",
+    "tell",
+    "explain",
+    "describe",
+    "define",
+    "look",
+    "search",
+    "chat",
+    "talk",
+    "hello",
+    "hi",
+    "hey",
+    "thanks",
+    "thank",
 }
 
 # Deterministic intent routing (2026-10-30): some requests resolve to a
@@ -43,16 +81,49 @@ _SHOW_VERBS = {"show", "display", "open"}
 # a task verb they still fall through to chat below. "do/does/did" stay:
 # "do you write poetry" is a question, not a task.
 _QUESTION_LEADERS = {
-    "what", "who", "when", "where", "why", "how", "is", "are", "was", "were",
-    "do", "does", "did", "should", "shall",
-    "am", "may", "might",
+    "what",
+    "who",
+    "when",
+    "where",
+    "why",
+    "how",
+    "is",
+    "are",
+    "was",
+    "were",
+    "do",
+    "does",
+    "did",
+    "should",
+    "shall",
+    "am",
+    "may",
+    "might",
 }
 
 _NEGATION_TOKENS = {
-    "not", "no", "never", "none", "nothing", "nobody", "nowhere",
-    "don't", "doesn't", "didn't", "won't", "can't", "shouldn't",
-    "wouldn't", "couldn't", "isn't", "aren't", "wasn't", "weren't",
-    "hasn't", "haven't", "hadn't",
+    "not",
+    "no",
+    "never",
+    "none",
+    "nothing",
+    "nobody",
+    "nowhere",
+    "don't",
+    "doesn't",
+    "didn't",
+    "won't",
+    "can't",
+    "shouldn't",
+    "wouldn't",
+    "couldn't",
+    "isn't",
+    "aren't",
+    "wasn't",
+    "weren't",
+    "hasn't",
+    "haven't",
+    "hadn't",
 }
 
 GOAL_REQUIRED_FIELDS = ["id", "transcript", "type", "time", "source"]

@@ -60,22 +60,28 @@ def _writer_synth(record):
         record.append(phrase)
         Path(out_path).write_bytes(b"fake-wav")
         return out_path, False
+
     return synth
 
 
 # ── phrase chunking ──────────────────────────────────────────────
 
+
 def test_chunking_keeps_short_sentences_whole():
     text = "I am Tahuti. I keep the record. Nothing moves without you."
     assert vl.chunk_text(text) == [
-        "I am Tahuti.", "I keep the record.",
-        "Nothing moves without you."]
+        "I am Tahuti.",
+        "I keep the record.",
+        "Nothing moves without you.",
+    ]
 
 
 def test_chunking_splits_long_text_into_short_phrases():
-    text = ("First we check the record, then we weigh the words, "
-            "then we ask for approval, and only then does anything "
-            "move across the desk.")
+    text = (
+        "First we check the record, then we weigh the words, "
+        "then we ask for approval, and only then does anything "
+        "move across the desk."
+    )
     phrases = vl.chunk_text(text, max_chars=60)
     assert len(phrases) > 1
     assert all(len(p) <= 60 for p in phrases)
@@ -84,12 +90,16 @@ def test_chunking_splits_long_text_into_short_phrases():
 
 def test_chunking_handles_questions_and_empty():
     assert vl.chunk_text("Ready? Yes! Let us begin.") == [
-        "Ready?", "Yes!", "Let us begin."]
+        "Ready?",
+        "Yes!",
+        "Let us begin.",
+    ]
     assert vl.chunk_text("") == []
     assert vl.chunk_text("   \n  ") == []
 
 
 # ── state machine ────────────────────────────────────────────────
+
 
 def test_state_transitions_follow_the_turn_cycle(tmp_path):
     loop = _loop(tmp_path)
@@ -129,12 +139,14 @@ def test_state_file_writes_are_complete_json(tmp_path):
 
 # ── streamed speech + barge-in ───────────────────────────────────
 
+
 def test_speak_reply_streams_phrase_by_phrase(tmp_path):
     spoken, played = [], []
     loop = _loop(
         tmp_path,
         synthesizer=_writer_synth(spoken),
-        player_factory=lambda p: played.append(p) or DonePlayer(p))
+        player_factory=lambda p: played.append(p) or DonePlayer(p),
+    )
     result = loop.speak_reply("One short line. A second line follows.")
     assert result == {"ok": True, "interrupted": False, "phrases": 2}
     assert spoken == ["One short line.", "A second line follows."]
@@ -151,11 +163,11 @@ def test_barge_in_from_speaking_returns_to_listening(tmp_path):
         holder["loop"].request_barge_in(source="test")
         return player
 
-    loop = _loop(tmp_path, synthesizer=_writer_synth([]),
-                 player_factory=factory)
+    loop = _loop(tmp_path, synthesizer=_writer_synth([]), player_factory=factory)
     holder["loop"] = loop
-    result = loop.speak_reply("A long reply that should be cut off. "
-                              "And more after it.")
+    result = loop.speak_reply(
+        "A long reply that should be cut off. " "And more after it."
+    )
     assert result["interrupted"] is True
     assert holder["player"].terminated is True
     assert loop.state == "listening"
@@ -172,9 +184,11 @@ def test_external_barge_flag_stops_the_stream(tmp_path):
         return out_path, False
 
     played = []
-    loop = _loop(tmp_path, synthesizer=synth,
-                 player_factory=lambda p: played.append(p)
-                 or DonePlayer(p))
+    loop = _loop(
+        tmp_path,
+        synthesizer=synth,
+        player_factory=lambda p: played.append(p) or DonePlayer(p),
+    )
     result = loop.speak_reply("This should never reach the speaker.")
     assert result["interrupted"] is True
     assert played == []
@@ -182,13 +196,15 @@ def test_external_barge_flag_stops_the_stream(tmp_path):
 
 
 def test_signal_barge_in_rewrites_a_speaking_state_file(tmp_path):
-    loop = _loop(tmp_path, synthesizer=_writer_synth([]),
-                 player_factory=lambda p: DonePlayer(p))
+    loop = _loop(
+        tmp_path, synthesizer=_writer_synth([]), player_factory=lambda p: DonePlayer(p)
+    )
     loop.begin_listening()
     loop.begin_thinking()
     loop.transition("speaking")
-    hit = vl.signal_barge_in(str(tmp_path / "loop-state.json"),
-                             str(tmp_path / "barge"), source="lr")
+    hit = vl.signal_barge_in(
+        str(tmp_path / "loop-state.json"), str(tmp_path / "barge"), source="lr"
+    )
     assert hit is True
     assert loop.read_state()["state"] == "listening"
 
@@ -219,6 +235,7 @@ def _capturing_opener(payload, seen):
         seen["headers"] = dict(request.header_items())
         seen["timeout"] = timeout
         return _FakeResponse(payload)
+
     return opener
 
 
@@ -226,21 +243,24 @@ def test_stt_client_posts_multipart_to_the_groq_route():
     seen = {}
     client = vl.STTClient(
         api_key=_FAKE_GROQ_KEY,
-        urlopen=_capturing_opener({"text": "  open the record  "}, seen))
-    assert client.transcribe(b"wav-bytes",
-                             content_type="audio/wav") == "open the record"
+        urlopen=_capturing_opener({"text": "  open the record  "}, seen),
+    )
+    assert (
+        client.transcribe(b"wav-bytes", content_type="audio/wav") == "open the record"
+    )
     # Same endpoint, auth shape, model, and prompt bias as
     # voice_bridge.py -- the stack's production STT route.
     assert seen["url"] == vl.GROQ_STT_URL
-    assert seen["url"] == \
-        "https://api.groq.com/openai/v1/audio/transcriptions"
-    assert seen["headers"].get("Authorization") == \
-        f"Bearer {_FAKE_GROQ_KEY}"
+    assert seen["url"] == "https://api.groq.com/openai/v1/audio/transcriptions"
+    assert seen["headers"].get("Authorization") == f"Bearer {_FAKE_GROQ_KEY}"
     # Cloudflare rejects urllib's default agent (403/1010); the
     # client must declare its own, like the bridge's httpx does.
     assert seen["headers"].get("User-agent") == vl.GROQ_USER_AGENT
-    assert seen["headers"].get("Content-type", "").startswith(
-        "multipart/form-data; boundary=")
+    assert (
+        seen["headers"]
+        .get("Content-type", "")
+        .startswith("multipart/form-data; boundary=")
+    )
     body = seen["data"]
     assert b'name="model"' in body
     assert b"whisper-large-v3-turbo" in body
@@ -255,8 +275,8 @@ def test_stt_client_posts_multipart_to_the_groq_route():
 def test_stt_client_names_the_file_for_its_content_type():
     seen = {}
     client = vl.STTClient(
-        api_key=_FAKE_GROQ_KEY,
-        urlopen=_capturing_opener({"text": "ok"}, seen))
+        api_key=_FAKE_GROQ_KEY, urlopen=_capturing_opener({"text": "ok"}, seen)
+    )
     client.transcribe(b"clip")
     assert b'filename="audio.webm"' in seen["data"]
     client.transcribe(b"clip", content_type="audio/mpeg")
@@ -265,16 +285,20 @@ def test_stt_client_names_the_file_for_its_content_type():
 
 def test_stt_client_truncates_long_transcripts_like_the_bridge():
     client = vl.STTClient(
-        api_key=_FAKE_GROQ_KEY,
-        urlopen=_capturing_opener({"text": "x" * 3000}, {}))
+        api_key=_FAKE_GROQ_KEY, urlopen=_capturing_opener({"text": "x" * 3000}, {})
+    )
     assert len(client.transcribe(b"clip")) == vl.MAX_TRANSCRIPT_CHARS
 
 
 def test_stt_client_http_error_raises_stt_error():
     def opener(request, timeout=None):
         raise urllib.error.HTTPError(
-            request.full_url, 401, "Unauthorized", None,
-            io.BytesIO(b'{"error": "bad key"}'))
+            request.full_url,
+            401,
+            "Unauthorized",
+            None,
+            io.BytesIO(b'{"error": "bad key"}'),
+        )
 
     client = vl.STTClient(api_key=_FAKE_GROQ_KEY, urlopen=opener)
     with pytest.raises(vl.STTError, match="Groq STT HTTP 401"):
@@ -293,7 +317,8 @@ def test_stt_client_network_error_raises_stt_error():
 def test_stt_client_error_payload_raises_stt_error():
     client = vl.STTClient(
         api_key=_FAKE_GROQ_KEY,
-        urlopen=_capturing_opener({"error": {"message": "bad audio"}}, {}))
+        urlopen=_capturing_opener({"error": {"message": "bad audio"}}, {}),
+    )
     with pytest.raises(vl.STTError, match="Groq STT error"):
         client.transcribe(b"clip")
 
@@ -312,8 +337,7 @@ def test_groq_key_loader_mirrors_the_bridge_sources(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", _FAKE_GROQ_KEY)
     assert vl._load_groq_key() == _FAKE_GROQ_KEY
     monkeypatch.setenv("GROQ_API_KEY", "***masked***")
-    monkeypatch.setattr(vl, "load_env",
-                        lambda: {"GROQ_API_KEY": _FAKE_GROQ_KEY})
+    monkeypatch.setattr(vl, "load_env", lambda: {"GROQ_API_KEY": _FAKE_GROQ_KEY})
     assert vl._load_groq_key() == _FAKE_GROQ_KEY
 
 
@@ -329,7 +353,8 @@ def test_local_stt_client_posts_raw_audio_to_the_old_endpoint():
     # The labeled non-default fallback keeps its original behavior.
     seen = {}
     client = vl.LocalSTTClient(
-        urlopen=_capturing_opener({"text": "open the record"}, seen))
+        urlopen=_capturing_opener({"text": "open the record"}, seen)
+    )
     assert client.transcribe(b"webm-bytes") == "open the record"
     assert seen["url"] == "http://127.0.0.1:8080/stt"
     assert seen["data"] == b"webm-bytes"
@@ -349,12 +374,17 @@ def test_loop_transcribe_moves_listening_to_thinking(tmp_path):
 
 # ── Edge demo bridge ─────────────────────────────────────────────
 
+
 def test_edge_voice_names_parse_the_installed_catalog():
     def runner(argv, capture_output, text, timeout):
         return SimpleNamespace(
-            returncode=0, stderr="",
-            stdout=("en-US-ChristopherNeural  Male   News, Novel\n"
-                    "en-US-AriaNeural       Female News, Novel\n"))
+            returncode=0,
+            stderr="",
+            stdout=(
+                "en-US-ChristopherNeural  Male   News, Novel\n"
+                "en-US-AriaNeural       Female News, Novel\n"
+            ),
+        )
 
     names = vl.edge_voice_names(python="python3", runner=runner)
     assert names == ["en-US-ChristopherNeural", "en-US-AriaNeural"]
@@ -364,8 +394,7 @@ def test_render_edge_profile_runs_fx_after_synthesis(tmp_path):
     np = pytest.importorskip("numpy")
     sf = pytest.importorskip("soundfile")
     sr = 24000
-    tone = (0.4 * np.sin(2 * np.pi * 220 *
-                         (np.arange(sr // 2) / sr))).astype("float32")
+    tone = (0.4 * np.sin(2 * np.pi * 220 * (np.arange(sr // 2) / sr))).astype("float32")
     seen = {}
 
     def runner(argv, capture_output, text, timeout):
@@ -381,13 +410,16 @@ def test_render_edge_profile_runs_fx_after_synthesis(tmp_path):
             w.writeframes((tone * 32767).astype("<i2").tobytes())
         return SimpleNamespace(returncode=0, stderr="")
 
-    profile = {"engine": "edge", "voice": "en-US-ChristopherNeural",
-               "rate": 1.07, "pitch_semitones": 0.0, "gain": 0.5}
+    profile = {
+        "engine": "edge",
+        "voice": "en-US-ChristopherNeural",
+        "rate": 1.07,
+        "pitch_semitones": 0.0,
+        "gain": 0.5,
+    }
     out = str(tmp_path / "phrase.wav")
-    assert vl.render_edge_profile("Hello.", profile, out,
-                                  runner=runner) == out
-    assert seen["argv"][seen["argv"].index("--voice") + 1] == \
-        "en-US-ChristopherNeural"
+    assert vl.render_edge_profile("Hello.", profile, out, runner=runner) == out
+    assert seen["argv"][seen["argv"].index("--voice") + 1] == "en-US-ChristopherNeural"
     assert "--rate=+7%" in seen["argv"]
     samples, _ = sf.read(out, dtype="float32")
     assert float(np.max(np.abs(samples))) == pytest.approx(0.2, abs=0.03)

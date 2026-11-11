@@ -7,3 +7,5 @@ scipy
 edge-tts
 evdev
 pycairo
+python-multipart
+soundfile

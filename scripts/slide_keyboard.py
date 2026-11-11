@@ -16,6 +16,7 @@ styled to match the controller-legend HUD (same dark/orange theme, rounded
 panel) so it reads as part of the same floating-overlay family instead of
 a separate full-width dock. Press F14 again to pop it back down.
 """
+
 import json
 import logging
 import os
@@ -39,8 +40,8 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 import cairo
 import gi
 
-gi.require_version('Gtk', '3.0')
-gi.require_version('Gdk', '3.0')
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -72,7 +73,11 @@ DEFAULT_PINS = [
     {"label": "sensei", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
     {"label": "qwen", "text": "gnome-terminal -- qwen", "exec": True},
     {"label": "dashboard", "text": "xdg-open http://127.0.0.1:8796/", "exec": True},
-    {"label": "update", "text": "~/scripts/update_master_ai.sh", "exec": True},
+    {
+        "label": "update",
+        "text": "gnome-terminal -- bash -c \"python3 ~/ai-controller/scripts/whats_new.py; read -rp 'Press Enter to close '\"",
+        "exec": True,
+    },
 ]
 
 # 2026-09-24: automatic per-pin variant discovery (Elijah: "we don't want to
@@ -110,15 +115,31 @@ ROWS_UPPER = [
 
 # keys that send a named X11 key (xdotool key ...) instead of a literal char
 SPECIAL = {
-    "esc": "Escape", "bksp": "BackSpace", "tab": "Tab", "enter": "Return",
-    "space": "space", "left": "Left", "right": "Right", "up": "Up", "down": "Down",
+    "esc": "Escape",
+    "bksp": "BackSpace",
+    "tab": "Tab",
+    "enter": "Return",
+    "space": "space",
+    "left": "Left",
+    "right": "Right",
+    "up": "Up",
+    "down": "Down",
     "⇧tab": "shift+Tab",
 }
 LABELS = {
-    "esc": "Esc", "bksp": "⌫", "tab": "Tab ⇥", "enter": "Enter ↵",
-    "space": "Space", "left": "←", "right": "→", "up": "↑", "down": "↓",
-    "shift": "⇧", "⇧tab": "⇧Tab\n(cycle)",
+    "esc": "Esc",
+    "bksp": "⌫",
+    "tab": "Tab ⇥",
+    "enter": "Enter ↵",
+    "space": "Space",
+    "left": "←",
+    "right": "→",
+    "up": "↑",
+    "down": "↓",
+    "shift": "⇧",
+    "⇧tab": "⇧Tab\n(cycle)",
 }
+
 
 # Same dark/orange family as controller-legend.py's HUD, so the two read as
 # one floating-overlay system instead of unrelated widgets.
@@ -133,15 +154,22 @@ def _modifier_state():
     """
     try:
         import Xlib.display
+
         disp = Xlib.display.Display()
         keymap = disp.query_keymap()
         # Standard X11 modifier keycodes:
         #   Control_L = 37, Control_R = 109
         #   Shift_L = 50, Shift_R = 62
         #   Alt_L (Mod1) = 64, Alt_R = 108
-        ctrl = bool(keymap[37 >> 3] & (1 << (37 & 7))) or bool(keymap[109 >> 3] & (1 << (109 & 7)))
-        shift = bool(keymap[50 >> 3] & (1 << (50 & 7))) or bool(keymap[62 >> 3] & (1 << (62 & 7)))
-        alt = bool(keymap[64 >> 3] & (1 << (64 & 7))) or bool(keymap[108 >> 3] & (1 << (108 & 7)))
+        ctrl = bool(keymap[37 >> 3] & (1 << (37 & 7))) or bool(
+            keymap[109 >> 3] & (1 << (109 & 7))
+        )
+        shift = bool(keymap[50 >> 3] & (1 << (50 & 7))) or bool(
+            keymap[62 >> 3] & (1 << (62 & 7))
+        )
+        alt = bool(keymap[64 >> 3] & (1 << (64 & 7))) or bool(
+            keymap[108 >> 3] & (1 << (108 & 7))
+        )
         disp.close()
         return ctrl, alt, shift
     except Exception:
@@ -215,7 +243,8 @@ def _window_wm_classes(window_id):
         out = subprocess.check_output(
             ["xprop", "-id", window_id, "WM_CLASS"],
             env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
-            stderr=subprocess.DEVNULL, timeout=2,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
         ).decode()
     except Exception:
         return set()
@@ -242,7 +271,9 @@ def _resolve_target(frozen_win):
     matched = _window_wm_classes(current) & _AUTH_PROMPT_CLASSES
     if not matched:
         return frozen_win
-    log.info(f"Auth prompt appeared while keyboard open ({next(iter(matched))}) — retargeting")
+    log.info(
+        f"Auth prompt appeared while keyboard open ({next(iter(matched))}) — retargeting"
+    )
     return current
 
 
@@ -262,7 +293,11 @@ def send(key, ctrl=False, alt=False, shift=False, target_win=None):
         return
     try:
         if ctrl or alt or shift:
-            prefix = ("ctrl+" if ctrl else "") + ("alt+" if alt else "") + ("shift+" if shift else "")
+            prefix = (
+                ("ctrl+" if ctrl else "")
+                + ("alt+" if alt else "")
+                + ("shift+" if shift else "")
+            )
             key_spec = prefix + (SPECIAL[key] if key in SPECIAL else key.lower())
             focus_guard.guarded_key(target_win, key_spec)
         elif key in SPECIAL:
@@ -277,9 +312,15 @@ def send(key, ctrl=False, alt=False, shift=False, target_win=None):
 # xdotool names, e.g. "Return"/"BackSpace") -- only maps the keys SPECIAL
 # already defines, plus the one modifier combo it already handles.
 _TMUX_KEY_NAMES = {
-    "Escape": "Escape", "BackSpace": "BSpace", "Tab": "Tab",
-    "Return": "Enter", "space": "Space",
-    "Left": "Left", "Right": "Right", "Up": "Up", "Down": "Down",
+    "Escape": "Escape",
+    "BackSpace": "BSpace",
+    "Tab": "Tab",
+    "Return": "Enter",
+    "space": "Space",
+    "Left": "Left",
+    "Right": "Right",
+    "Up": "Up",
+    "Down": "Down",
     "shift+Tab": "S-Tab",
 }
 
@@ -291,7 +332,9 @@ def _agent_session_name() -> str:
     if name:
         return name
     try:
-        with open(os.path.expanduser("~/.master_ai_session_name"), "r", encoding="utf-8") as f:
+        with open(
+            os.path.expanduser("~/.master_ai_session_name"), "r", encoding="utf-8"
+        ) as f:
             name = f.read().strip()
             if name:
                 return name
@@ -324,12 +367,14 @@ def _send_to_agent(key, ctrl=False, alt=False, shift=False) -> None:
             else:
                 name = key.lower()
             prefix = ("C-" if ctrl else "") + ("M-" if alt else "")
-            subprocess.run(["tmux", "send-keys", "-t", session, prefix + name],
-                            check=False)
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session, prefix + name], check=False
+            )
         else:
             text = key.upper() if shift and len(key) == 1 else key
-            subprocess.run(["tmux", "send-keys", "-t", session, "-l", "--", text],
-                            check=False)
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session, "-l", "--", text], check=False
+            )
     except Exception:
         log.warning("agent-target send failed", exc_info=True)
 
@@ -385,9 +430,7 @@ def _discover_pin_variants(base_cmd):
     help_text = ""
     for flag in ("--help", "-h"):
         try:
-            r = subprocess.run(
-                [exe, flag], capture_output=True, text=True, timeout=10
-            )
+            r = subprocess.run([exe, flag], capture_output=True, text=True, timeout=10)
             help_text = (r.stdout or "") + (r.stderr or "")
             if help_text.strip():
                 break
@@ -482,7 +525,8 @@ class SlideKeyboard(Gtk.Window):
         self.css_provider = Gtk.CssProvider()
         self.css_provider.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(
-            screen, self.css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            screen, self.css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         self.shift_on = False
 
@@ -541,7 +585,9 @@ class SlideKeyboard(Gtk.Window):
         # which left no room for Olde's Fraktur glyphs to actually be
         # readable. Now there's one button sized like the old "casual"
         # button, showing only the active mode at full size.
-        self.mode_btn = Gtk.Button(label=self._mode_display_label(self._load_ptt_mode()))
+        self.mode_btn = Gtk.Button(
+            label=self._mode_display_label(self._load_ptt_mode())
+        )
         self.mode_btn.get_style_context().add_class("mode-toggle")
         self.mode_btn.connect("clicked", self._on_mode_cycle)
         self.mode_bar.pack_start(self.mode_btn, False, False, 0)
@@ -623,8 +669,13 @@ class SlideKeyboard(Gtk.Window):
         # every click/hover under its footprint (whatever app that happens to
         # be) silently never reached the real target. Same bug class as the
         # controller-legend HUD, just never fixed here in the first place.
-        self.connect("realize", lambda *_: self._apply_input_passthrough(not self.visible_state))
-        self.connect("map-event", lambda *_: self._apply_input_passthrough(not self.visible_state))
+        self.connect(
+            "realize", lambda *_: self._apply_input_passthrough(not self.visible_state)
+        )
+        self.connect(
+            "map-event",
+            lambda *_: self._apply_input_passthrough(not self.visible_state),
+        )
         self._apply_input_passthrough(True)
 
         # Poll typing state from ptt_pynput.py so the keyboard can transform
@@ -634,7 +685,11 @@ class SlideKeyboard(Gtk.Window):
         # Mouse events on the popup itself handle window dragging (since
         # override-redirect windows have no WM titlebar). Any drag that doesn't
         # land on a clickable widget (button, etc.) moves the whole keyboard.
-        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.BUTTON_MOTION_MASK)
+        self.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.BUTTON_MOTION_MASK
+        )
         self.connect("button-press-event", self._on_window_button_press)
         self.connect("button-release-event", self._on_window_button_release)
         self.connect("motion-notify-event", self._on_window_motion)
@@ -827,7 +882,9 @@ class SlideKeyboard(Gtk.Window):
         # The legend HUD is a separate process that resolves its colors at
         # startup — restart it so it picks up the same belt (brief flicker).
         try:
-            subprocess.Popen(["systemctl", "--user", "restart", "controller-legend.service"])
+            subprocess.Popen(
+                ["systemctl", "--user", "restart", "controller-legend.service"]
+            )
         except Exception as exc:
             logging.warning("legend theme sync failed: %s", exc)
 
@@ -849,19 +906,41 @@ class SlideKeyboard(Gtk.Window):
         voice board. The GTK Setup Center (setup_panel.py) is available from
         the wizard's option 6 or the launcher's Diagnostics button.
         """
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "controller_setup.py")
+        script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "controller_setup.py"
+        )
         # Launch in a terminal so the interactive menus work
         for term_cmd in (
-            ["gnome-terminal", "--", "bash", "-lc", f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash"],
-            ["x-terminal-emulator", "-e", "bash", "-lc", f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash"],
-            ["xterm", "-e", "bash", "-lc", f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash"],
+            [
+                "gnome-terminal",
+                "--",
+                "bash",
+                "-lc",
+                f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash",
+            ],
+            [
+                "x-terminal-emulator",
+                "-e",
+                "bash",
+                "-lc",
+                f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash",
+            ],
+            [
+                "xterm",
+                "-e",
+                "bash",
+                "-lc",
+                f"{shlex.quote(sys.executable)} {shlex.quote(script)}; exec bash",
+            ],
         ):
             if shutil.which(term_cmd[0]):
                 try:
                     subprocess.Popen(term_cmd)
                     return
                 except Exception as exc:
-                    log.warning("SETUP wizard failed to open in %s: %s", term_cmd[0], exc)
+                    log.warning(
+                        "SETUP wizard failed to open in %s: %s", term_cmd[0], exc
+                    )
         # Fallback: run without a terminal (won't be interactive)
         try:
             subprocess.Popen([sys.executable, script])
@@ -874,9 +953,7 @@ class SlideKeyboard(Gtk.Window):
             new_voice = voice_toggle.toggle()
             if new_voice:
                 self.voice_btn.set_label(self._voice_label())
-                voice_toggle.speak(
-                    f"Switched to {new_voice}.", voice_id=new_voice
-                )
+                voice_toggle.speak(f"Switched to {new_voice}.", voice_id=new_voice)
         except Exception:
             pass
 
@@ -1101,7 +1178,9 @@ class SlideKeyboard(Gtk.Window):
         try:
             proc = subprocess.run(
                 ["xclip", "-selection", "clipboard", "-o"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=3,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=3,
             )
             text = proc.stdout.decode("utf-8", errors="replace").strip()
         except Exception:
@@ -1206,7 +1285,7 @@ class SlideKeyboard(Gtk.Window):
         }
         self.typing_indicator.set_markup(
             f'<span font="16" weight="bold" color="{HUD_ORANGE}">'
-            f'{labels.get(mode, "Typing...")}</span>'
+            f"{labels.get(mode, 'Typing...')}</span>"
         )
         self.mode_bar.hide()
         self.grid.hide()
@@ -1229,7 +1308,7 @@ class SlideKeyboard(Gtk.Window):
         self.mode_bar.show()
         self.grid.show()
         # Return to the last user-anchored position if we were in typing mode.
-        if hasattr(self, '_anchor_x'):
+        if hasattr(self, "_anchor_x"):
             self.center_x = self._anchor_x
             self.center_y = self._anchor_y
             self.hidden_y = self.center_y + self.POP_OFFSET

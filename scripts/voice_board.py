@@ -43,8 +43,8 @@ if SCRIPT_DIR not in sys.path:
 import voice_knobs as vk  # noqa: E402
 import voice_profiles as vp  # noqa: E402
 
-ORANGE = (1.0, 0.416, 0.0)       # #FF6A00 -- the keyboard's accent
-FACE = (0.137, 0.137, 0.169)     # #23232b
+ORANGE = (1.0, 0.416, 0.0)  # #FF6A00 -- the keyboard's accent
+FACE = (0.137, 0.137, 0.169)  # #23232b
 RIM = (0.35, 0.35, 0.42)
 TICK = (0.55, 0.55, 0.60)
 DIM = (0.30, 0.30, 0.34)
@@ -52,23 +52,70 @@ DIM = (0.30, 0.30, 0.34)
 # Fixed voice list of the kokoro-v1.0 model on this box (from
 # Kokoro.get_voices() in ~/tahuti-tts) -- the model version pins it.
 KOKORO_VOICES = [
-    "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica",
-    "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah",
-    "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir",
-    "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
-    "bf_alice", "bf_emma", "bf_isabella", "bf_lily", "bm_daniel",
-    "bm_fable", "bm_george", "bm_lewis", "ef_dora", "em_alex",
-    "em_santa", "ff_siwis", "hf_alpha", "hf_beta", "hm_omega",
-    "hm_psi", "if_sara", "im_nicola", "jf_alpha", "jf_gongitsune",
-    "jf_nezumi", "jf_tebukuro", "jm_kumo", "pf_dora", "pm_alex",
-    "pm_santa", "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao",
-    "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia",
+    "af_alloy",
+    "af_aoede",
+    "af_bella",
+    "af_heart",
+    "af_jessica",
+    "af_kore",
+    "af_nicole",
+    "af_nova",
+    "af_river",
+    "af_sarah",
+    "af_sky",
+    "am_adam",
+    "am_echo",
+    "am_eric",
+    "am_fenrir",
+    "am_liam",
+    "am_michael",
+    "am_onyx",
+    "am_puck",
+    "am_santa",
+    "bf_alice",
+    "bf_emma",
+    "bf_isabella",
+    "bf_lily",
+    "bm_daniel",
+    "bm_fable",
+    "bm_george",
+    "bm_lewis",
+    "ef_dora",
+    "em_alex",
+    "em_santa",
+    "ff_siwis",
+    "hf_alpha",
+    "hf_beta",
+    "hm_omega",
+    "hm_psi",
+    "if_sara",
+    "im_nicola",
+    "jf_alpha",
+    "jf_gongitsune",
+    "jf_nezumi",
+    "jf_tebukuro",
+    "jm_kumo",
+    "pf_dora",
+    "pm_alex",
+    "pm_santa",
+    "zf_xiaobei",
+    "zf_xiaoni",
+    "zf_xiaoxiao",
+    "zf_xiaoyi",
+    "zm_yunjian",
+    "zm_yunxi",
+    "zm_yunxia",
     "zm_yunyang",
 ]
 EDGE_VOICES = [
-    "en-US-AriaNeural", "en-US-GuyNeural", "en-US-JennyNeural",
-    "en-US-ChristopherNeural", "en-US-EricNeural",
-    "en-US-MichelleNeural", "en-GB-SoniaNeural", "en-GB-RyanNeural",
+    "en-US-AriaNeural",
+    "en-US-GuyNeural",
+    "en-US-JennyNeural",
+    "en-US-ChristopherNeural",
+    "en-US-EricNeural",
+    "en-US-MichelleNeural",
+    "en-GB-SoniaNeural",
+    "en-GB-RyanNeural",
 ]
 
 KNOB_PX = 104
@@ -125,10 +172,17 @@ def render_preview_png(path):
     """Headless board strip: every knob at a demo position, with
     labels + readouts, drawn by the same code the window uses."""
     import cairo
+
     specs = vk.KNOB_SPECS
-    demo = {"rate": 1.07, "pitch_semitones": -2.0, "gain": 1.15,
-            "bass_db": 3.0, "treble_db": -2.0, "noise_scale": 0.667,
-            "noise_w": 0.8}
+    demo = {
+        "rate": 1.07,
+        "pitch_semitones": -2.0,
+        "gain": 1.15,
+        "bass_db": 3.0,
+        "treble_db": -2.0,
+        "noise_scale": 0.667,
+        "noise_w": 0.8,
+    }
     cell_w, width = 130, 130 * len(specs) + 20
     height = 218
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
@@ -137,8 +191,7 @@ def render_preview_png(path):
     cr.paint()
     cr.set_source_rgb(*ORANGE)
     cr.set_font_size(15)
-    cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL,
-                        cairo.FONT_WEIGHT_BOLD)
+    cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
     cr.move_to(14, 26)
     cr.show_text("VOICE BOARD -- Tahuti (Kokoro am_onyx)")
     for i, spec in enumerate(specs):
@@ -147,8 +200,7 @@ def render_preview_png(path):
         # draw the face into the cell via a translated context
         cr.save()
         cr.translate(x0 + (cell_w - KNOB_PX) / 2.0, 40)
-        draw_knob_face(cr, KNOB_PX,
-                       spec.fraction(demo[spec.field]), enabled)
+        draw_knob_face(cr, KNOB_PX, spec.fraction(demo[spec.field]), enabled)
         cr.restore()
         cx = x0 + cell_w / 2.0
         cr.set_source_rgb(0.91, 0.91, 0.91)
@@ -169,11 +221,14 @@ def render_preview_png(path):
 
 # ── GTK board ────────────────────────────────────────────────────────
 
+
 def _gtk():
     import gi
+
     gi.require_version("Gtk", "3.0")
     gi.require_version("Gdk", "3.0")
     from gi.repository import Gdk, GLib, Gtk
+
     return Gdk, GLib, Gtk
 
 
@@ -193,7 +248,8 @@ class Knob:
             Gdk.EventMask.BUTTON_PRESS_MASK
             | Gdk.EventMask.BUTTON_RELEASE_MASK
             | Gdk.EventMask.POINTER_MOTION_MASK
-            | Gdk.EventMask.SCROLL_MASK)
+            | Gdk.EventMask.SCROLL_MASK
+        )
         self.area.connect("draw", self._draw)
         self.area.connect("button-press-event", self._press)
         self.area.connect("button-release-event", self._release)
@@ -227,9 +283,12 @@ class Knob:
 
     def _draw(self, _area, cr):
         alloc = self.area.get_allocation()
-        draw_knob_face(cr, min(alloc.width, alloc.height),
-                       self.spec.fraction(self.value),
-                       self.area.get_sensitive())
+        draw_knob_face(
+            cr,
+            min(alloc.width, alloc.height),
+            self.spec.fraction(self.value),
+            self.area.get_sensitive(),
+        )
 
     def _press(self, _area, event):
         if event.type == self.Gdk.EventType._2BUTTON_PRESS:
@@ -315,9 +374,11 @@ class VoiceBoard:
             row.pack_start(knob.widget, True, False, 0)
         root.pack_start(row, False, False, 0)
 
-        note = Gtk.Label(label="Expression + Variation are Piper "
-                               "controls -- they grey out on Kokoro, "
-                               "whose engine exposes no noise knobs.")
+        note = Gtk.Label(
+            label="Expression + Variation are Piper "
+            "controls -- they grey out on Kokoro, "
+            "whose engine exposes no noise knobs."
+        )
         note.set_halign(Gtk.Align.START)
         note.get_style_context().add_class("note")
         root.pack_start(note, False, False, 0)
@@ -325,8 +386,7 @@ class VoiceBoard:
         # test line + speak + save
         self.entry = Gtk.Entry()
         root.pack_start(self.entry, False, False, 0)
-        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                          spacing=8)
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.speak_btn = Gtk.Button(label="SPEAK PREVIEW")
         self.speak_btn.get_style_context().add_class("speak")
         self.speak_btn.connect("clicked", self._on_speak)
@@ -367,15 +427,21 @@ class VoiceBoard:
     def _profile_for(self, target):
         if target == "keyboard":
             kb = self.data["keyboard"]
-            prof = {"engine": "piper", "voice": kb["pack"],
-                    "rate": kb["rate"],
-                    "pitch_semitones": kb["pitch_semitones"]}
+            prof = {
+                "engine": "piper",
+                "voice": kb["pack"],
+                "rate": kb["rate"],
+                "pitch_semitones": kb["pitch_semitones"],
+            }
             prof.update(vp.knob_values(kb))
             return prof
         prof = dict(vp.get_avatar_profile(self.data, target))
-        merged = {"engine": prof["engine"], "voice": prof["voice"],
-                  "rate": prof["rate"],
-                  "pitch_semitones": prof["pitch_semitones"]}
+        merged = {
+            "engine": prof["engine"],
+            "voice": prof["voice"],
+            "rate": prof["rate"],
+            "pitch_semitones": prof["pitch_semitones"],
+        }
         merged.update(vp.knob_values(prof))
         return merged
 
@@ -385,11 +451,11 @@ class VoiceBoard:
         elif engine == "piper":
             voices = []
             from ai_controller_paths import ai_controller_dir
+
             voices_dir = os.path.join(ai_controller_dir(), "voices")
             if os.path.isdir(voices_dir):
                 for name in sorted(os.listdir(voices_dir)):
-                    if os.path.exists(os.path.join(
-                            voices_dir, name, "config.json")):
+                    if os.path.exists(os.path.join(voices_dir, name, "config.json")):
                         voices.append(name)
             shared = os.path.expanduser("~/.local/share/piper")
             if os.path.isdir(shared):
@@ -416,12 +482,12 @@ class VoiceBoard:
         self.engine_combo.set_sensitive(target != "keyboard")
         self._fill_voices(engine, self.working["voice"])
         self._knob_sensitivity(engine)
-        default_line = vp.preview_line(
-            "keyboard" if target == "keyboard" else target)
+        default_line = vp.preview_line("keyboard" if target == "keyboard" else target)
         self.entry.set_text(default_line)
         self.status.set_text(
             f"{target}: turn the knobs, SPEAK to hear them, "
-            f"SAVE writes the shared profile.")
+            f"SAVE writes the shared profile."
+        )
 
     def _fill_voices(self, engine, current):
         voices = self._voices_for(engine, current)
@@ -461,6 +527,7 @@ class VoiceBoard:
 
     def _on_speak(self, _btn):
         import controller_setup as cs
+
         profile = dict(self.working)
         text = self.entry.get_text().strip() or None
         name = "keyboard" if self.target == "keyboard" else self.target
@@ -475,8 +542,9 @@ class VoiceBoard:
 
     def _speak_done(self, ok):
         self.speak_btn.set_sensitive(True)
-        self.status.set_text("preview played." if ok
-                             else "preview failed -- see terminal.")
+        self.status.set_text(
+            "preview played." if ok else "preview failed -- see terminal."
+        )
 
     def _on_save(self, _btn):
         w = self.working
@@ -525,15 +593,19 @@ class VoiceBoard:
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(
-            self.Gdk.Screen.get_default(), provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            self.Gdk.Screen.get_default(),
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--render-preview", metavar="PNG",
-                    help="draw the knob strip to a PNG and exit "
-                         "(no display needed)")
+    ap.add_argument(
+        "--render-preview",
+        metavar="PNG",
+        help="draw the knob strip to a PNG and exit " "(no display needed)",
+    )
     args = ap.parse_args(argv)
     if args.render_preview:
         print(render_preview_png(args.render_preview))
@@ -542,9 +614,11 @@ def main(argv=None):
     try:
         VoiceBoard(Gtk, Gdk, GLib)
     except Exception as e:
-        print(f"the voice board needs a display ({e}).\n"
-              f"Run it on the desktop: python3 "
-              f"{os.path.abspath(__file__)}")
+        print(
+            f"the voice board needs a display ({e}).\n"
+            f"Run it on the desktop: python3 "
+            f"{os.path.abspath(__file__)}"
+        )
         return 2
     Gtk.main()
     return 0
