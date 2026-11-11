@@ -199,7 +199,13 @@ CHAT_SHORT_WORDS = {
 }
 VOICE_BRIDGE_API_KEY = os.environ.get("VOICE_BRIDGE_API_KEY", "")
 
-POLL_INTERVAL = float(os.environ.get("TAHUTI_RUNNER_POLL_INTERVAL", "2"))
+# 0.5s (2026-11-11, measured): claim latency was the biggest single chunk of
+# A1 (write -> claimed, target 2.0s) and idle CPU at 0.5s polling is
+# indistinguishable from 0 — ps cputime showed zero delta over 10s. The old
+# 2s default was a throttle for a tight-spin bug that was actually a sleep
+# OUTSIDE the loop (dead code, 4h09m CPU in 4h12m); the sleep is inside the
+# loop now, so the interval is doing real throttling at any sane value.
+POLL_INTERVAL = float(os.environ.get("TAHUTI_RUNNER_POLL_INTERVAL", "0.5"))
 MODEL_TIMEOUT = float(os.environ.get("TAHUTI_RUNNER_MODEL_TIMEOUT", "120"))
 # Caps tool-call rounds in _call_model's loop -- no max_output_tokens number
 # fixes an open-ended search: "read the file test.py" with no exact match
