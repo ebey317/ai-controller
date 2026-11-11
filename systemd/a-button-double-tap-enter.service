@@ -2,6 +2,11 @@
 Description=A-button double-tap -> Enter (drag-safe, adds to existing click/drag mapping)
 After=graphical-session.target antimicrox-autoload.service
 Wants=graphical-session.target
+# The script itself waits for the controller (reconnect loop), so restarts
+# here mean a real failure. Park the unit instead of hot-looping at 3s
+# cadence (2026-11-04..09: 26,454 restarts while the controller was absent).
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
